@@ -1,0 +1,55 @@
+// Shared tuning constants. The server is authoritative; the client uses these
+// purely for rendering scale and prediction-free interpolation.
+
+export const TICK_RATE = 30; // server simulation ticks per second
+export const TICK_MS = 1000 / TICK_RATE;
+
+// The arena is an open, limited field divided into a grid of cells. Walls are
+// thin line segments placed on the edges between cells; most are removed so the
+// space plays open (an arena with cover) rather than a tight corridor maze.
+export const MAZE_COLS = 10;
+export const MAZE_ROWS = 7;
+export const CELL = 88; // pixel size of one arena cell
+export const WALL_THICKNESS = 6; // rendered/collision thickness of a wall line
+/**
+ * Fraction of dead ends left intact when braiding (the rest get an extra
+ * opening to form loops). The maze keeps full, even coverage either way; this
+ * just controls how loopy vs. winding it feels. 0 = remove every dead end.
+ */
+export const WALL_KEEP_DEADEND_RATIO = 0.1;
+
+export const TANK_RADIUS = 11;
+export const TANK_SPEED = 100; // px / second (forward)
+export const TANK_REVERSE_SPEED = 60; // px / second (backward)
+export const TANK_TURN_SPEED = 3.2; // radians / second (steering rate)
+export const FIRE_COOLDOWN = 0.5; // seconds between shots
+export const MAX_BULLETS_PER_TANK = 5;
+export const RESPAWN_TIME = 3; // seconds
+
+export const BULLET_RADIUS = 4;
+export const BULLET_SPEED = 240; // px / second
+export const BULLET_MAX_BOUNCES = 3;
+export const BULLET_LIFETIME = 5; // seconds
+
+export const DEFAULT_MAX_PLAYERS = 4;
+
+// Scoring (integer points only).
+export const KILL_POINTS = 60; // points gained per kill
+export const DEFAULT_WIN_SCORE = 300; // points to win (≈ 5 kills)
+export const MIN_WIN_SCORE = 60;
+export const MAX_WIN_SCORE = 6000;
+
+/** How long a disconnected player's slot (and in-game tank/score) is held open
+ *  for them to reconnect before they're removed for good. */
+export const RECONNECT_GRACE_MS = 45_000;
+
+export const TANK_COLORS = [
+  "#e6453f", // red
+  "#3f8ce6", // blue
+  "#46c24f", // green
+  "#e6c23f", // yellow
+  "#b04fe6", // purple
+  "#e6863f", // orange
+  "#3fd9e6", // cyan
+  "#e63f9e", // pink
+];

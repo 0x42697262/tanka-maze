@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tanka Maze</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🛡️</text></svg>" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Connection / menu screen -->
+      <section id="menu" class="screen">
+        <div class="masthead">
+          <h1>Tanka<span>Maze</span></h1>
+          <p class="tagline">a paper-&amp;-ink tank skirmish</p>
+        </div>
+        <p class="status" id="conn-status">Connecting…</p>
+
+        <div class="row">
+          <label for="name">Callsign</label>
+          <input id="name" maxlength="16" placeholder="Player" autocomplete="off" />
+        </div>
+
+        <div class="row">
+          <label for="color">Tank color</label>
+          <input id="color" type="color" value="#3f8ce6" />
+          <div id="swatches" class="swatches"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Open Lobbies</h2>
+            <button id="refresh" class="ghost">↻ Refresh</button>
+          </div>
+          <ul id="lobby-list"><li class="empty">No lobbies yet — create one!</li></ul>
+        </div>
+
+        <div class="panel">
+          <h2>Create Lobby</h2>
+          <div class="row">
+            <label for="lobby-name">Name</label>
+            <input id="lobby-name" maxlength="24" placeholder="My battle" autocomplete="off" />
+          </div>
+          <div class="row">
+            <label for="max-players">Max players</label>
+            <input id="max-players" type="number" min="2" max="8" value="4" />
+          </div>
+          <div class="row">
+            <label for="win-score">Points to win</label>
+            <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
+          </div>
+          <button id="create" class="primary">Create &amp; Host</button>
+        </div>
+      </section>
+
+      <!-- Lobby waiting room -->
+      <section id="lobby" class="screen hidden">
+        <h2 id="lobby-title">Lobby</h2>
+        <p class="status"><span id="lobby-meta"></span></p>
+        <ul id="lobby-players"></ul>
+        <div class="actions">
+          <button id="start" class="primary hidden">Start Game</button>
+          <p id="waiting-host" class="status hidden">Waiting for the host to start…</p>
+          <button id="leave" class="ghost">Leave Lobby</button>
+        </div>
+      </section>
+
+      <!-- Game -->
+      <section id="game" class="screen hidden">
+        <div class="stage">
+          <canvas id="canvas"></canvas>
+
+          <!-- In-arena leaderboard (semi-transparent) -->
+          <aside id="leaderboard" class="leaderboard">
+            <h3>Leaderboard</h3>
+            <ol id="leaderboard-rows"></ol>
+          </aside>
+
+          <!-- Local respawn overlay -->
+          <div id="respawn" class="respawn hidden">
+            <div class="respawn-card">
+              <h3>Destroyed</h3>
+              <p>Respawning in <span id="respawn-count">3</span></p>
+            </div>
+          </div>
+        </div>
+        <p class="hint">W/↑ forward · S/↓ reverse · A/D or ←/→ steer · Mouse aims · Click/Space fire · <kbd>Esc</kbd> menu</p>
+      </section>
+
+      <!-- Pause / in-game menu (Esc) -->
+      <div id="pause" class="overlay hidden">
+        <div class="card paper-card">
+          <h2>Paused</h2>
+          <p class="status">The battle rages on without you.</p>
+          <button id="resume" class="primary">Resume</button>
+          <button id="leave-game" class="ghost">Leave Game</button>
+        </div>
+      </div>
+
+      <!-- Game over overlay -->
+      <div id="gameover" class="overlay hidden">
+        <div class="card paper-card">
+          <h2 id="winner"></h2>
+          <ol id="final-scores"></ol>
+          <button id="back-to-lobby" class="primary">Back to Lobby</button>
+        </div>
+      </div>
+
+      <div id="toast" class="toast hidden"></div>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

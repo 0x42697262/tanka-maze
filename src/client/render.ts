@@ -1,0 +1,314 @@
+import { BULLET_RADIUS, TANK_RADIUS } from "../shared/constants.js";
+import type { MazeDTO, SnapshotDTO, TankDTO } from "../shared/protocol.js";
+
+const INTERP_DELAY = 100; // ms of render delay for smooth interpolation
+
+interface Buffered {
+  snap: SnapshotDTO;
+  recvAt: number;
+}
+
+interface Explosion {
+  x: number;
+  y: number;
+  color: string;
+  start: number; // ms
+}
+
+const EXPLOSION_MS = 600;
+
+export class Renderer {
+  private ctx: CanvasRenderingContext2D;
+  private maze: MazeDTO | null = null;
+  private buffer: Buffered[] = [];
+  private explosions: Explosion[] = [];
+  // Last seen state per tank, to detect deaths and spawn explosions.
+  private lastTankState = new Map<string, { x: number; y: number; alive: boolean; color: string }>();
+
+  constructor(private canvas: HTMLCanvasElement) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("2D canvas context unavailable");
+    this.ctx = ctx;
+  }
+
+  setMaze(maze: MazeDTO): void {
+    this.maze = maze;
+    this.canvas.width = maze.width;
+    this.canvas.height = maze.height;
+    this.buffer = [];
+    this.explosions = [];
+    this.lastTankState.clear();
+  }
+
+  push(snap: SnapshotDTO, nowMs: number): void {
+    this.detectDeaths(snap, nowMs);
+    this.buffer.push({ snap, recvAt: nowMs });
+    if (this.buffer.length > 30) this.buffer.shift();
+  }
+
+  /** Spawn an explosion wherever a tank went from alive to dead/gone. */
+  private detectDeaths(snap: SnapshotDTO, nowMs: number): void {
+    const seen = new Set<string>();
+    for (const t of snap.tanks) {
+      seen.add(t.id);
+      const prev = this.lastTankState.get(t.id);
+      if (prev && prev.alive && !t.alive) {
+        this.explosions.push({ x: prev.x, y: prev.y, color: t.color, start: nowMs });
+      }
+      this.lastTankState.set(t.id, { x: t.x, y: t.y, alive: t.alive, color: t.color });
+    }
+    // A previously-alive tank that vanished (killed while disconnected) also pops.
+    for (const [id, prev] of this.lastTankState) {
+      if (!seen.has(id)) {
+        if (prev.alive) this.explosions.push({ x: prev.x, y: prev.y, color: prev.color, start: nowMs });
+        this.lastTankState.delete(id);
+      }
+    }
+  }
+
+  /** Most recent snapshot — used for authoritative HUD/score and local aim. */
+  latest(): SnapshotDTO | null {
+    return this.buffer.length ? this.buffer[this.buffer.length - 1].snap : null;
+  }
+
+  render(localId: string, nowMs: number): void {
+    const { ctx, maze } = this;
+    if (!maze) return;
+
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.drawMaze(maze);
+
+    const interp = this.interpolated(nowMs);
+    if (!interp) return;
+
+    for (const b of interp.bullets) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, BULLET_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = "#ff7a1a";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.55)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    for (const t of interp.tanks) {
+      this.drawTank(t, t.id === localId);
+    }
+
+    this.drawExplosions(nowMs);
+  }
+
+  private drawExplosions(nowMs: number): void {
+    const { ctx } = this;
+    this.explosions = this.explosions.filter((e) => nowMs - e.start < EXPLOSION_MS);
+    for (const e of this.explosions) {
+      const age = (nowMs - e.start) / EXPLOSION_MS; // 0..1
+      ctx.save();
+      ctx.translate(e.x, e.y);
+
+      // Bright flash core, fading.
+      ctx.globalAlpha = (1 - age) * 0.9;
+      ctx.beginPath();
+      ctx.arc(0, 0, 6 + age * 16, 0, Math.PI * 2);
+      ctx.fillStyle = age < 0.4 ? "#ffd24a" : "#e6863f";
+      ctx.fill();
+
+      // Expanding shock ring.
+      ctx.globalAlpha = 1 - age;
+      ctx.beginPath();
+      ctx.arc(0, 0, 8 + age * 30, 0, Math.PI * 2);
+      ctx.strokeStyle = "#b23b2e";
+      ctx.lineWidth = 3 * (1 - age) + 0.5;
+      ctx.stroke();
+
+      // Sparks flung outward (deterministic by index, no RNG needed).
+      ctx.globalAlpha = (1 - age) * 0.85;
+      ctx.fillStyle = e.color;
+      const sparks = 8;
+      const dist = 6 + age * 34;
+      for (let i = 0; i < sparks; i++) {
+        const a = (i / sparks) * Math.PI * 2 + i;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * dist, Math.sin(a) * dist, 2.2 * (1 - age) + 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  private drawMaze(maze: MazeDTO): void {
+    const { ctx } = this;
+    // Parchment arena floor.
+    ctx.fillStyle = "#e7d9b8";
+    ctx.fillRect(0, 0, maze.width, maze.height);
+
+    // Inked wall lines.
+    ctx.strokeStyle = "#352f25";
+    ctx.lineWidth = maze.thickness;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    for (const w of maze.walls) {
+      ctx.moveTo(w.x1, w.y1);
+      ctx.lineTo(w.x2, w.y2);
+    }
+    ctx.stroke();
+  }
+
+  private drawTank(t: TankDTO, isLocal: boolean): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(t.x, t.y);
+    ctx.globalAlpha = t.alive ? 1 : 0.25;
+
+    // Local-player highlight: a soft, semi-transparent glow ring under your
+    // tank so you can find yourself at a glance.
+    if (isLocal && t.alive) {
+      ctx.beginPath();
+      ctx.arc(0, 0, TANK_RADIUS + 9, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,252,240,0.3)";
+      ctx.fill();
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(47,42,34,0.7)";
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Body (oriented to movement direction).
+    ctx.save();
+    ctx.rotate(t.bodyAngle);
+    const r = TANK_RADIUS;
+    // Elongated hull: longer front-to-back (x) than it is wide (y).
+    const halfLen = r * 1.3;
+    const halfWid = r * 0.82;
+
+    // Treads: dark bars down each side, running front-to-back, poking out a bit.
+    ctx.fillStyle = "rgba(0,0,0,0.42)";
+    ctx.fillRect(-halfLen, -halfWid - 3, halfLen * 2, 4);
+    ctx.fillRect(-halfLen, halfWid - 1, halfLen * 2, 4);
+
+    // Hull: rounded rectangle chassis with an outline for definition.
+    ctx.fillStyle = t.color;
+    roundRect(ctx, -halfLen, -halfWid, halfLen * 2, halfWid * 2, 4);
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.stroke();
+
+    // Front plate: a brighter band on the leading (+x) edge marks the front,
+    // with a thin dark lip at the very nose.
+    ctx.fillStyle = shade(t.color, 80);
+    roundRect(ctx, halfLen * 0.45, -halfWid * 0.82, halfLen * 0.55, halfWid * 1.64, 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(halfLen - 2, -halfWid * 0.82, 2, halfWid * 1.64);
+    ctx.restore();
+
+    // Turret + barrel (aim direction).
+    ctx.save();
+    ctx.rotate(t.turretAngle);
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(0, -2.5, r + 8, 5);
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+    ctx.fillStyle = shade(t.color, -25);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // Name / respawn label (unrotated).
+    ctx.font = "bold 11px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    if (t.alive) {
+      ctx.fillStyle = "rgba(13,17,23,0.9)";
+      ctx.fillText(t.name, t.x, t.y - TANK_RADIUS - 8);
+    } else {
+      ctx.fillStyle = "rgba(13,17,23,0.65)";
+      ctx.fillText(`${Math.ceil(t.respawnIn)}`, t.x, t.y + 4);
+    }
+  }
+
+  /** Linearly interpolate tank/bullet positions ~INTERP_DELAY ms in the past. */
+  private interpolated(nowMs: number): SnapshotDTO | null {
+    if (this.buffer.length === 0) return null;
+    if (this.buffer.length === 1) return this.buffer[0].snap;
+
+    const target = nowMs - INTERP_DELAY;
+    let a = this.buffer[0];
+    let b = this.buffer[this.buffer.length - 1];
+    for (let i = 0; i < this.buffer.length - 1; i++) {
+      if (this.buffer[i].recvAt <= target && this.buffer[i + 1].recvAt >= target) {
+        a = this.buffer[i];
+        b = this.buffer[i + 1];
+        break;
+      }
+    }
+    const span = b.recvAt - a.recvAt;
+    const f = span > 0 ? clamp01((target - a.recvAt) / span) : 1;
+
+    const bById = new Map(a.snap.tanks.map((t) => [t.id, t]));
+    const tanks: TankDTO[] = b.snap.tanks.map((tb) => {
+      const ta = bById.get(tb.id);
+      if (!ta) return tb;
+      return {
+        ...tb,
+        x: lerp(ta.x, tb.x, f),
+        y: lerp(ta.y, tb.y, f),
+        bodyAngle: angleLerp(ta.bodyAngle, tb.bodyAngle, f),
+        turretAngle: angleLerp(ta.turretAngle, tb.turretAngle, f),
+      };
+    });
+
+    const aBullets = new Map(a.snap.bullets.map((bl) => [bl.id, bl]));
+    const bullets = b.snap.bullets.map((bb) => {
+      const ba = aBullets.get(bb.id);
+      return ba ? { ...bb, x: lerp(ba.x, bb.x, f), y: lerp(ba.y, bb.y, f) } : bb;
+    });
+
+    return { t: target, tanks, bullets };
+  }
+}
+
+function lerp(a: number, b: number, f: number): number {
+  return a + (b - a) * f;
+}
+function angleLerp(a: number, b: number, f: number): number {
+  let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * f;
+}
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function shade(hex: string, amt: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = clampByte((n >> 16) + amt);
+  const g = clampByte(((n >> 8) & 0xff) + amt);
+  const b = clampByte((n & 0xff) + amt);
+  return `rgb(${r},${g},${b})`;
+}
+function clampByte(v: number): number {
+  return v < 0 ? 0 : v > 255 ? 255 : v;
+}
