@@ -83,17 +83,112 @@ export class Maze {
     this.vWalls = makeGrid(cols + 1, rows, true);
     this.hWalls = makeGrid(cols, rows + 1, true);
 
-    if (wallStyle === "open") {
-      this.clearInternalWalls(); // bordered empty field (Nokia-snake style)
-    } else if (wallStyle === "sparse") {
-      this.clearInternalWalls();
-      this.scatterWalls(); // a few scattered obstacles
-    } else {
-      this.carve();
-      this.braid();
-      this.ensureCoverage();
+    switch (wallStyle) {
+      case "open":
+        this.clearInternalWalls(); // bordered empty field (Nokia-snake style)
+        break;
+      case "sparse":
+        this.clearInternalWalls();
+        this.scatterWalls(); // a few scattered obstacles
+        break;
+      case "cross":
+        this.clearInternalWalls();
+        this.crossWalls();
+        break;
+      case "lshape":
+        this.clearInternalWalls();
+        this.lWalls();
+        break;
+      case "tunnels":
+        this.clearInternalWalls();
+        this.tunnelWalls();
+        break;
+      case "box":
+        this.clearInternalWalls();
+        this.boxWalls();
+        break;
+      case "dots":
+        this.clearInternalWalls();
+        this.dotWalls();
+        break;
+      default: // "maze"
+        this.carve();
+        this.braid();
+        this.ensureCoverage();
     }
     this.walls = this.buildSegments();
+  }
+
+  // --- Fixed, hand-designed layouts (start from an open field) -------------
+  // vWalls[x][y] = vertical edge at pixel x*cell, spanning cell row y.
+  // hWalls[x][y] = horizontal edge at pixel y*cell, spanning cell column x.
+
+  /** A plus through the centre, arms stopping short of the border so tanks can
+   *  circle around the ends. */
+  private crossWalls(): void {
+    const xc = Math.floor(this.cols / 2);
+    const yc = Math.floor(this.rows / 2);
+    const vy0 = Math.max(1, Math.round(this.rows * 0.2));
+    const vy1 = Math.min(this.rows - 1, Math.round(this.rows * 0.8));
+    for (let y = vy0; y < vy1; y++) this.vWalls[xc][y] = true;
+    const hx0 = Math.max(1, Math.round(this.cols * 0.2));
+    const hx1 = Math.min(this.cols - 1, Math.round(this.cols * 0.8));
+    for (let x = hx0; x < hx1; x++) this.hWalls[x][yc] = true;
+  }
+
+  /** An L: a vertical arm meeting a horizontal arm at the centre corner. */
+  private lWalls(): void {
+    const xc = Math.floor(this.cols / 2);
+    const yc = Math.floor(this.rows / 2);
+    // Arms stop a cell short of the border so the L floats near the centre.
+    const vEnd = Math.min(this.rows - 1, yc + Math.max(2, Math.round(this.rows * 0.45)));
+    for (let y = yc; y < vEnd; y++) this.vWalls[xc][y] = true;
+    const hEnd = Math.min(this.cols - 1, xc + Math.max(2, Math.round(this.cols * 0.45)));
+    for (let x = xc; x < hEnd; x++) this.hWalls[x][yc] = true;
+  }
+
+  /** Vertical bars with a single doorway each, staggered top/bottom to force a
+   *  snaking route across the arena. */
+  private tunnelWalls(): void {
+    const bars = [Math.round(this.cols / 3), Math.round((this.cols * 2) / 3)];
+    bars.forEach((bx, i) => {
+      if (bx <= 0 || bx >= this.cols) return;
+      const gap = i % 2 === 0 ? this.rows - 1 : 0; // alternate the open end
+      for (let y = 0; y < this.rows; y++) {
+        if (y !== gap) this.vWalls[bx][y] = true;
+      }
+    });
+  }
+
+  /** An inner rectangular room with a doorway centred on each side. */
+  private boxWalls(): void {
+    const x0 = Math.max(1, Math.round(this.cols * 0.25));
+    const x1 = Math.min(this.cols - 1, Math.round(this.cols * 0.75));
+    const y0 = Math.max(1, Math.round(this.rows * 0.25));
+    const y1 = Math.min(this.rows - 1, Math.round(this.rows * 0.75));
+    const mx = Math.floor((x0 + x1) / 2);
+    const my = Math.floor((y0 + y1) / 2);
+    for (let x = x0; x < x1; x++) {
+      if (x !== mx) {
+        this.hWalls[x][y0] = true;
+        this.hWalls[x][y1] = true;
+      }
+    }
+    for (let y = y0; y < y1; y++) {
+      if (y !== my) {
+        this.vWalls[x0][y] = true;
+        this.vWalls[x1][y] = true;
+      }
+    }
+  }
+
+  /** A regular field of short pillar dashes (Snake-style obstacles). */
+  private dotWalls(): void {
+    for (let x = 1; x < this.cols - 1; x += 2) {
+      for (let y = 1; y < this.rows - 1; y += 2) {
+        this.hWalls[x][y] = true; // a one-cell horizontal dash
+      }
+    }
   }
 
   /** Remove every internal wall, leaving only the outer border. */

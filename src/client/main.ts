@@ -1,6 +1,7 @@
 import "./style.css";
 import {
   DEFAULT_GAME_CONFIG,
+  WALL_STYLES,
   type AdvancedConfig,
   type GameConfig,
   type GameMode,
@@ -996,6 +997,7 @@ function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("pwr-charges", c.powerupCharges);
   set("pwr-despawn", c.powerupDespawnSeconds);
   for (const k of ADV_KEYS) set(`adv-${k}`, c.adv[k]);
+  renderWallPicker();
   applyModeVisibility();
 }
 
@@ -1128,7 +1130,62 @@ const WALL_LABEL: Record<WallStyle, string> = {
   maze: "Maze",
   sparse: "Sparse",
   open: "Open",
+  cross: "Cross",
+  lshape: "L-Shape",
+  tunnels: "Tunnels",
+  box: "Box",
+  dots: "Dots",
 };
+
+// Schematic wall segments per map for the picker thumbnails (100×70 viewBox).
+const WALL_THUMB_SEGS: Record<WallStyle, number[][]> = {
+  open: [],
+  maze: [[35, 8, 35, 45], [35, 45, 68, 45], [68, 20, 68, 45], [18, 24, 50, 24], [50, 24, 50, 38]],
+  sparse: [[28, 14, 40, 14], [60, 40, 60, 56], [18, 46, 18, 60], [68, 16, 82, 16], [46, 52, 58, 52]],
+  cross: [[50, 16, 50, 54], [24, 35, 76, 35]],
+  lshape: [[50, 35, 50, 60], [50, 35, 80, 35]],
+  tunnels: [[34, 8, 34, 46], [66, 24, 66, 62]],
+  box: [
+    [28, 18, 44, 18], [56, 18, 72, 18], // top (centre gap)
+    [28, 52, 44, 52], [56, 52, 72, 52], // bottom
+    [28, 18, 28, 29], [28, 41, 28, 52], // left
+    [72, 18, 72, 29], [72, 41, 72, 52], // right
+  ],
+  dots: [
+    [18, 22, 32, 22], [43, 22, 57, 22], [68, 22, 82, 22],
+    [18, 48, 32, 48], [43, 48, 57, 48], [68, 48, 82, 48],
+  ],
+};
+
+/** Inline SVG thumbnail of a map's wall layout. */
+function wallThumb(style: WallStyle): string {
+  const lines = WALL_THUMB_SEGS[style]
+    .map(([x1, y1, x2, y2]) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />`)
+    .join("");
+  return (
+    `<svg class="wall-thumb" viewBox="0 0 100 70" preserveAspectRatio="xMidYMid meet" aria-hidden="true">` +
+    `<rect class="wt-border" x="3" y="3" width="94" height="64" rx="3" />` +
+    `<g class="wt-walls">${lines}</g></svg>`
+  );
+}
+
+/** Build the visual map (walls) picker, syncing selection to the hidden select. */
+function renderWallPicker(): void {
+  const sel = $("walls") as HTMLSelectElement;
+  const picker = $("wall-picker");
+  picker.innerHTML = WALL_STYLES.map(
+    (s) =>
+      `<button type="button" class="wall-opt${s === sel.value ? " selected" : ""}" ` +
+      `data-wall="${s}" title="${WALL_LABEL[s]}">${wallThumb(s)}<span>${WALL_LABEL[s]}</span></button>`
+  ).join("");
+  picker.querySelectorAll<HTMLButtonElement>(".wall-opt").forEach((b) => {
+    b.onclick = () => {
+      sel.value = b.dataset.wall ?? "maze";
+      renderWallPicker(); // refresh highlight
+      sel.dispatchEvent(new Event("change", { bubbles: true })); // -> updateConfig
+    };
+  });
+}
 const SIZE_LABEL: Record<MapSize, string> = {
   small: "Small",
   normal: "Normal",

@@ -387,7 +387,11 @@ function sanitizeConfig(raw: unknown): GameConfig {
   if (mode === "lms" && lives < 1) lives = 3;
   return {
     mode,
-    wallStyle: oneOf(c.wallStyle, ["maze", "sparse", "open"] as const, d.wallStyle),
+    wallStyle: oneOf(
+      c.wallStyle,
+      ["maze", "sparse", "open", "cross", "lshape", "tunnels", "box", "dots"] as const,
+      d.wallStyle
+    ),
     mapSize: oneOf(c.mapSize, ["small", "normal", "large", "random"] as const, d.mapSize),
     rounds: clampInt(c.rounds, 1, 15, d.rounds),
     allowLateJoin: typeof c.allowLateJoin === "boolean" ? c.allowLateJoin : d.allowLateJoin,

@@ -89,14 +89,18 @@
           </div>
 
           <h3 class="cfg-h">Map</h3>
-          <div class="row">
-            <label for="walls">Walls</label>
-            <select id="walls">
-              <option value="maze">Maze</option>
-              <option value="sparse">Sparse cover</option>
-              <option value="open">Open (no maze)</option>
-            </select>
-          </div>
+          <!-- Data model (kept in sync by the visual picker below). -->
+          <select id="walls" class="walls-select" aria-label="Map layout">
+            <option value="maze">Maze</option>
+            <option value="sparse">Sparse</option>
+            <option value="open">Open</option>
+            <option value="cross">Cross</option>
+            <option value="lshape">L-Shape</option>
+            <option value="tunnels">Tunnels</option>
+            <option value="box">Box</option>
+            <option value="dots">Dots</option>
+          </select>
+          <div id="wall-picker" class="wall-picker"></div>
           <div class="row">
             <label for="map-size">Map size</label>
             <select id="map-size">

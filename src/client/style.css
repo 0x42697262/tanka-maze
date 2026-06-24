@@ -391,6 +391,57 @@ ol {
   border-bottom: 1px dotted var(--rule);
   padding-bottom: 2px;
 }
+
+/* ---- Map (walls) image picker ---- */
+.walls-select {
+  display: none;
+}
+.wall-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 8px;
+  break-inside: avoid;
+}
+.wall-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 72px;
+  padding: 5px 4px;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-hand);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.wall-opt:hover {
+  border-color: var(--ink-soft);
+}
+.wall-opt.selected {
+  border-color: var(--stamp);
+  background: rgba(178, 59, 46, 0.08);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--stamp);
+}
+.wall-thumb {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.wt-border {
+  fill: var(--paper-3);
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+.wt-walls line {
+  stroke: var(--ink);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
 #lobby-players {
   margin-bottom: 8px;
 }

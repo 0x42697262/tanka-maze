@@ -92,7 +92,25 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
 // ---------------------------------------------------------------------------
 
 export type GameMode = "ffa" | "lms" | "teams";
-export type WallStyle = "maze" | "sparse" | "open";
+export type WallStyle =
+  | "maze"
+  | "sparse"
+  | "open"
+  | "cross" // a plus-shaped wall through the center
+  | "lshape" // an L-shaped wall at the center
+  | "tunnels" // Nokia-snake: vertical bars with staggered gaps
+  | "box" // Nokia-snake: an inner room with doorways
+  | "dots"; // Nokia-snake: a regular field of short pillars
+export const WALL_STYLES: WallStyle[] = [
+  "maze",
+  "sparse",
+  "open",
+  "cross",
+  "lshape",
+  "tunnels",
+  "box",
+  "dots",
+];
 export type MapSize = "small" | "normal" | "large" | "random";
 
 /** Pickup types. "speed"/"shield" are buffs; the rest change your shot. */
