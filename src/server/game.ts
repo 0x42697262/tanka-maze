@@ -4,7 +4,6 @@ import {
   TANK_COLORS,
   TANK_REVERSE_SPEED,
   TANK_SPEED,
-  TEAM_COLORS,
 } from "../shared/constants.js";
 import {
   POWERUP_TYPES,
@@ -102,6 +101,7 @@ export class Game {
   private colorIndex = 0;
   private spawnIndex = 0;
   private everMultiple = false;
+  private teamNames: string[] = [];
   private forwardSpeed: number;
   private reverseSpeed: number;
   private powerups: Powerup[] = [];
@@ -114,11 +114,13 @@ export class Game {
   constructor(
     maze: Maze,
     players: Array<{ id: string; name: string; color?: string; team?: number }>,
-    config: GameConfig
+    config: GameConfig,
+    teamNames: string[] = []
   ) {
     this.maze = maze;
     this.cfg = config;
     this.adv = config.adv;
+    this.teamNames = teamNames;
     this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
     this.powerupTimer = config.powerupEverySeconds;
@@ -134,11 +136,8 @@ export class Game {
   ): void {
     if (this.tanks.has(p.id)) return;
     const team = p.team ?? 0;
-    // In Team VS, teammates share a team color so sides read at a glance.
-    const color =
-      this.cfg.mode === "teams"
-        ? TEAM_COLORS[team % TEAM_COLORS.length]
-        : p.color ?? TANK_COLORS[this.colorIndex++ % TANK_COLORS.length];
+    // Color is supplied by the lobby (team color in Team VS), else palette.
+    const color = p.color ?? TANK_COLORS[this.colorIndex++ % TANK_COLORS.length];
     const spawn = farSpawn
       ? this.pickSpawn(p.id)
       : this.spawns[this.spawnIndex++ % this.spawns.length];
@@ -613,11 +612,17 @@ export class Game {
 
     const killer = this.tanks.get(killerId);
     if (killer && killer.id !== victim.id) {
-      killer.score += this.cfg.killPoints;
-      if (killer.score < 1) killer.score = 1; // a kill always leaves you ≥ 1
-      if (this.cfg.mode === "ffa" && killer.score >= this.cfg.winScore) {
-        this.finished = true;
-        this.winnerName = killer.name;
+      const teamKill = this.cfg.mode === "teams" && killer.team === victim.team;
+      if (teamKill) {
+        // Team-killing is penalized, not rewarded.
+        killer.score = Math.max(0, killer.score - this.cfg.killPoints);
+      } else {
+        killer.score += this.cfg.killPoints;
+        if (killer.score < 1) killer.score = 1; // a kill always leaves you ≥ 1
+        if (this.cfg.mode === "ffa" && killer.score >= this.cfg.winScore) {
+          this.finished = true;
+          this.winnerName = killer.name;
+        }
       }
     }
     this.checkLmsWin();
@@ -644,7 +649,7 @@ export class Game {
     for (const [team, total] of totals) {
       if (total >= this.cfg.winScore) {
         this.finished = true;
-        this.winnerName = `Team ${team + 1}`;
+        this.winnerName = this.teamNames[team] ?? `Team ${team + 1}`;
         return;
       }
     }

@@ -131,6 +131,22 @@ class Hub {
         if (lobby && Number.isFinite(msg.team)) lobby.setTeam(client.id, Math.floor(msg.team));
         break;
       }
+      case "setTeamName": {
+        const lobby = this.lobbyOf(client);
+        const name = sanitizeTeamName(msg.name);
+        if (lobby && Number.isFinite(msg.team) && name) {
+          lobby.setTeamName(client.id, Math.floor(msg.team), name);
+        }
+        break;
+      }
+      case "setTeamColor": {
+        const lobby = this.lobbyOf(client);
+        const color = sanitizeColor(msg.color);
+        if (lobby && Number.isFinite(msg.team) && color) {
+          lobby.setTeamColor(client.id, Math.floor(msg.team), color);
+        }
+        break;
+      }
       case "updateConfig": {
         const lobby = this.lobbyOf(client);
         if (lobby) lobby.setConfig(client.id, Math.floor(Number(msg.maxPlayers)), sanitizeConfig(msg.config));
@@ -250,6 +266,11 @@ function sanitizeName(raw: string): string {
  *  a security boundary — the color is rendered into other clients' DOM. */
 function sanitizeColor(raw: unknown): string | null {
   return typeof raw === "string" && /^#[0-9a-fA-F]{6}$/.test(raw) ? raw.toLowerCase() : null;
+}
+
+/** Team names may contain spaces; strip markup-significant characters. */
+function sanitizeTeamName(raw: unknown): string {
+  return typeof raw === "string" ? raw.replace(/[<>"'&]/g, "").trim().slice(0, 16) : "";
 }
 
 /** Clamp/validate the advanced (engine tuning) sub-config. */
@@ -395,6 +416,6 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
 }
 
 httpServer.listen(PORT, () => {
-  console.log(`tanka-maze server listening on http://localhost:${PORT}`);
-  console.log(`WebSocket endpoint: ws://localhost:${PORT}`);
+  // Binds all interfaces; the client connects over the same origin in prod.
+  console.log(`tanka-maze server listening on port ${PORT}`);
 });

@@ -74,6 +74,28 @@ npm start            # serves client + WebSocket on http://localhost:8080
 
 Set `PORT` to change the port: `PORT=3000 npm start`.
 
+### Deploying (Render.com)
+
+The app is a single Node web service — it builds the client and serves both the
+static files and the WebSocket from one port. It is **not** localhost-bound: the
+client connects to the same origin (`wss://…` over HTTPS) and the server listens
+on `process.env.PORT`.
+
+A [`render.yaml`](./render.yaml) blueprint is included. To deploy:
+
+1. Push this repo to GitHub.
+2. In Render: **New → Blueprint**, select the repo (it reads `render.yaml`).
+
+Or configure a **Web Service** manually with:
+
+- **Build command:** `npm install --include=dev && npm run build`
+- **Start command:** `npm start`
+
+> `--include=dev` matters: Render sets `NODE_ENV=production`, which would
+> otherwise skip `vite`/`typescript` (dev dependencies needed to build). Render
+> injects `PORT` and terminates TLS, so WebSockets work over `wss://`
+> automatically — no extra config.
+
 ### Type checking
 
 ```bash

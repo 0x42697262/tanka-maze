@@ -125,7 +125,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   deathPenaltyPct: 33,
   winScore: 300,
   teamCount: 2,
-  friendlyFire: false,
+  friendlyFire: true,
   adv: DEFAULT_ADVANCED,
   powerups: false,
   powerupEverySeconds: 8,
@@ -164,6 +164,10 @@ export interface LobbyDTO {
   inGame: boolean;
   config: GameConfig;
   players: LobbyPlayerDTO[];
+  /** Per-team display name (index = team), Team VS. */
+  teamNames: string[];
+  /** Per-team color (index = team), Team VS. */
+  teamColors: string[];
 }
 
 /** An axis-aligned wall segment in arena pixel coordinates. */
@@ -282,6 +286,8 @@ export type ClientMessage =
   | { type: "setName"; name: string }
   | { type: "setColor"; color: string }
   | { type: "setTeam"; team: number }
+  | { type: "setTeamName"; team: number; name: string }
+  | { type: "setTeamColor"; team: number; color: string }
   | { type: "listLobbies" }
   | { type: "createLobby"; name: string; maxPlayers: number; config: GameConfig }
   | { type: "updateConfig"; maxPlayers: number; config: GameConfig }

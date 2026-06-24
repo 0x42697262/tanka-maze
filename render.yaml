@@ -1,0 +1,19 @@
+# Render.com Blueprint — deploy as a single Node web service that builds the
+# client + server and serves both (HTTP + WebSocket) from one port.
+#
+# Deploy: push this repo to GitHub, then in Render: New → Blueprint → pick the
+# repo. Render reads this file. (Or set the same Build/Start commands manually
+# on a Web Service.)
+services:
+  - type: web
+    name: tanka-maze
+    runtime: node
+    plan: free
+    # NODE_ENV=production (Render default) makes `npm install` skip devDeps, but
+    # vite + typescript live there and are needed to build — so include them.
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

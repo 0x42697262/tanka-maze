@@ -211,15 +211,30 @@ function renderLobby(lobby: LobbyDTO, firstRender: boolean): void {
     for (let team = 0; team < lobby.config.teamCount; team++) {
       const members = lobby.players.filter((p) => p.team === team);
       const mine = lobby.players.find((p) => p.id === playerId)?.team === team;
+      const captain = members[0]?.id === playerId; // first player of this team
+      const tint = lobby.teamColors[team] ?? TEAM_TINT[team % TEAM_TINT.length];
+      const tname = lobby.teamNames[team] ?? `Team ${team + 1}`;
+
       const box = document.createElement("li");
       box.className = `team-box${mine ? " mine" : ""}`;
-      const tint = TEAM_TINT[team % TEAM_TINT.length];
       box.style.borderColor = tint;
+
       const head = document.createElement("div");
       head.className = "team-head";
       head.style.color = tint;
-      head.innerHTML = `<span class="swatch" style="background:${tint}"></span>Team ${team + 1} <span class="team-n">(${members.length})</span>`;
+      if (captain) {
+        // Captain (first player) may edit the team's color + name.
+        head.appendChild(teamColorInput(team, tint));
+        head.appendChild(teamNameInput(team, tname));
+      } else {
+        head.innerHTML = `<span class="swatch" style="background:${tint}"></span>${escapeHtml(tname)}`;
+      }
+      const count = document.createElement("span");
+      count.className = "team-n";
+      count.textContent = `(${members.length})`;
+      head.appendChild(count);
       box.appendChild(head);
+
       const sub = document.createElement("ul");
       members.forEach((p) => sub.appendChild(playerRow(p, lobby.hostId)));
       box.appendChild(sub);
@@ -240,6 +255,31 @@ function renderLobby(lobby: LobbyDTO, firstRender: boolean): void {
   // Host configures the game here; populate the controls once on entry.
   $("lobby-config").classList.toggle("hidden", !isHost);
   if (isHost && firstRender) applyConfigToControls(lobby.config, lobby.maxPlayers);
+}
+
+function teamColorInput(team: number, color: string): HTMLInputElement {
+  const el = document.createElement("input");
+  el.type = "color";
+  el.className = "team-color-input";
+  el.value = color;
+  el.title = "Team color";
+  el.onclick = (e) => e.stopPropagation();
+  el.onchange = () => net.send({ type: "setTeamColor", team, color: el.value });
+  return el;
+}
+
+function teamNameInput(team: number, name: string): HTMLInputElement {
+  const el = document.createElement("input");
+  el.className = "team-name-input";
+  el.maxLength = 16;
+  el.value = name;
+  el.title = "Team name";
+  el.onclick = (e) => e.stopPropagation();
+  el.onchange = () => {
+    const v = el.value.trim();
+    if (v) net.send({ type: "setTeamName", team, name: v });
+  };
+  return el;
 }
 
 function playerRow(p: LobbyDTO["players"][number], hostId: string): HTMLLIElement {
@@ -340,16 +380,19 @@ function renderLeaderboard(): void {
       totals.set(t.team, cur);
     }
     const myTeam = snap.tanks.find((t) => t.id === playerId)?.team;
+    const names = currentLobby?.teamNames ?? [];
+    const colors = currentLobby?.teamColors ?? [];
     [...totals.entries()]
       .sort((a, b) => b[1].score - a[1].score || a[0] - b[0])
       .forEach(([team, d], i) => {
         const li = document.createElement("li");
         if (team === myTeam) li.className = "me";
-        const tint = TEAM_TINT[team % TEAM_TINT.length];
+        const tint = colors[team] ?? TEAM_TINT[team % TEAM_TINT.length];
+        const tname = names[team] ?? `Team ${team + 1}`;
         li.innerHTML =
           `<span class="rank">${i + 1}</span>` +
           `<span class="swatch" style="background:${tint}"></span>` +
-          `<span class="nm">Team ${team + 1} (${d.n})</span>` +
+          `<span class="nm">${escapeHtml(tname)} (${d.n})</span>` +
           `<span class="pts">${d.score}</span>`;
         ol.appendChild(li);
       });

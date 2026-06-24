@@ -1,5 +1,5 @@
 import type { WebSocket } from "ws";
-import { DEFAULT_MAX_PLAYERS, TICK_MS } from "../shared/constants.js";
+import { DEFAULT_MAX_PLAYERS, TEAM_COLORS, TICK_MS } from "../shared/constants.js";
 import {
   encode,
   type GameConfig,
@@ -43,6 +43,8 @@ export class Lobby {
   maxPlayers: number;
   config: GameConfig;
   members: Client[] = [];
+  teamNames: string[] = [];
+  teamColors: string[] = [];
 
   private game: Game | null = null;
   private maze: Maze | null = null;
@@ -64,6 +66,45 @@ export class Lobby {
     this.maxPlayers = clamp(maxPlayers, 2, 32) || DEFAULT_MAX_PLAYERS;
     this.config = config;
     this.onChange = onChange;
+    this.ensureTeams();
+  }
+
+  /** Size the team name/color arrays to teamCount, filling sensible defaults. */
+  private ensureTeams(): void {
+    const n = this.config.teamCount;
+    for (let i = 0; i < n; i++) {
+      if (!this.teamNames[i]) this.teamNames[i] = `Team ${i + 1}`;
+      if (!this.teamColors[i]) this.teamColors[i] = TEAM_COLORS[i % TEAM_COLORS.length];
+    }
+    this.teamNames.length = n;
+    this.teamColors.length = n;
+  }
+
+  /** A member's in-game color: their team's color in Team VS, else their own. */
+  private colorFor(client: Client): string {
+    return this.config.mode === "teams" ? this.teamColors[client.team] ?? client.color : client.color;
+  }
+
+  /** True if `clientId` is the first member (captain) of `team`. */
+  private isTeamCaptain(clientId: string, team: number): boolean {
+    const first = this.members.find((m) => m.team === team);
+    return !!first && first.id === clientId;
+  }
+
+  /** Captain renames their team. `name` is pre-sanitized by the caller. */
+  setTeamName(requesterId: string, team: number, name: string): void {
+    if (this.inGame || team < 0 || team >= this.config.teamCount) return;
+    if (!this.isTeamCaptain(requesterId, team) || !name) return;
+    this.teamNames[team] = name;
+    this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
+  }
+
+  /** Captain recolors their team. `color` is pre-validated by the caller. */
+  setTeamColor(requesterId: string, team: number, color: string): void {
+    if (this.inGame || team < 0 || team >= this.config.teamCount) return;
+    if (!this.isTeamCaptain(requesterId, team)) return;
+    this.teamColors[team] = color;
+    this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
   }
 
   get inGame(): boolean {
@@ -107,6 +148,7 @@ export class Lobby {
     if (this.inGame || requesterId !== this.hostId) return;
     this.config = config;
     this.maxPlayers = clamp(maxPlayers, 2, 32) || this.maxPlayers;
+    this.ensureTeams();
     // Keep team assignments valid if the team count shrank.
     for (const m of this.members) {
       if (m.team >= config.teamCount) m.team = config.teamCount - 1;
@@ -151,8 +193,9 @@ export class Lobby {
     );
     this.game = new Game(
       this.maze,
-      this.members.map((m) => ({ id: m.id, name: m.name, color: m.color, team: m.team })),
-      this.config
+      this.members.map((m) => ({ id: m.id, name: m.name, color: this.colorFor(m), team: m.team })),
+      this.config,
+      this.teamNames
     );
 
     this.lastStep = Date.now();
@@ -173,7 +216,7 @@ export class Lobby {
     this.game.addPlayer({
       id: client.id,
       name: client.name,
-      color: client.color,
+      color: this.colorFor(client),
       team: client.team,
     });
     if (client.ws.readyState === client.ws.OPEN) {
@@ -280,6 +323,8 @@ export class Lobby {
         connected: m.connected,
         team: m.team,
       })),
+      teamNames: this.teamNames.slice(0, this.config.teamCount),
+      teamColors: this.teamColors.slice(0, this.config.teamCount),
     };
   }
 
