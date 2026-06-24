@@ -12,6 +12,7 @@ import {
   type GameConfig,
   type InputState,
   type PowerupType,
+  type RosterEntry,
   type ScoreDTO,
   type SnapshotDTO,
 } from "../shared/protocol.js";
@@ -19,6 +20,7 @@ import { Maze } from "./maze.js";
 
 interface Tank {
   id: string;
+  index: number; // compact per-game id for binary snapshots
   name: string;
   color: string;
   x: number;
@@ -95,6 +97,7 @@ export class Game {
   private tanks = new Map<string, Tank>();
   private bullets: Bullet[] = [];
   private nextBulletId = 1;
+  private nextIndex = 0;
   private spawns: Array<{ x: number; y: number }>;
   private finished = false;
   private winnerName = "";
@@ -143,6 +146,7 @@ export class Game {
       : this.spawns[this.spawnIndex++ % this.spawns.length];
     this.tanks.set(p.id, {
       id: p.id,
+      index: this.nextIndex++,
       name: p.name,
       color,
       x: spawn.x,
@@ -710,6 +714,7 @@ export class Game {
       tanks: [...this.tanks.values()]
         .filter((t) => t.alive || (t.connected && !t.out))
         .map((t) => ({
+          index: t.index,
           id: t.id,
           name: t.name,
           color: t.color,
@@ -753,6 +758,19 @@ export class Game {
         y2: round(b.y2),
       })),
     };
+  }
+
+  /** Static per-player info clients need to decode binary snapshots. */
+  roster(): RosterEntry[] {
+    return [...this.tanks.values()].map((t) => ({
+      index: t.index,
+      id: t.id,
+      name: t.name,
+      color: t.color,
+      team: t.team,
+      maxHp: t.maxHp,
+      maxAmmo: this.adv.maxAmmo,
+    }));
   }
 
   scores(): ScoreDTO[] {

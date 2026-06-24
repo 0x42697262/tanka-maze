@@ -8,10 +8,12 @@ import {
   type LobbySummaryDTO,
   type MapSize,
   type MazeDTO,
+  type RosterEntry,
   type ScoreDTO,
   type ServerMessage,
   type WallStyle,
 } from "../shared/protocol.js";
+import { bytesEqual, decodeSnapshot, encodeInput } from "../shared/wire.js";
 import { Input } from "./input.js";
 import { Net } from "./net.js";
 import { Renderer } from "./render.js";
@@ -55,6 +57,8 @@ let currentLobby: LobbyDTO | null = null;
 let inGame = false;
 let paused = false;
 let lastInputSent = 0;
+let lastInputBytes: Uint8Array | null = null;
+let roster = new Map<number, RosterEntry>();
 let arena: { w: number; h: number } | null = null;
 
 const IDLE_INPUT = {
@@ -150,11 +154,12 @@ net.onMessage((msg: ServerMessage) => {
       leaveToMenu();
       break;
     case "gameStart":
+      roster = new Map(msg.roster.map((r) => [r.index, r]));
       startGame(msg.maze);
-      renderer.push(msg.snapshot, performance.now());
+      // The first snapshot arrives next as a binary frame.
       break;
-    case "snapshot":
-      if (inGame) renderer.push(msg.snapshot, performance.now());
+    case "roster":
+      roster = new Map(msg.roster.map((r) => [r.index, r]));
       break;
     case "gameOver":
       endGame(msg.scores, msg.winnerName);
@@ -163,6 +168,11 @@ net.onMessage((msg: ServerMessage) => {
       toast(msg.message);
       break;
   }
+});
+
+// Snapshots arrive as binary frames; decode against the current roster.
+net.onBinary((buf) => {
+  if (inGame) renderer.push(decodeSnapshot(buf, roster), performance.now());
 });
 
 // ---------------------------------------------------------------------------
@@ -312,6 +322,7 @@ function startGame(maze: MazeDTO): void {
   renderer.setParams(adv.tankRadius, adv.bulletRadius);
   arena = { w: maze.width, h: maze.height };
   inGame = true;
+  lastInputBytes = null; // force the first input of the new game to send
   $("gh-lobby").textContent = currentLobby?.name ?? "";
   closePause();
   $("gameover").classList.add("hidden");
@@ -432,10 +443,12 @@ function frame(): void {
     const snap = renderer.latest();
     const me = snap?.tanks.find((t) => t.id === playerId);
     if (input && me && !paused) {
-      const state = input.getState(me.x, me.y);
-      // Throttle outgoing input to ~30 Hz.
-      if (now - lastInputSent > 1000 / 30) {
-        net.send({ type: "input", input: state });
+      const bytes = encodeInput(input.getState(me.x, me.y));
+      // Send only when the input actually changed (capped at ~30 Hz). The server
+      // keeps applying the last input, so idle players send nothing.
+      if (now - lastInputSent > 1000 / 30 && !bytesEqual(lastInputBytes, bytes)) {
+        net.sendBinary(bytes);
+        lastInputBytes = bytes;
         lastInputSent = now;
       }
     }
@@ -643,7 +656,9 @@ $("leave").onclick = () => {
 function openPause(): void {
   if (!inGame) return;
   paused = true;
-  net.send({ type: "input", input: IDLE_INPUT }); // halt the tank while paused
+  const idle = encodeInput(IDLE_INPUT); // halt the tank while paused
+  net.sendBinary(idle);
+  lastInputBytes = idle;
   $("pause").classList.remove("hidden");
 }
 function closePause(): void {

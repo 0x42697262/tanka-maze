@@ -6,6 +6,7 @@ import {
 } from "../shared/protocol.js";
 
 type Handler = (msg: ServerMessage) => void;
+type BinaryHandler = (buf: ArrayBuffer) => void;
 type StatusHandler = (status: "connecting" | "open" | "closed") => void;
 
 function resolveWsUrl(): string {
@@ -28,11 +29,17 @@ function resolveWsUrl(): string {
 export class Net {
   private ws: WebSocket | null = null;
   private handler: Handler = () => {};
+  private binaryHandler: BinaryHandler = () => {};
   private statusHandler: StatusHandler = () => {};
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   onMessage(handler: Handler): void {
     this.handler = handler;
+  }
+
+  /** Binary frames (snapshots). */
+  onBinary(handler: BinaryHandler): void {
+    this.binaryHandler = handler;
   }
 
   onStatus(handler: StatusHandler): void {
@@ -42,12 +49,17 @@ export class Net {
   connect(): void {
     this.statusHandler("connecting");
     const ws = new WebSocket(resolveWsUrl());
+    ws.binaryType = "arraybuffer";
     this.ws = ws;
 
     ws.onopen = () => this.statusHandler("open");
     ws.onmessage = (ev) => {
       try {
-        this.handler(decode<ServerMessage>(ev.data));
+        if (typeof ev.data === "string") {
+          this.handler(decode<ServerMessage>(ev.data));
+        } else {
+          this.binaryHandler(ev.data as ArrayBuffer);
+        }
       } catch {
         /* ignore malformed frames */
       }
@@ -70,6 +82,12 @@ export class Net {
   send(msg: ClientMessage): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(encode(msg));
+    }
+  }
+
+  sendBinary(bytes: Uint8Array): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(bytes);
     }
   }
 }

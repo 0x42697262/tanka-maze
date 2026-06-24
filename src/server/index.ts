@@ -13,8 +13,10 @@ import {
   type AdvancedConfig,
   type ClientMessage,
   type GameConfig,
+  type InputState,
   type ServerMessage,
 } from "../shared/protocol.js";
+import { decodeInput, MSG_INPUT } from "../shared/wire.js";
 import { RECONNECT_GRACE_MS, TANK_COLORS } from "../shared/constants.js";
 import { Lobby, type Client } from "./lobby.js";
 
@@ -253,6 +255,11 @@ class Hub {
     return [...this.lobbies.values()].map((l) => l.toSummary());
   }
 
+  /** Apply decoded binary input to the client's in-game tank. */
+  applyInput(client: Client, input: InputState): void {
+    this.lobbyOf(client)?.setInput(client.id, input);
+  }
+
   private send(client: Client, msg: ServerMessage): void {
     if (client.ws.readyState === client.ws.OPEN) client.ws.send(encode(msg));
   }
@@ -360,7 +367,20 @@ wss.on("connection", (ws) => {
   // handshake), so a reconnecting socket can rebind to its existing session.
   let client: Client | null = null;
 
-  ws.on("message", (raw) => {
+  ws.on("message", (raw, isBinary) => {
+    // Binary frames are packed player input (the high-frequency path).
+    if (isBinary) {
+      if (!client) return;
+      const u8 = raw as Buffer;
+      const ab = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
+      try {
+        if (new Uint8Array(ab)[0] === MSG_INPUT) hub.applyInput(client, decodeInput(ab));
+      } catch (err) {
+        console.error("input decode error", err);
+      }
+      return;
+    }
+
     let msg: ClientMessage;
     try {
       msg = decode<ClientMessage>(raw.toString());

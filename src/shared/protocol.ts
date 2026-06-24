@@ -129,7 +129,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   friendlyFire: true,
   teamKillPenalty: 60,
   adv: DEFAULT_ADVANCED,
-  powerups: false,
+  powerups: true,
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,
   powerupCharges: 1,
@@ -191,7 +191,20 @@ export interface MazeDTO {
   walls: WallDTO[];
 }
 
+/** Static per-player info, sent once via the roster (not in every snapshot). */
+export interface RosterEntry {
+  index: number; // compact id used in binary snapshots
+  id: string;
+  name: string;
+  color: string;
+  team: number;
+  maxHp: number;
+  maxAmmo: number;
+}
+
 export interface TankDTO {
+  /** Compact per-game index (matches a RosterEntry). */
+  index: number;
   id: string;
   name: string;
   color: string;
@@ -310,8 +323,10 @@ export type ServerMessage =
   | { type: "lobbyJoined"; lobby: LobbyDTO }
   | { type: "lobbyUpdate"; lobby: LobbyDTO }
   | { type: "lobbyClosed"; reason: string }
-  | { type: "gameStart"; maze: MazeDTO; snapshot: SnapshotDTO }
-  | { type: "snapshot"; snapshot: SnapshotDTO }
+  // Snapshots are sent as binary frames (see shared/wire.ts), not JSON.
+  // gameStart carries the maze + roster; the first snapshot follows as binary.
+  | { type: "gameStart"; maze: MazeDTO; roster: RosterEntry[] }
+  | { type: "roster"; roster: RosterEntry[] }
   | { type: "gameOver"; scores: ScoreDTO[]; winnerName: string }
   | { type: "error"; message: string };
 

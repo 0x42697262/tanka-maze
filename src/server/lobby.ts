@@ -8,6 +8,7 @@ import {
   type LobbySummaryDTO,
   type ServerMessage,
 } from "../shared/protocol.js";
+import { bytesEqual, encodeSnapshot } from "../shared/wire.js";
 import { Game } from "./game.js";
 import { Maze, mazeDimensions } from "./maze.js";
 
@@ -48,6 +49,7 @@ export class Lobby {
 
   private game: Game | null = null;
   private maze: Maze | null = null;
+  private lastSnapBytes: Uint8Array | null = null;
   private loop: ReturnType<typeof setInterval> | null = null;
   private lastStep = 0;
   private onChange: () => void;
@@ -199,12 +201,30 @@ export class Lobby {
     );
 
     this.lastStep = Date.now();
-    const snapshot = this.game.snapshot(this.lastStep);
-    this.broadcast({ type: "gameStart", maze: this.maze.toDTO(), snapshot });
+    this.broadcast({ type: "gameStart", maze: this.maze.toDTO(), roster: this.game.roster() });
+    this.broadcastSnapshot(true); // initial state (binary)
     this.onChange(); // lobby list now shows inGame
 
     this.loop = setInterval(() => this.tick(), TICK_MS);
     return null;
+  }
+
+  /** Send the maze + roster (JSON) and current snapshot (binary) to one client. */
+  private sendStateTo(client: Client): void {
+    if (!this.game || !this.maze || client.ws.readyState !== client.ws.OPEN) return;
+    client.ws.send(encode({ type: "gameStart", maze: this.maze.toDTO(), roster: this.game.roster() }));
+    client.ws.send(encodeSnapshot(this.game.snapshot(Date.now())));
+  }
+
+  /** Broadcast the current snapshot as binary — only if it changed (gating). */
+  private broadcastSnapshot(force = false): void {
+    if (!this.game) return;
+    const bytes = encodeSnapshot(this.game.snapshot(Date.now()));
+    if (!force && bytesEqual(this.lastSnapBytes, bytes)) return;
+    this.lastSnapBytes = bytes;
+    for (const m of this.members) {
+      if (m.ws.readyState === m.ws.OPEN) m.ws.send(bytes);
+    }
   }
 
   /**
@@ -219,15 +239,9 @@ export class Lobby {
       color: this.colorFor(client),
       team: client.team,
     });
-    if (client.ws.readyState === client.ws.OPEN) {
-      client.ws.send(
-        encode({
-          type: "gameStart",
-          maze: this.maze.toDTO(),
-          snapshot: this.game.snapshot(Date.now()),
-        })
-      );
-    }
+    // Existing players need the new index before the next snapshot references it.
+    this.broadcast({ type: "roster", roster: this.game.roster() });
+    this.sendStateTo(client);
   }
 
   setInput(clientId: string, input: InputState): void {
@@ -258,13 +272,7 @@ export class Lobby {
   sendResume(client: Client): void {
     if (client.ws.readyState !== client.ws.OPEN) return;
     if (this.game && this.maze) {
-      client.ws.send(
-        encode({
-          type: "gameStart",
-          maze: this.maze.toDTO(),
-          snapshot: this.game.snapshot(Date.now()),
-        })
-      );
+      this.sendStateTo(client);
     } else {
       client.ws.send(encode({ type: "lobbyJoined", lobby: this.toDTO() }));
     }
@@ -290,7 +298,7 @@ export class Lobby {
       return;
     }
 
-    this.broadcast({ type: "snapshot", snapshot: this.game.snapshot(now) });
+    this.broadcastSnapshot(); // gated: only sends when the state actually changed
   }
 
   private stopGame(): void {
@@ -298,6 +306,7 @@ export class Lobby {
     this.loop = null;
     this.game = null;
     this.maze = null;
+    this.lastSnapBytes = null;
   }
 
   broadcast(msg: ServerMessage): void {
