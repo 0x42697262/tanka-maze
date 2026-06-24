@@ -9,6 +9,7 @@ import {
   type MapSize,
   type MazeDTO,
   type RosterEntry,
+  type RoundStanding,
   type ScoreDTO,
   type ServerMessage,
   type WallStyle,
@@ -61,6 +62,8 @@ let lastInputBytes: Uint8Array | null = null;
 let roster = new Map<number, RosterEntry>();
 let arena: { w: number; h: number } | null = null;
 let moveMode: "relative" | "eight" = "relative";
+let roundInfo: { round: number; total: number } = { round: 1, total: 1 };
+let roundCountdown: ReturnType<typeof setInterval> | null = null;
 
 const IDLE_INPUT = {
   forward: false,
@@ -158,14 +161,17 @@ net.onMessage((msg: ServerMessage) => {
       break;
     case "gameStart":
       roster = new Map(msg.roster.map((r) => [r.index, r]));
-      startGame(msg.maze);
+      startGame(msg.maze, msg.round, msg.totalRounds);
       // The first snapshot arrives next as a binary frame.
       break;
     case "roster":
       roster = new Map(msg.roster.map((r) => [r.index, r]));
       break;
+    case "roundOver":
+      showRoundOver(msg.round, msg.totalRounds, msg.winnerName, msg.standing, msg.nextInSeconds);
+      break;
     case "gameOver":
-      endGame(msg.scores, msg.winnerName);
+      endGame(msg.scores, msg.winnerName, msg.standing, msg.totalRounds);
       break;
     case "error":
       toast(msg.message);
@@ -332,6 +338,12 @@ function playerRow(p: LobbyDTO["players"][number], hostId: string): HTMLLIElemen
 
 function leaveToMenu(): void {
   inGame = false;
+  if (roundCountdown) {
+    clearInterval(roundCountdown);
+    roundCountdown = null;
+  }
+  $("roundover").classList.add("hidden");
+  $("gameover").classList.add("hidden");
   show("menu");
   net.send({ type: "listLobbies" });
 }
@@ -339,18 +351,25 @@ function leaveToMenu(): void {
 // ---------------------------------------------------------------------------
 // Game lifecycle
 // ---------------------------------------------------------------------------
-function startGame(maze: MazeDTO): void {
+function startGame(maze: MazeDTO, round = 1, totalRounds = 1): void {
   renderer.setMaze(maze);
   const adv = currentLobby?.config.adv ?? DEFAULT_GAME_CONFIG.adv;
   renderer.setParams(adv.tankRadius, adv.bulletRadius);
   arena = { w: maze.width, h: maze.height };
   inGame = true;
+  if (roundCountdown) {
+    clearInterval(roundCountdown);
+    roundCountdown = null;
+  }
+  roundInfo = { round, total: totalRounds };
   lastInputBytes = null; // force the first input of the new game to send
   $("gh-lobby").textContent = currentLobby
     ? `${currentLobby.name} · ${configSummary(currentLobby.config)}`
     : "";
+  renderRoundBadge();
   closePause();
   $("gameover").classList.add("hidden");
+  $("roundover").classList.add("hidden");
   $("respawn").classList.add("hidden");
   input?.dispose();
   input = new Input(canvas);
@@ -359,6 +378,58 @@ function startGame(maze: MazeDTO): void {
   $("killlog").innerHTML = "";
   show("game");
   fitCanvas();
+}
+
+/** "Round 2 / 3" pill in the game header (hidden for single-round matches). */
+function renderRoundBadge(): void {
+  const el = $("gh-round");
+  if (roundInfo.total > 1) {
+    el.textContent = `Round ${roundInfo.round} / ${roundInfo.total}`;
+    el.classList.remove("hidden");
+  } else {
+    el.classList.add("hidden");
+  }
+}
+
+/** Markup for a series tally (round wins per player/team), best first. */
+function standingHtml(standing: RoundStanding[]): string {
+  return standing
+    .map(
+      (s) =>
+        `<li><span class="swatch" style="background:${s.color}"></span>` +
+        `<span class="lg-name">${escapeHtml(s.name)}</span>` +
+        `<span class="pts">${"●".repeat(s.wins) || "—"} ${s.wins}</span></li>`
+    )
+    .join("");
+}
+
+/** Between-rounds intermission overlay with the series tally + countdown. */
+function showRoundOver(
+  round: number,
+  total: number,
+  winnerName: string,
+  standing: RoundStanding[],
+  nextInSeconds: number
+): void {
+  roundInfo = { round, total };
+  renderRoundBadge();
+  $("respawn").classList.add("hidden");
+  $("ro-title").textContent = winnerName ? `🏆 ${winnerName} takes round ${round}` : `Round ${round} drawn`;
+  $("ro-standing").innerHTML = standingHtml(standing);
+  const countEl = $("ro-count");
+  let secs = Math.max(1, Math.round(nextInSeconds));
+  countEl.textContent = String(secs);
+  $("ro-sub").textContent = `Round ${round + 1} of ${total} in `;
+  $("roundover").classList.remove("hidden");
+  if (roundCountdown) clearInterval(roundCountdown);
+  roundCountdown = setInterval(() => {
+    secs -= 1;
+    countEl.textContent = String(Math.max(0, secs));
+    if (secs <= 0 && roundCountdown) {
+      clearInterval(roundCountdown);
+      roundCountdown = null;
+    }
+  }, 1000);
 }
 
 /**
@@ -381,14 +452,34 @@ function fitCanvas(): void {
   canvas.style.height = `${Math.floor(arena.h * scale)}px`;
 }
 
-function endGame(scores: ScoreDTO[], winnerName: string): void {
+function endGame(
+  scores: ScoreDTO[],
+  winnerName: string,
+  standing: RoundStanding[] = [],
+  totalRounds = 1
+): void {
   inGame = false;
   closePause();
+  if (roundCountdown) {
+    clearInterval(roundCountdown);
+    roundCountdown = null;
+  }
   $("respawn").classList.add("hidden");
+  $("roundover").classList.add("hidden");
   input?.dispose();
   input = null;
 
   $("winner").textContent = winnerName ? `🏆 ${winnerName} wins!` : "Game Over";
+
+  // Series tally (round wins) — only meaningful for multi-round matches.
+  const series = $("series");
+  if (totalRounds > 1 && standing.length) {
+    series.innerHTML = `<h4>Rounds won</h4><ul class="series-rows">${standingHtml(standing)}</ul>`;
+    series.classList.remove("hidden");
+  } else {
+    series.classList.add("hidden");
+  }
+
   const ul = $("final-scores");
   ul.innerHTML = "";
   scores.forEach((s, i) => {
@@ -611,6 +702,7 @@ function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       mode: sel("mode") as GameMode,
       wallStyle: sel("walls") as WallStyle,
       mapSize: sel("map-size") as MapSize,
+      rounds: num("rounds", 3),
       tankSpeedPct: num("tank-speed", 100),
       hp: num("hp", 1),
       lives: Number(($("lives") as HTMLInputElement).value) || 0,
@@ -636,6 +728,7 @@ function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("mode", c.mode);
   set("walls", c.wallStyle);
   set("map-size", c.mapSize);
+  set("rounds", c.rounds);
   set("team-count", c.teamCount);
   set("tank-speed", c.tankSpeedPct);
   set("hp", c.hp);
@@ -760,6 +853,7 @@ const SIZE_LABEL: Record<MapSize, string> = {
 
 function configSummary(c: GameConfig): string {
   const bits = [modeLabel(c.mode), `${WALL_LABEL[c.wallStyle]} · ${SIZE_LABEL[c.mapSize]} map`];
+  if (c.rounds > 1) bits.push(`best of ${c.rounds}`);
   if (c.hp > 1) bits.push(`${c.hp} HP`);
   if (c.tankSpeedPct !== 100) bits.push(`${c.tankSpeedPct}% speed`);
   if (c.mode === "lms") bits.push(c.lives > 0 ? `${c.lives} lives` : "1 life");

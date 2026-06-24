@@ -103,9 +103,11 @@
           </div>
 
           <h3 class="cfg-h">Match</h3>
-          <div class="row">
+          <div class="row two">
             <label for="max-players">Max players</label>
             <input id="max-players" type="number" min="2" max="32" value="4" />
+            <label for="rounds">Rounds (best of)</label>
+            <input id="rounds" type="number" min="1" max="15" value="3" />
           </div>
           <div class="row two">
             <label for="tank-speed">Tank speed %</label>
@@ -264,6 +266,7 @@
         <div class="game-header">
           <span class="gh-title">Tanka<b>Maze</b></span>
           <span class="gh-lobby" id="gh-lobby"></span>
+          <span class="gh-round hidden" id="gh-round"></span>
           <span class="gh-count" id="gh-count"></span>
         </div>
         <div class="game-layout">
@@ -302,10 +305,20 @@
         </div>
       </div>
 
+      <!-- Round intermission overlay (between rounds of a multi-round match) -->
+      <div id="roundover" class="overlay hidden">
+        <div class="card paper-card">
+          <h2 id="ro-title"></h2>
+          <ul id="ro-standing" class="series-rows"></ul>
+          <p class="status"><span id="ro-sub"></span><span id="ro-count"></span>s…</p>
+        </div>
+      </div>
+
       <!-- Game over overlay -->
       <div id="gameover" class="overlay hidden">
         <div class="card paper-card">
           <h2 id="winner"></h2>
+          <div id="series" class="series hidden"></div>
           <ol id="final-scores"></ol>
           <button id="back-to-lobby" class="primary">Back to Lobby</button>
         </div>

@@ -15,6 +15,7 @@ import {
   type KillEvent,
   type PowerupType,
   type RosterEntry,
+  type RoundStanding,
   type ScoreDTO,
   type SnapshotDTO,
 } from "../shared/protocol.js";
@@ -51,7 +52,8 @@ interface Tank {
   ammo: number;
   reloadTimer: number;
   deaths: number;
-  score: number;
+  score: number; // points this round (reset each round)
+  totalScore: number; // cumulative points across all rounds (final scoreboard)
   respawnIn: number;
   fireCooldown: number;
   input: InputState;
@@ -107,7 +109,7 @@ interface Powerup {
  * intents; the game advances on a fixed timestep and emits snapshots.
  */
 export class Game {
-  readonly maze: Maze;
+  maze: Maze; // swapped each round (a fresh maze per round)
   private cfg: GameConfig;
   private adv: AdvancedConfig;
   private tanks = new Map<string, Tank>();
@@ -115,8 +117,14 @@ export class Game {
   private nextBulletId = 1;
   private nextIndex = 0;
   private spawns: Array<{ x: number; y: number }>;
-  private finished = false;
-  private winnerName = "";
+  private finished = false; // the whole match is decided
+  private winnerName = ""; // match champion (set once finished)
+  // Round series state.
+  private round = 1;
+  private totalRounds: number;
+  private roundOver = false; // current round decided; match continues
+  private roundWinnerName = ""; // who took the round just ended
+  private roundWins = new Map<string, number>(); // competitor key -> rounds won
   private colorIndex = 0;
   private spawnIndex = 0;
   private everMultiple = false;
@@ -145,6 +153,7 @@ export class Game {
     this.maze = maze;
     this.cfg = config;
     this.adv = config.adv;
+    this.totalRounds = Math.max(1, config.rounds);
     this.teamNames = teamNames;
     this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
@@ -186,6 +195,7 @@ export class Game {
       reloadTimer: 0,
       deaths: 0,
       score: 0,
+      totalScore: 0,
       respawnIn: 0,
       fireCooldown: 0,
       input: {
@@ -211,6 +221,24 @@ export class Game {
     return this.finished;
   }
 
+  /** Current round is decided but the match isn't (intermission pending). */
+  get isRoundOver(): boolean {
+    return this.roundOver && !this.finished;
+  }
+
+  get currentRound(): number {
+    return this.round;
+  }
+
+  get roundCount(): number {
+    return this.totalRounds;
+  }
+
+  /** Name of whoever took the round that just ended. */
+  getRoundWinnerName(): string {
+    return this.roundWinnerName;
+  }
+
   setInput(playerId: string, input: InputState): void {
     const tank = this.tanks.get(playerId);
     if (tank) tank.input = input;
@@ -232,7 +260,7 @@ export class Game {
 
   /** Advance the simulation by `dt` seconds. */
   step(dt: number): void {
-    if (this.finished) return;
+    if (this.finished || this.roundOver) return; // frozen at match/round end
 
     // Transient effects only live for the snapshot taken right after this step.
     this.pendingBlasts = [];
@@ -824,8 +852,7 @@ export class Game {
           points: this.cfg.killPoints,
         });
         if (this.cfg.mode === "ffa" && killer.score >= this.cfg.winScore) {
-          this.finished = true;
-          this.winnerName = killer.name;
+          this.endRound(killer.id, killer.name);
         }
       }
     } else {
@@ -843,17 +870,16 @@ export class Game {
    * lives nobody is ever `out`, so this never triggers in FFA/Teams.
    */
   private checkElimination(): void {
-    if (this.finished || !this.everMultiple) return;
+    if (this.finished || this.roundOver || !this.everMultiple) return;
     if (this.cfg.mode !== "lms" && this.cfg.lives <= 0) return;
 
     if (this.cfg.mode === "teams") {
       const liveTeams = new Set<number>();
       for (const t of this.tanks.values()) if (!t.out) liveTeams.add(t.team);
       if (liveTeams.size <= 1) {
-        this.finished = true;
         const [team] = liveTeams;
-        this.winnerName =
-          team === undefined ? "" : this.teamNames[team] ?? `Team ${team + 1}`;
+        if (team === undefined) this.endRound(null, "");
+        else this.endRound(`t${team}`, this.teamNames[team] ?? `Team ${team + 1}`);
       }
       return;
     }
@@ -861,25 +887,138 @@ export class Game {
     // FFA / LMS: one (or zero) players remain in.
     const standing = [...this.tanks.values()].filter((t) => !t.out);
     if (standing.length <= 1) {
-      this.finished = true;
-      this.winnerName = standing[0]?.name ?? "";
+      const w = standing[0];
+      this.endRound(w?.id ?? null, w?.name ?? "");
     }
   }
 
   /** Team VS: a team wins when the sum of its members' points hits winScore. */
   private checkTeamWin(): void {
-    if (this.finished || this.cfg.mode !== "teams") return;
+    if (this.finished || this.roundOver || this.cfg.mode !== "teams") return;
     const totals = new Map<number, number>();
     for (const t of this.tanks.values()) {
       totals.set(t.team, (totals.get(t.team) ?? 0) + t.score);
     }
     for (const [team, total] of totals) {
       if (total >= this.cfg.winScore) {
-        this.finished = true;
-        this.winnerName = this.teamNames[team] ?? `Team ${team + 1}`;
+        this.endRound(`t${team}`, this.teamNames[team] ?? `Team ${team + 1}`);
         return;
       }
     }
+  }
+
+  /**
+   * Close out the current round: bank this round's scores, credit the winner,
+   * and decide whether the match is over (last round played, or the leader has
+   * clinched more wins than any rival could still reach). When the match isn't
+   * over yet, the lobby runs an intermission and calls `startNextRound`.
+   */
+  private endRound(winnerKey: string | null, roundWinnerName: string): void {
+    if (this.finished || this.roundOver) return;
+
+    // Bank each tank's round score into its cumulative total.
+    for (const t of this.tanks.values()) t.totalScore += t.score;
+
+    if (winnerKey) this.roundWins.set(winnerKey, (this.roundWins.get(winnerKey) ?? 0) + 1);
+    this.roundWinnerName = roundWinnerName;
+    this.roundOver = true;
+
+    // Clinch check: leader's wins vs the best any rival could still reach.
+    const wins = [...this.roundWins.values()].sort((a, b) => b - a);
+    const best = wins[0] ?? 0;
+    const rivalBest = wins[1] ?? 0;
+    const remaining = this.totalRounds - this.round;
+    const clinched = best > rivalBest + remaining;
+
+    if (this.round >= this.totalRounds || clinched) {
+      this.finished = true;
+      this.winnerName = this.roundStandings()[0]?.name ?? roundWinnerName;
+    }
+  }
+
+  /**
+   * Reset the arena for the next round on a fresh maze: every tank back to a
+   * full, alive start at a new spawn, round score cleared (cumulative kept),
+   * bullets/power-ups/effects wiped. Round-win tallies persist.
+   */
+  startNextRound(maze: Maze): void {
+    this.maze = maze;
+    this.spawns = shuffle(maze.openCellCenters());
+    this.spawnIndex = 0;
+    this.round += 1;
+    this.roundOver = false;
+    this.roundWinnerName = "";
+    this.bullets = [];
+    this.powerups = [];
+    this.pendingBlasts = [];
+    this.pendingBeams = [];
+    this.pendingEvents = [];
+    this.powerupTimer = this.cfg.powerupEverySeconds;
+    // Grid size can change with a new random maze — drop the BFS scratch.
+    this.pathSeen = new Int32Array(0);
+    this.pathFrom = new Int32Array(0);
+
+    let i = 0;
+    for (const t of this.tanks.values()) {
+      const spot = this.spawns[i++ % this.spawns.length];
+      t.x = spot.x;
+      t.y = spot.y;
+      t.vx = 0;
+      t.vy = 0;
+      t.bodyAngle = 0;
+      t.turretAngle = 0;
+      t.alive = true;
+      t.out = false;
+      t.hp = t.maxHp;
+      t.ammo = this.adv.maxAmmo;
+      t.reloadTimer = 0;
+      t.respawnIn = 0;
+      t.fireCooldown = 0;
+      t.deaths = 0;
+      t.score = 0;
+      t.weapon = null;
+      t.weaponCharges = 0;
+      t.boostTimer = 0;
+      t.shieldTimer = 0;
+      t.laserCharge = 0;
+    }
+  }
+
+  /**
+   * Series standings: per team in Team VS, per player otherwise. Sorted by round
+   * wins, then cumulative score as a tiebreak.
+   */
+  roundStandings(): RoundStanding[] {
+    type Row = RoundStanding & { score: number };
+    const rows: Row[] = [];
+    if (this.cfg.mode === "teams") {
+      for (let team = 0; team < this.cfg.teamCount; team++) {
+        const members = [...this.tanks.values()].filter((t) => t.team === team);
+        rows.push({
+          key: `t${team}`,
+          name: this.teamNames[team] ?? `Team ${team + 1}`,
+          color: members[0]?.color ?? this.teamColorFallback(team),
+          wins: this.roundWins.get(`t${team}`) ?? 0,
+          score: members.reduce((s, t) => s + t.totalScore, 0),
+        });
+      }
+    } else {
+      for (const t of this.tanks.values()) {
+        rows.push({
+          key: t.id,
+          name: t.name,
+          color: t.color,
+          wins: this.roundWins.get(t.id) ?? 0,
+          score: t.totalScore,
+        });
+      }
+    }
+    rows.sort((a, b) => b.wins - a.wins || b.score - a.score);
+    return rows.map(({ key, name, color, wins }) => ({ key, name, color, wins }));
+  }
+
+  private teamColorFallback(team: number): string {
+    return TANK_COLORS[team % TANK_COLORS.length];
   }
 
   private respawn(tank: Tank): void {
@@ -1008,8 +1147,10 @@ export class Game {
   }
 
   scores(): ScoreDTO[] {
+    // Cumulative points across the whole match (the final round was banked at
+    // round end). For a single-round match this equals the round score.
     return [...this.tanks.values()]
-      .map((t) => ({ id: t.id, name: t.name, color: t.color, score: t.score }))
+      .map((t) => ({ id: t.id, name: t.name, color: t.color, score: t.totalScore }))
       .sort((a, b) => b.score - a.score);
   }
 

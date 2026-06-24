@@ -442,6 +442,17 @@ ol {
   color: var(--ink-soft);
   white-space: nowrap;
 }
+.gh-round {
+  font-size: 14px;
+  color: var(--stamp);
+  white-space: nowrap;
+  border: 1.5px solid var(--stamp);
+  border-radius: 999px;
+  padding: 1px 10px;
+}
+.gh-round.hidden {
+  display: none;
+}
 .game-layout {
   display: flex;
   gap: 14px;
@@ -686,6 +697,44 @@ kbd {
 #final-scores .pts {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---- Round series tally (game-over + intermission) ---- */
+.series.hidden {
+  display: none;
+}
+.series h4 {
+  font-family: var(--font-hand);
+  color: var(--stamp);
+  margin: 6px 0 4px;
+}
+.series-rows {
+  margin: 10px 0 4px;
+  list-style: none;
+  padding: 0;
+}
+.series-rows li {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px dashed var(--rule);
+  text-align: left;
+}
+.series-rows .lg-name {
+  font-weight: 600;
+}
+.series-rows .pts {
+  font-weight: 700;
+  color: var(--stamp);
+  letter-spacing: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.series-rows .swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
 }
 
 /* ---- Toast ---- */

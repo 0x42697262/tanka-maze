@@ -54,6 +54,10 @@ export const TRACKING_BOUNCES = 10; // wall bounces a tracking round survives
 export const MULTISHOT_COUNT = 3; // pellets released by a multishot pickup
 export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multishot
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
+
+// Rounds: a match is best-of-N; the side with the most round wins takes it.
+export const ROUNDS_DEFAULT = 3;
+export const ROUND_INTERMISSION_SECONDS = 5; // break between rounds
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;

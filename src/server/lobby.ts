@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import {
   DEFAULT_MAX_PLAYERS,
+  ROUND_INTERMISSION_SECONDS,
   SNAPSHOT_EVERY_TICKS,
   TEAM_COLORS,
   TICK_MS,
@@ -59,6 +60,7 @@ export class Lobby {
   private tickCount = 0;
   private loop: ReturnType<typeof setInterval> | null = null;
   private lastStep = 0;
+  private roundBreak: ReturnType<typeof setTimeout> | null = null;
   private onChange: () => void;
 
   constructor(
@@ -192,14 +194,7 @@ export class Lobby {
     if (requesterId !== this.hostId) return "Only the host can start the game.";
     if (this.members.length < 1) return "Need at least one player.";
 
-    const { cols, rows } = mazeDimensions(this.config.mapSize);
-    this.maze = new Maze(
-      cols,
-      rows,
-      this.config.wallStyle,
-      this.config.adv.cellSize,
-      this.config.adv.wallThickness
-    );
+    this.maze = this.buildMaze();
     this.game = new Game(
       this.maze,
       this.members.map((m) => ({ id: m.id, name: m.name, color: this.colorFor(m), team: m.team })),
@@ -208,7 +203,13 @@ export class Lobby {
     );
 
     this.lastStep = Date.now();
-    this.broadcast({ type: "gameStart", maze: this.maze.toDTO(), roster: this.game.roster() });
+    this.broadcast({
+      type: "gameStart",
+      maze: this.maze.toDTO(),
+      roster: this.game.roster(),
+      round: this.game.currentRound,
+      totalRounds: this.game.roundCount,
+    });
     this.broadcastSnapshot(true); // initial state (binary)
     this.onChange(); // lobby list now shows inGame
 
@@ -216,10 +217,30 @@ export class Lobby {
     return null;
   }
 
+  /** A fresh maze sized for the configured map size + wall style. */
+  private buildMaze(): Maze {
+    const { cols, rows } = mazeDimensions(this.config.mapSize);
+    return new Maze(
+      cols,
+      rows,
+      this.config.wallStyle,
+      this.config.adv.cellSize,
+      this.config.adv.wallThickness
+    );
+  }
+
   /** Send the maze + roster (JSON) and current snapshot (binary) to one client. */
   private sendStateTo(client: Client): void {
     if (!this.game || !this.maze || client.ws.readyState !== client.ws.OPEN) return;
-    client.ws.send(encode({ type: "gameStart", maze: this.maze.toDTO(), roster: this.game.roster() }));
+    client.ws.send(
+      encode({
+        type: "gameStart",
+        maze: this.maze.toDTO(),
+        roster: this.game.roster(),
+        round: this.game.currentRound,
+        totalRounds: this.game.roundCount,
+      })
+    );
     client.ws.send(encodeSnapshot(this.game.snapshot(Date.now())));
   }
 
@@ -298,12 +319,31 @@ export class Lobby {
         type: "gameOver",
         scores: this.game.scores(),
         winnerName: this.game.getWinnerName(),
+        round: this.game.currentRound,
+        totalRounds: this.game.roundCount,
+        standing: this.game.roundStandings(),
       });
       this.stopGame();
       this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
       this.onChange();
       return;
     }
+
+    // A round ended but the match continues: announce it, then start the next
+    // round on a fresh maze after a short intermission.
+    if (this.game.isRoundOver && !this.roundBreak) {
+      this.broadcast({
+        type: "roundOver",
+        round: this.game.currentRound,
+        totalRounds: this.game.roundCount,
+        winnerName: this.game.getRoundWinnerName(),
+        standing: this.game.roundStandings(),
+        nextInSeconds: ROUND_INTERMISSION_SECONDS,
+      });
+      this.roundBreak = setTimeout(() => this.beginNextRound(), ROUND_INTERMISSION_SECONDS * 1000);
+      return;
+    }
+    if (this.game.isRoundOver) return; // mid-intermission; world is frozen
 
     // Broadcast only every Nth tick (network rate < sim rate); still gated so an
     // unchanged world sends nothing. Force a send on ticks that produced a blast
@@ -314,9 +354,29 @@ export class Lobby {
     }
   }
 
+  /** Intermission elapsed: rebuild the arena and broadcast the next round. */
+  private beginNextRound(): void {
+    this.roundBreak = null;
+    if (!this.game) return;
+    this.maze = this.buildMaze();
+    this.game.startNextRound(this.maze);
+    this.lastSnapBytes = null;
+    this.lastStep = Date.now();
+    this.broadcast({
+      type: "gameStart",
+      maze: this.maze.toDTO(),
+      roster: this.game.roster(),
+      round: this.game.currentRound,
+      totalRounds: this.game.roundCount,
+    });
+    this.broadcastSnapshot(true);
+  }
+
   private stopGame(): void {
     if (this.loop) clearInterval(this.loop);
+    if (this.roundBreak) clearTimeout(this.roundBreak);
     this.loop = null;
+    this.roundBreak = null;
     this.game = null;
     this.maze = null;
     this.lastSnapBytes = null;

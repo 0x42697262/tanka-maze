@@ -14,6 +14,7 @@ import {
   MAX_AMMO,
   MULTISHOT_COUNT,
   MULTISHOT_SPREAD_DEG,
+  ROUNDS_DEFAULT,
   RELOAD_SECONDS,
   SHIELD_SECONDS,
   SNIPER_SPEED_MULT,
@@ -119,6 +120,7 @@ export interface GameConfig {
   mode: GameMode;
   wallStyle: WallStyle;
   mapSize: MapSize;
+  rounds: number; // best-of-N; the side with the most round wins takes the match
   tankSpeedPct: number; // 50..200 (% of base speed)
   hp: number; // 1..10 hits to destroy
   lives: number; // 0 = unlimited respawns; otherwise max respawns
@@ -141,6 +143,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   mode: "ffa",
   wallStyle: "maze",
   mapSize: "random",
+  rounds: ROUNDS_DEFAULT,
   tankSpeedPct: 100,
   hp: 1,
   lives: 0,
@@ -316,6 +319,15 @@ export interface ScoreDTO {
   score: number;
 }
 
+/** A competitor's standing in the round series (a player in FFA/LMS, a team in
+ *  Team VS). `key` is the player id or `t<team>`. */
+export interface RoundStanding {
+  key: string;
+  name: string;
+  color: string;
+  wins: number;
+}
+
 // ---------------------------------------------------------------------------
 // Client -> Server
 // ---------------------------------------------------------------------------
@@ -367,9 +379,25 @@ export type ServerMessage =
   | { type: "lobbyClosed"; reason: string }
   // Snapshots are sent as binary frames (see shared/wire.ts), not JSON.
   // gameStart carries the maze + roster; the first snapshot follows as binary.
-  | { type: "gameStart"; maze: MazeDTO; roster: RosterEntry[] }
+  | { type: "gameStart"; maze: MazeDTO; roster: RosterEntry[]; round: number; totalRounds: number }
   | { type: "roster"; roster: RosterEntry[] }
-  | { type: "gameOver"; scores: ScoreDTO[]; winnerName: string }
+  // A round ended but the match continues; the next round starts after the break.
+  | {
+      type: "roundOver";
+      round: number;
+      totalRounds: number;
+      winnerName: string;
+      standing: RoundStanding[];
+      nextInSeconds: number;
+    }
+  | {
+      type: "gameOver";
+      scores: ScoreDTO[];
+      winnerName: string;
+      round: number;
+      totalRounds: number;
+      standing: RoundStanding[];
+    }
   | { type: "error"; message: string };
 
 export function encode(msg: ServerMessage | ClientMessage): string {

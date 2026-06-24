@@ -336,6 +336,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     mode,
     wallStyle: oneOf(c.wallStyle, ["maze", "sparse", "open"] as const, d.wallStyle),
     mapSize: oneOf(c.mapSize, ["small", "normal", "large", "random"] as const, d.mapSize),
+    rounds: clampInt(c.rounds, 1, 15, d.rounds),
     tankSpeedPct: clampInt(c.tankSpeedPct, 50, 200, d.tankSpeedPct),
     hp: clampInt(c.hp, 1, 10, d.hp),
     lives,
