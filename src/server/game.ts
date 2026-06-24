@@ -227,7 +227,7 @@ export class Game {
   removePlayer(playerId: string): void {
     this.tanks.delete(playerId);
     this.bullets = this.bullets.filter((b) => b.ownerId !== playerId);
-    this.checkLmsWin();
+    this.checkElimination();
   }
 
   /** Advance the simulation by `dt` seconds. */
@@ -832,13 +832,33 @@ export class Game {
       // Self-destruct / environment (e.g. own ricochet).
       this.pendingEvents.push({ type: 1, killer: 255, victim: victim.index, points: -loss });
     }
-    this.checkLmsWin();
+    this.checkElimination();
     this.checkTeamWin();
   }
 
-  /** Last Man Standing: the game ends when one (or zero) players remain in. */
-  private checkLmsWin(): void {
-    if (this.finished || this.cfg.mode !== "lms" || !this.everMultiple) return;
+  /**
+   * Elimination ending: the match ends once only one side is left standing.
+   * Always active in Last Man Standing; in FFA and Team VS it applies whenever
+   * lives are limited (so players can actually be eliminated). With infinite
+   * lives nobody is ever `out`, so this never triggers in FFA/Teams.
+   */
+  private checkElimination(): void {
+    if (this.finished || !this.everMultiple) return;
+    if (this.cfg.mode !== "lms" && this.cfg.lives <= 0) return;
+
+    if (this.cfg.mode === "teams") {
+      const liveTeams = new Set<number>();
+      for (const t of this.tanks.values()) if (!t.out) liveTeams.add(t.team);
+      if (liveTeams.size <= 1) {
+        this.finished = true;
+        const [team] = liveTeams;
+        this.winnerName =
+          team === undefined ? "" : this.teamNames[team] ?? `Team ${team + 1}`;
+      }
+      return;
+    }
+
+    // FFA / LMS: one (or zero) players remain in.
     const standing = [...this.tanks.values()].filter((t) => !t.out);
     if (standing.length <= 1) {
       this.finished = true;
