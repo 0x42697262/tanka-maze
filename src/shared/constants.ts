@@ -19,12 +19,16 @@ export const WALL_THICKNESS = 6; // rendered/collision thickness of a wall line
 export const WALL_KEEP_DEADEND_RATIO = 0.1;
 
 export const TANK_RADIUS = 11;
-export const TANK_SPEED = 100; // px / second (forward)
-export const TANK_REVERSE_SPEED = 60; // px / second (backward)
+export const TANK_SPEED = 100; // px / second (forward, at 100% speed)
+export const TANK_REVERSE_SPEED = 60; // px / second (backward, at 100% speed)
 export const TANK_TURN_SPEED = 3.2; // radians / second (steering rate)
-export const FIRE_COOLDOWN = 0.5; // seconds between shots
-export const MAX_BULLETS_PER_TANK = 5;
-export const RESPAWN_TIME = 3; // seconds
+
+// Ammunition: a magazine of MAX_AMMO rounds. Emptying it forces a reload that
+// takes RELOAD_SECONDS, then instantly refills the whole magazine.
+export const MAX_AMMO = 5;
+export const RELOAD_SECONDS = 5;
+export const FIRE_COOLDOWN = 0.15; // min seconds between individual shots
+export const RESPAWN_TIME = 3; // default respawn delay (seconds)
 
 export const BULLET_RADIUS = 4;
 export const BULLET_SPEED = 240; // px / second

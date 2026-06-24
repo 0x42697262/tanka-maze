@@ -1,10 +1,14 @@
 import "./style.css";
 import type {
+  GameConfig,
+  GameMode,
   LobbyDTO,
   LobbySummaryDTO,
+  MapSize,
   MazeDTO,
   ScoreDTO,
   ServerMessage,
+  WallStyle,
 } from "../shared/protocol.js";
 import { Input } from "./input.js";
 import { Net } from "./net.js";
@@ -169,7 +173,7 @@ function renderLobbyList(lobbies: LobbySummaryDTO[]): void {
     li.innerHTML = `
       <div class="lobby-info">
         <span class="name">${escapeHtml(l.name)}</span>
-        <span class="sub">host ${escapeHtml(l.hostName)} · first to ${l.winScore} pts</span>
+        <span class="sub">host ${escapeHtml(l.hostName)} · ${modeLabel(l.mode)}</span>
       </div>
       <span class="badge ${l.inGame ? "live" : ""}">
         ${l.inGame ? "● live" : ""} ${l.playerCount}/${l.maxPlayers}
@@ -186,8 +190,7 @@ function renderLobbyList(lobbies: LobbySummaryDTO[]): void {
 
 function renderLobby(lobby: LobbyDTO): void {
   $("lobby-title").textContent = lobby.name;
-  $("lobby-meta").textContent =
-    `${lobby.players.length}/${lobby.maxPlayers} players · first to ${lobby.winScore} pts`;
+  $("lobby-meta").textContent = `${lobby.players.length}/${lobby.maxPlayers} players · ${configSummary(lobby.config)}`;
 
   const ul = $("lobby-players");
   ul.innerHTML = "";
@@ -323,8 +326,25 @@ function frame(): void {
     renderer.render(playerId, now);
     renderLeaderboard();
     updateRespawnOverlay(me);
+    renderAmmo(me);
   }
   requestAnimationFrame(frame);
+}
+
+function renderAmmo(
+  me: { ammo: number; maxAmmo: number; reloadIn: number; alive: boolean } | undefined
+): void {
+  const el = $("ammo");
+  if (!me) {
+    el.innerHTML = "";
+    return;
+  }
+  let html = "";
+  for (let i = 0; i < me.maxAmmo; i++) {
+    html += `<span class="pip ${i < me.ammo ? "" : "spent"}"></span>`;
+  }
+  if (me.reloadIn > 0) html += `<span class="reload">reloading ${Math.ceil(me.reloadIn)}s</span>`;
+  el.innerHTML = html;
 }
 
 // ---------------------------------------------------------------------------
@@ -378,8 +398,22 @@ $("create").onclick = () => {
   commitName();
   const name = ($("lobby-name") as HTMLInputElement).value.trim();
   const maxPlayers = Number(($("max-players") as HTMLInputElement).value) || 4;
-  const winScore = Number(($("win-score") as HTMLInputElement).value) || 300;
-  net.send({ type: "createLobby", name, maxPlayers, winScore });
+  const sel = (id: string) => ($(id) as HTMLSelectElement).value;
+  const num = (id: string, d: number) => Number(($(id) as HTMLInputElement).value) || d;
+  // The server clamps/validates all of this — these are just sensible defaults.
+  const config: GameConfig = {
+    mode: sel("mode") as GameMode,
+    wallStyle: sel("walls") as WallStyle,
+    mapSize: sel("map-size") as MapSize,
+    tankSpeedPct: num("tank-speed", 100),
+    hp: num("hp", 1),
+    lives: Number(($("lives") as HTMLInputElement).value) || 0,
+    respawnSeconds: num("respawn", 3),
+    killPoints: num("kill-points", 60),
+    deathPenaltyPct: Number(($("death-penalty") as HTMLInputElement).value) || 0,
+    winScore: num("win-score", 300),
+  };
+  net.send({ type: "createLobby", name, maxPlayers, config });
 };
 
 $("start").onclick = () => net.send({ type: "startGame" });
@@ -428,6 +462,31 @@ $("back-to-lobby").onclick = () => {
     leaveToMenu();
   }
 };
+
+function modeLabel(mode: GameMode): string {
+  return mode === "lms" ? "Last Man Standing" : "Free-for-all";
+}
+
+const WALL_LABEL: Record<WallStyle, string> = {
+  maze: "Maze",
+  sparse: "Sparse",
+  open: "Open",
+};
+const SIZE_LABEL: Record<MapSize, string> = {
+  small: "Small",
+  normal: "Normal",
+  large: "Large",
+  random: "Random",
+};
+
+function configSummary(c: GameConfig): string {
+  const bits = [modeLabel(c.mode), `${WALL_LABEL[c.wallStyle]} · ${SIZE_LABEL[c.mapSize]} map`];
+  if (c.hp > 1) bits.push(`${c.hp} HP`);
+  if (c.tankSpeedPct !== 100) bits.push(`${c.tankSpeedPct}% speed`);
+  if (c.mode === "lms") bits.push(c.lives > 0 ? `${c.lives} lives` : "1 life");
+  else bits.push(`first to ${c.winScore} pts`);
+  return bits.join(" · ");
+}
 
 function escapeHtml(s: string): string {
   return s.replace(

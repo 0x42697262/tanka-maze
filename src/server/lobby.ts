@@ -1,20 +1,15 @@
 import type { WebSocket } from "ws";
-import {
-  DEFAULT_MAX_PLAYERS,
-  DEFAULT_WIN_SCORE,
-  MAX_WIN_SCORE,
-  MIN_WIN_SCORE,
-  TICK_MS,
-} from "../shared/constants.js";
+import { DEFAULT_MAX_PLAYERS, TICK_MS } from "../shared/constants.js";
 import {
   encode,
+  type GameConfig,
   type InputState,
   type LobbyDTO,
   type LobbySummaryDTO,
   type ServerMessage,
 } from "../shared/protocol.js";
 import { Game } from "./game.js";
-import { Maze, randomMazeDimensions } from "./maze.js";
+import { Maze, mazeDimensions } from "./maze.js";
 
 export interface Client {
   id: string; // public player id (used as tank id)
@@ -45,7 +40,7 @@ export class Lobby {
   name: string;
   hostId: string;
   maxPlayers: number;
-  winScore: number;
+  config: GameConfig;
   members: Client[] = [];
 
   private game: Game | null = null;
@@ -59,14 +54,14 @@ export class Lobby {
     name: string,
     host: Client,
     maxPlayers: number,
-    winScore: number,
+    config: GameConfig,
     onChange: () => void
   ) {
     this.id = id;
     this.name = name;
     this.hostId = host.id;
     this.maxPlayers = clamp(maxPlayers, 2, 8) || DEFAULT_MAX_PLAYERS;
-    this.winScore = clamp(winScore, MIN_WIN_SCORE, MAX_WIN_SCORE) || DEFAULT_WIN_SCORE;
+    this.config = config;
     this.onChange = onChange;
   }
 
@@ -113,12 +108,12 @@ export class Lobby {
     if (requesterId !== this.hostId) return "Only the host can start the game.";
     if (this.members.length < 1) return "Need at least one player.";
 
-    const { cols, rows } = randomMazeDimensions();
-    this.maze = new Maze(cols, rows);
+    const { cols, rows } = mazeDimensions(this.config.mapSize);
+    this.maze = new Maze(cols, rows, this.config.wallStyle);
     this.game = new Game(
       this.maze,
       this.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
-      this.winScore
+      this.config
     );
 
     this.lastStep = Date.now();
@@ -231,8 +226,8 @@ export class Lobby {
       name: this.name,
       hostId: this.hostId,
       maxPlayers: this.maxPlayers,
-      winScore: this.winScore,
       inGame: this.inGame,
+      config: this.config,
       players: this.members.map((m) => ({
         id: m.id,
         name: m.name,
@@ -251,7 +246,7 @@ export class Lobby {
       hostName: host?.name ?? "?",
       playerCount: this.members.length,
       maxPlayers: this.maxPlayers,
-      winScore: this.winScore,
+      mode: this.config.mode,
       inGame: this.inGame,
     };
   }

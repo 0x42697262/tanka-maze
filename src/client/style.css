@@ -157,6 +157,39 @@ input[type="color"] {
   padding: 2px;
   cursor: pointer;
 }
+select {
+  flex: 1;
+  background: #fbf6e9;
+  border: 1.5px solid var(--rule);
+  border-radius: 2px;
+  color: var(--ink);
+  padding: 9px 11px;
+  font-family: var(--font-body);
+  font-size: 15px;
+  outline: none;
+  cursor: pointer;
+}
+select:focus {
+  border-color: var(--blue);
+}
+hr.rule {
+  border: none;
+  border-top: 1.5px dashed var(--rule);
+  margin: 14px 0;
+}
+.row.two {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 8px 10px;
+  align-items: center;
+}
+.row.two label {
+  width: auto;
+}
+.row.two input {
+  max-width: none;
+  width: 100%;
+}
 
 .swatches {
   display: flex;
@@ -374,6 +407,39 @@ kbd {
 }
 #leaderboard-rows li.dead {
   opacity: 0.55;
+}
+
+/* ---- Ammo / reload indicator ---- */
+.ammo {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(243, 235, 214, 0.8);
+  border: 1.5px solid rgba(120, 100, 70, 0.55);
+  border-radius: 4px;
+  padding: 5px 10px;
+  line-height: normal;
+  backdrop-filter: blur(2px);
+  box-shadow: 2px 3px 0 rgba(70, 55, 30, 0.18);
+}
+.ammo .pip {
+  width: 8px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--ink);
+}
+.ammo .pip.spent {
+  background: rgba(47, 42, 34, 0.18);
+}
+.ammo .reload {
+  font-family: var(--font-hand);
+  font-size: 14px;
+  color: var(--stamp);
+  margin-left: 2px;
 }
 
 /* ---- Respawn overlay (over the arena) ---- */

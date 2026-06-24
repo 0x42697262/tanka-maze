@@ -5,15 +5,28 @@ import {
   WALL_KEEP_DEADEND_RATIO,
   WALL_THICKNESS,
 } from "../shared/constants.js";
-import type { MazeDTO, WallDTO } from "../shared/protocol.js";
+import type { MapSize, MazeDTO, WallDTO, WallStyle } from "../shared/protocol.js";
 
 /**
- * Pick randomized maze dimensions for a new game. The total area ranges from
- * half (smallest) to double (largest) the normal size, with the normal
- * aspect ratio roughly preserved (area scales by `s`, so each side by `√s`).
+ * Maze dimensions for the chosen map size. Normal is MAZE_COLS × MAZE_ROWS;
+ * small ≈ half the area, large ≈ double, random anywhere in between. The aspect
+ * ratio is preserved (area scales by `s`, so each side by `√s`).
  */
-export function randomMazeDimensions(): { cols: number; rows: number } {
-  const areaScale = 0.5 + Math.random() * 1.5; // [0.5, 2.0] of normal area
+export function mazeDimensions(size: MapSize): { cols: number; rows: number } {
+  let areaScale: number;
+  switch (size) {
+    case "small":
+      areaScale = 0.5;
+      break;
+    case "large":
+      areaScale = 2.0;
+      break;
+    case "normal":
+      areaScale = 1.0;
+      break;
+    default:
+      areaScale = 0.5 + Math.random() * 1.5; // random: [0.5, 2.0]
+  }
   const linear = Math.sqrt(areaScale);
   return {
     cols: Math.max(4, Math.round(MAZE_COLS * linear)),
@@ -51,19 +64,52 @@ export class Maze {
   private vWalls: boolean[][];
   private hWalls: boolean[][];
 
-  constructor(cols: number, rows: number) {
+  constructor(cols: number, rows: number, wallStyle: WallStyle = "maze") {
     this.cols = cols;
     this.rows = rows;
     this.width = cols * CELL;
     this.height = rows * CELL;
 
+    // Grids start fully walled; the border edges are never removed.
     this.vWalls = makeGrid(cols + 1, rows, true);
     this.hWalls = makeGrid(cols, rows + 1, true);
 
-    this.carve();
-    this.braid();
-    this.ensureCoverage();
+    if (wallStyle === "open") {
+      this.clearInternalWalls(); // bordered empty field (Nokia-snake style)
+    } else if (wallStyle === "sparse") {
+      this.clearInternalWalls();
+      this.scatterWalls(); // a few scattered obstacles
+    } else {
+      this.carve();
+      this.braid();
+      this.ensureCoverage();
+    }
     this.walls = this.buildSegments();
+  }
+
+  /** Remove every internal wall, leaving only the outer border. */
+  private clearInternalWalls(): void {
+    for (let x = 1; x < this.cols; x++) {
+      for (let y = 0; y < this.rows; y++) this.vWalls[x][y] = false;
+    }
+    for (let x = 0; x < this.cols; x++) {
+      for (let y = 1; y < this.rows; y++) this.hWalls[x][y] = false;
+    }
+  }
+
+  /** Sprinkle a handful of internal walls as light cover. */
+  private scatterWalls(): void {
+    const p = 0.07;
+    for (let x = 1; x < this.cols; x++) {
+      for (let y = 0; y < this.rows; y++) {
+        if (Math.random() < p) this.vWalls[x][y] = true;
+      }
+    }
+    for (let x = 0; x < this.cols; x++) {
+      for (let y = 1; y < this.rows; y++) {
+        if (Math.random() < p) this.hWalls[x][y] = true;
+      }
+    }
   }
 
   /** Randomized DFS that removes walls between visited cells (perfect maze). */

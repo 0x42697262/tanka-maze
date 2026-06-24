@@ -220,12 +220,24 @@ export class Renderer {
     ctx.globalAlpha = 1;
     ctx.restore();
 
+    // Health bar (only when HP > 1).
+    if (t.alive && t.maxHp > 1) {
+      const bw = TANK_RADIUS * 2;
+      const bx = t.x - TANK_RADIUS;
+      const by = t.y - TANK_RADIUS - 6;
+      const frac = Math.max(0, Math.min(1, t.hp / t.maxHp));
+      ctx.fillStyle = "rgba(47,42,34,0.35)";
+      ctx.fillRect(bx, by, bw, 3);
+      ctx.fillStyle = frac > 0.5 ? "#4d7a40" : frac > 0.25 ? "#e6863f" : "#b23b2e";
+      ctx.fillRect(bx, by, bw * frac, 3);
+    }
+
     // Name / respawn label (unrotated).
     ctx.font = "bold 11px system-ui, sans-serif";
     ctx.textAlign = "center";
     if (t.alive) {
       ctx.fillStyle = "rgba(13,17,23,0.9)";
-      ctx.fillText(t.name, t.x, t.y - TANK_RADIUS - 8);
+      ctx.fillText(t.name, t.x, t.y - TANK_RADIUS - (t.maxHp > 1 ? 13 : 8));
     } else {
       ctx.fillStyle = "rgba(13,17,23,0.65)";
       ctx.fillText(`${Math.ceil(t.respawnIn)}`, t.x, t.y + 4);

@@ -4,16 +4,15 @@ import {
   BULLET_RADIUS,
   BULLET_SPEED,
   FIRE_COOLDOWN,
-  KILL_POINTS,
-  MAX_BULLETS_PER_TANK,
-  RESPAWN_TIME,
+  MAX_AMMO,
+  RELOAD_SECONDS,
   TANK_COLORS,
   TANK_RADIUS,
   TANK_REVERSE_SPEED,
   TANK_SPEED,
   TANK_TURN_SPEED,
 } from "../shared/constants.js";
-import type { InputState, ScoreDTO, SnapshotDTO } from "../shared/protocol.js";
+import type { GameConfig, InputState, ScoreDTO, SnapshotDTO } from "../shared/protocol.js";
 import { Maze } from "./maze.js";
 
 interface Tank {
@@ -31,6 +30,13 @@ interface Tank {
   /** False while the player's socket is gone. A disconnected tank lingers if
    *  alive, but is not respawned (and is hidden) once killed. */
   connected: boolean;
+  /** Eliminated (ran out of lives) — stays out of the battlefield permanently. */
+  out: boolean;
+  hp: number;
+  maxHp: number;
+  ammo: number;
+  reloadTimer: number;
+  deaths: number;
   score: number;
   respawnIn: number;
   fireCooldown: number;
@@ -49,38 +55,40 @@ interface Bullet {
 }
 
 /**
- * Server-authoritative tank battle inside a maze. Players submit input intents;
- * the game advances on a fixed timestep and produces snapshots to broadcast.
+ * Server-authoritative tank battle. Behaviour is driven by the lobby's
+ * GameConfig (mode, tank speed, HP, lives, scoring, etc.). Players submit input
+ * intents; the game advances on a fixed timestep and emits snapshots.
  */
 export class Game {
   readonly maze: Maze;
+  private cfg: GameConfig;
   private tanks = new Map<string, Tank>();
   private bullets: Bullet[] = [];
   private nextBulletId = 1;
   private spawns: Array<{ x: number; y: number }>;
-  private winScore: number;
   private finished = false;
   private winnerName = "";
   private colorIndex = 0;
   private spawnIndex = 0;
+  private everMultiple = false;
+  private forwardSpeed: number;
+  private reverseSpeed: number;
 
   constructor(
     maze: Maze,
     players: Array<{ id: string; name: string; color?: string }>,
-    winScore: number
+    config: GameConfig
   ) {
     this.maze = maze;
-    this.winScore = winScore;
+    this.cfg = config;
+    this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
+    this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
     this.spawns = shuffle(maze.openCellCenters());
 
     // Initial players take sequential spawn points around the arena.
     for (const p of players) this.addPlayer(p, false);
   }
 
-  /**
-   * Add a tank to the game. Initial players spawn sequentially; late joiners
-   * (`farSpawn`) drop in at the open cell farthest from everyone else.
-   */
   addPlayer(p: { id: string; name: string; color?: string }, farSpawn = true): void {
     if (this.tanks.has(p.id)) return;
     const color = p.color ?? TANK_COLORS[this.colorIndex++ % TANK_COLORS.length];
@@ -99,6 +107,12 @@ export class Game {
       turretAngle: 0,
       alive: true,
       connected: true,
+      out: false,
+      hp: this.cfg.hp,
+      maxHp: this.cfg.hp,
+      ammo: MAX_AMMO,
+      reloadTimer: 0,
+      deaths: 0,
       score: 0,
       respawnIn: 0,
       fireCooldown: 0,
@@ -111,6 +125,7 @@ export class Game {
         aim: 0,
       },
     });
+    if (this.tanks.size > 1) this.everMultiple = true;
   }
 
   get isFinished(): boolean {
@@ -122,21 +137,18 @@ export class Game {
     if (tank) tank.input = input;
   }
 
-  /**
-   * Mark a player's connection state. On reconnect, a tank that died while away
-   * is respawned so the player re-enters the battle; an alive tank is left in
-   * place to resume.
-   */
+  /** Reconnect: a tank that died (but isn't eliminated) is brought back. */
   setConnected(playerId: string, connected: boolean): void {
     const tank = this.tanks.get(playerId);
     if (!tank) return;
     tank.connected = connected;
-    if (connected && !tank.alive) this.respawn(tank);
+    if (connected && !tank.alive && !tank.out) this.respawn(tank);
   }
 
   removePlayer(playerId: string): void {
     this.tanks.delete(playerId);
     this.bullets = this.bullets.filter((b) => b.ownerId !== playerId);
+    this.checkLmsWin();
   }
 
   /** Advance the simulation by `dt` seconds. */
@@ -145,11 +157,17 @@ export class Game {
 
     for (const tank of this.tanks.values()) {
       tank.fireCooldown = Math.max(0, tank.fireCooldown - dt);
+      if (tank.reloadTimer > 0) {
+        tank.reloadTimer -= dt;
+        if (tank.reloadTimer <= 0) {
+          tank.reloadTimer = 0;
+          tank.ammo = MAX_AMMO; // instant full reload
+        }
+      }
 
       if (!tank.alive) {
-        // A disconnected player's tank stays dead (gone from the battlefield)
-        // rather than respawning — it only comes back if they reconnect.
-        if (!tank.connected) continue;
+        // Disconnected or eliminated tanks stay gone; others respawn on a timer.
+        if (!tank.connected || tank.out) continue;
         tank.respawnIn = Math.max(0, tank.respawnIn - dt);
         if (tank.respawnIn === 0) this.respawn(tank);
         continue;
@@ -161,9 +179,7 @@ export class Game {
       let turn = 0;
       if (tank.input.turnLeft) turn -= 1;
       if (tank.input.turnRight) turn += 1;
-      if (turn !== 0) {
-        tank.bodyAngle += turn * TANK_TURN_SPEED * dt;
-      }
+      if (turn !== 0) tank.bodyAngle += turn * TANK_TURN_SPEED * dt;
 
       // Drive: W/S move forward/backward along the heading.
       const oldX = tank.x;
@@ -172,37 +188,35 @@ export class Game {
       if (tank.input.forward) drive += 1;
       if (tank.input.backward) drive -= 1;
       if (drive !== 0) {
-        const speed = drive > 0 ? TANK_SPEED : TANK_REVERSE_SPEED;
+        const speed = drive > 0 ? this.forwardSpeed : this.reverseSpeed;
         const step = drive * speed * dt;
         const dx = Math.cos(tank.bodyAngle) * step;
         const dy = Math.sin(tank.bodyAngle) * step;
-        // Resolve each axis independently so tanks slide along walls.
         const nx = tank.x + dx;
         if (!this.circleHitsWall(nx, tank.y, TANK_RADIUS)) tank.x = nx;
         const ny = tank.y + dy;
         if (!this.circleHitsWall(tank.x, ny, TANK_RADIUS)) tank.y = ny;
       }
-      // Actual velocity (respects wall-sliding) — bullets inherit this.
       tank.vx = dt > 0 ? (tank.x - oldX) / dt : 0;
       tank.vy = dt > 0 ? (tank.y - oldY) / dt : 0;
 
-      if (tank.input.fire && tank.fireCooldown === 0) {
-        this.fire(tank);
-      }
+      if (tank.input.fire && tank.fireCooldown === 0) this.fire(tank);
     }
 
     this.stepBullets(dt);
   }
 
   private fire(tank: Tank): void {
-    const owned = this.bullets.filter((b) => b.ownerId === tank.id).length;
-    if (owned >= MAX_BULLETS_PER_TANK) return;
+    if (tank.reloadTimer > 0) return; // mid-reload
+    if (tank.ammo <= 0) {
+      tank.reloadTimer = RELOAD_SECONDS;
+      return;
+    }
     tank.fireCooldown = FIRE_COOLDOWN;
     const a = tank.turretAngle;
     const muzzle = TANK_RADIUS + BULLET_RADIUS + 2;
-    // Inherit the tank's momentum: muzzle velocity along the aim, plus the
-    // tank's own velocity. Driving forward speeds the shot up, reversing slows
-    // it, and moving while aiming elsewhere makes the shot drift sideways.
+    // Inherit the tank's momentum (faster forward, slower reversing, drifts when
+    // moving while aiming elsewhere).
     this.bullets.push({
       id: this.nextBulletId++,
       ownerId: tank.id,
@@ -213,6 +227,8 @@ export class Game {
       bounces: 0,
       life: BULLET_LIFETIME,
     });
+    tank.ammo -= 1;
+    if (tank.ammo <= 0) tank.reloadTimer = RELOAD_SECONDS; // forced reload
   }
 
   private stepBullets(dt: number): void {
@@ -221,7 +237,6 @@ export class Game {
       b.life -= dt;
       if (b.life <= 0) continue;
 
-      // Sub-step to avoid tunneling through thin walls at high speed.
       const speed = Math.hypot(b.vx, b.vy);
       const steps = Math.max(1, Math.ceil((speed * dt) / (BULLET_RADIUS * 0.9)));
       const sdt = dt / steps;
@@ -255,15 +270,15 @@ export class Game {
   private checkBulletHit(b: Bullet): boolean {
     for (const tank of this.tanks.values()) {
       if (!tank.alive) continue;
-      // A bullet can't hit its owner until it has bounced once (no self-snipe
-      // at point blank, but ricochets are fair game).
+      // Can't hit your own tank until the shot has bounced at least once.
       if (tank.id === b.ownerId && b.bounces === 0) continue;
       const dx = tank.x - b.x;
       const dy = tank.y - b.y;
       const rr = TANK_RADIUS + BULLET_RADIUS;
       if (dx * dx + dy * dy <= rr * rr) {
-        this.kill(tank, b.ownerId);
-        return true;
+        tank.hp -= 1;
+        if (tank.hp <= 0) this.kill(tank, b.ownerId);
+        return true; // bullet is consumed whether or not it was lethal
       }
     }
     return false;
@@ -271,17 +286,38 @@ export class Game {
 
   private kill(victim: Tank, killerId: string): void {
     victim.alive = false;
-    victim.respawnIn = RESPAWN_TIME;
-    // Dying costs a third of your points (integer math, never below 0).
-    victim.score = Math.max(0, victim.score - Math.floor(victim.score / 3));
+    victim.deaths += 1;
+
+    // Death penalty: lose a configurable fraction of points (integer, ≥ 0).
+    const loss = Math.floor((victim.score * this.cfg.deathPenaltyPct) / 100);
+    victim.score = Math.max(0, victim.score - loss);
+
+    // Eliminated if lives are limited and exhausted; otherwise respawns.
+    if (this.cfg.lives > 0 && victim.deaths >= this.cfg.lives) {
+      victim.out = true;
+    } else {
+      victim.respawnIn = this.cfg.respawnSeconds;
+    }
+
     const killer = this.tanks.get(killerId);
     if (killer && killer.id !== victim.id) {
-      killer.score += KILL_POINTS;
+      killer.score += this.cfg.killPoints;
       if (killer.score < 1) killer.score = 1; // a kill always leaves you ≥ 1
-      if (killer.score >= this.winScore) {
+      if (this.cfg.mode === "ffa" && killer.score >= this.cfg.winScore) {
         this.finished = true;
         this.winnerName = killer.name;
       }
+    }
+    this.checkLmsWin();
+  }
+
+  /** Last Man Standing: the game ends when one (or zero) players remain in. */
+  private checkLmsWin(): void {
+    if (this.finished || this.cfg.mode !== "lms" || !this.everMultiple) return;
+    const standing = [...this.tanks.values()].filter((t) => !t.out);
+    if (standing.length <= 1) {
+      this.finished = true;
+      this.winnerName = standing[0]?.name ?? "";
     }
   }
 
@@ -292,6 +328,9 @@ export class Game {
     tank.vx = 0;
     tank.vy = 0;
     tank.alive = true;
+    tank.hp = tank.maxHp;
+    tank.ammo = MAX_AMMO;
+    tank.reloadTimer = 0;
     tank.respawnIn = 0;
     tank.fireCooldown = 0;
   }
@@ -327,10 +366,9 @@ export class Game {
   snapshot(now: number): SnapshotDTO {
     return {
       t: now,
-      // A disconnected player's dead tank is omitted — it's gone from the
-      // battlefield until they reconnect (alive tanks always show).
+      // Hidden: dead tanks whose player is gone (disconnected) or eliminated.
       tanks: [...this.tanks.values()]
-        .filter((t) => t.alive || t.connected)
+        .filter((t) => t.alive || (t.connected && !t.out))
         .map((t) => ({
           id: t.id,
           name: t.name,
@@ -342,6 +380,11 @@ export class Game {
           alive: t.alive,
           score: t.score,
           respawnIn: round(t.respawnIn, 2),
+          hp: t.hp,
+          maxHp: t.maxHp,
+          ammo: t.ammo,
+          maxAmmo: MAX_AMMO,
+          reloadIn: round(t.reloadTimer, 2),
         })),
       bullets: this.bullets.map((b) => ({
         id: b.id,

@@ -2,6 +2,40 @@
 // a discriminant `type` field.
 
 // ---------------------------------------------------------------------------
+// Game configuration (set by the host when creating a lobby)
+// ---------------------------------------------------------------------------
+
+export type GameMode = "ffa" | "lms";
+export type WallStyle = "maze" | "sparse" | "open";
+export type MapSize = "small" | "normal" | "large" | "random";
+
+export interface GameConfig {
+  mode: GameMode;
+  wallStyle: WallStyle;
+  mapSize: MapSize;
+  tankSpeedPct: number; // 50..200 (% of base speed)
+  hp: number; // 1..10 hits to destroy
+  lives: number; // 0 = unlimited respawns; otherwise max respawns
+  respawnSeconds: number; // 1..10
+  killPoints: number; // points per kill (FFA)
+  deathPenaltyPct: number; // 0..90 (% of score lost on death)
+  winScore: number; // points to win (FFA)
+}
+
+export const DEFAULT_GAME_CONFIG: GameConfig = {
+  mode: "ffa",
+  wallStyle: "maze",
+  mapSize: "random",
+  tankSpeedPct: 100,
+  hp: 1,
+  lives: 0,
+  respawnSeconds: 3,
+  killPoints: 60,
+  deathPenaltyPct: 33,
+  winScore: 300,
+};
+
+// ---------------------------------------------------------------------------
 // Data transfer objects
 // ---------------------------------------------------------------------------
 
@@ -19,7 +53,7 @@ export interface LobbySummaryDTO {
   hostName: string;
   playerCount: number;
   maxPlayers: number;
-  winScore: number;
+  mode: GameMode;
   inGame: boolean;
 }
 
@@ -28,8 +62,8 @@ export interface LobbyDTO {
   name: string;
   hostId: string;
   maxPlayers: number;
-  winScore: number;
   inGame: boolean;
+  config: GameConfig;
   players: LobbyPlayerDTO[];
 }
 
@@ -64,6 +98,12 @@ export interface TankDTO {
   score: number;
   /** Seconds left until respawn, 0 when alive. */
   respawnIn: number;
+  hp: number;
+  maxHp: number;
+  ammo: number;
+  maxAmmo: number;
+  /** Seconds left on a reload, 0 when not reloading. */
+  reloadIn: number;
 }
 
 export interface BulletDTO {
@@ -110,7 +150,7 @@ export type ClientMessage =
   | { type: "setName"; name: string }
   | { type: "setColor"; color: string }
   | { type: "listLobbies" }
-  | { type: "createLobby"; name: string; maxPlayers: number; winScore: number }
+  | { type: "createLobby"; name: string; maxPlayers: number; config: GameConfig }
   | { type: "joinLobby"; lobbyId: string }
   | { type: "leaveLobby" }
   | { type: "startGame" }

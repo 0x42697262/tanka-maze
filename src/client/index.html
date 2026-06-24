@@ -46,6 +46,54 @@
             <label for="max-players">Max players</label>
             <input id="max-players" type="number" min="2" max="8" value="4" />
           </div>
+
+          <hr class="rule" />
+          <div class="row">
+            <label for="mode">Mode</label>
+            <select id="mode">
+              <option value="ffa">Free-for-all</option>
+              <option value="lms">Last Man Standing</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="walls">Walls</label>
+            <select id="walls">
+              <option value="maze">Maze</option>
+              <option value="sparse">Sparse cover</option>
+              <option value="open">Open (no maze)</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="map-size">Map size</label>
+            <select id="map-size">
+              <option value="random">Random</option>
+              <option value="small">Small</option>
+              <option value="normal">Normal</option>
+              <option value="large">Large</option>
+            </select>
+          </div>
+
+          <hr class="rule" />
+          <div class="row two">
+            <label for="tank-speed">Tank speed %</label>
+            <input id="tank-speed" type="number" min="50" max="200" step="10" value="100" />
+            <label for="hp">HP</label>
+            <input id="hp" type="number" min="1" max="10" value="1" />
+          </div>
+          <div class="row two">
+            <label for="lives">Lives (0=∞)</label>
+            <input id="lives" type="number" min="0" max="99" value="0" />
+            <label for="respawn">Respawn s</label>
+            <input id="respawn" type="number" min="1" max="10" value="3" />
+          </div>
+
+          <hr class="rule" />
+          <div class="row two">
+            <label for="kill-points">Kill pts</label>
+            <input id="kill-points" type="number" min="1" max="500" value="60" />
+            <label for="death-penalty">Death −%</label>
+            <input id="death-penalty" type="number" min="0" max="90" value="33" />
+          </div>
           <div class="row">
             <label for="win-score">Points to win</label>
             <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
@@ -76,6 +124,9 @@
             <h3>Leaderboard</h3>
             <ol id="leaderboard-rows"></ol>
           </aside>
+
+          <!-- Ammo / reload indicator -->
+          <div id="ammo" class="ammo"></div>
 
           <!-- Local respawn overlay -->
           <div id="respawn" class="respawn hidden">
