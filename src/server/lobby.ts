@@ -60,7 +60,7 @@ export class Lobby {
     this.id = id;
     this.name = name;
     this.hostId = host.id;
-    this.maxPlayers = clamp(maxPlayers, 2, 8) || DEFAULT_MAX_PLAYERS;
+    this.maxPlayers = clamp(maxPlayers, 2, 32) || DEFAULT_MAX_PLAYERS;
     this.config = config;
     this.onChange = onChange;
   }
