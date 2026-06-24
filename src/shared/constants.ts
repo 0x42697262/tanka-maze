@@ -58,6 +58,7 @@ export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomp
 // Rounds: a match is best-of-N; the side with the most round wins takes it.
 export const ROUNDS_DEFAULT = 3;
 export const ROUND_INTERMISSION_SECONDS = 5; // break between rounds
+export const ROUND_START_SHIELD_SECONDS = 2; // spawn protection at each round start
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;

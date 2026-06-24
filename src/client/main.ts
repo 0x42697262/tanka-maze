@@ -63,6 +63,7 @@ let roster = new Map<number, RosterEntry>();
 let arena: { w: number; h: number } | null = null;
 let moveMode: "relative" | "eight" = "relative";
 let roundInfo: { round: number; total: number } = { round: 1, total: 1 };
+let roundStanding: RoundStanding[] = [];
 let roundCountdown: ReturnType<typeof setInterval> | null = null;
 
 const IDLE_INPUT = {
@@ -161,7 +162,7 @@ net.onMessage((msg: ServerMessage) => {
       break;
     case "gameStart":
       roster = new Map(msg.roster.map((r) => [r.index, r]));
-      startGame(msg.maze, msg.round, msg.totalRounds);
+      startGame(msg.maze, msg.round, msg.totalRounds, msg.standing);
       // The first snapshot arrives next as a binary frame.
       break;
     case "roster":
@@ -351,7 +352,7 @@ function leaveToMenu(): void {
 // ---------------------------------------------------------------------------
 // Game lifecycle
 // ---------------------------------------------------------------------------
-function startGame(maze: MazeDTO, round = 1, totalRounds = 1): void {
+function startGame(maze: MazeDTO, round = 1, totalRounds = 1, standing: RoundStanding[] = []): void {
   renderer.setMaze(maze);
   const adv = currentLobby?.config.adv ?? DEFAULT_GAME_CONFIG.adv;
   renderer.setParams(adv.tankRadius, adv.bulletRadius);
@@ -362,11 +363,13 @@ function startGame(maze: MazeDTO, round = 1, totalRounds = 1): void {
     roundCountdown = null;
   }
   roundInfo = { round, total: totalRounds };
+  roundStanding = standing;
   lastInputBytes = null; // force the first input of the new game to send
   $("gh-lobby").textContent = currentLobby
     ? `${currentLobby.name} · ${configSummary(currentLobby.config)}`
     : "";
   renderRoundBadge();
+  renderSeriesBoard();
   closePause();
   $("gameover").classList.add("hidden");
   $("roundover").classList.add("hidden");
@@ -391,6 +394,17 @@ function renderRoundBadge(): void {
   }
 }
 
+/** In-game round scoreboard in the leaderboard sidebar (multi-round matches). */
+function renderSeriesBoard(): void {
+  const board = $("series-board");
+  if (roundInfo.total <= 1 || roundStanding.length === 0) {
+    board.classList.add("hidden");
+    return;
+  }
+  $("series-board-rows").innerHTML = standingHtml(roundStanding);
+  board.classList.remove("hidden");
+}
+
 /** Markup for a series tally (round wins per player/team), best first. */
 function standingHtml(standing: RoundStanding[]): string {
   return standing
@@ -404,6 +418,11 @@ function standingHtml(standing: RoundStanding[]): string {
 }
 
 /** Between-rounds intermission overlay with the series tally + countdown. */
+/**
+ * Between-rounds indication. The game is NOT paused — the arena keeps animating
+ * with players locked — so this is a slim, non-blocking banner, not a modal. The
+ * full tally lives in the persistent series scoreboard in the sidebar.
+ */
 function showRoundOver(
   round: number,
   total: number,
@@ -412,10 +431,13 @@ function showRoundOver(
   nextInSeconds: number
 ): void {
   roundInfo = { round, total };
+  roundStanding = standing;
   renderRoundBadge();
+  renderSeriesBoard();
   $("respawn").classList.add("hidden");
-  $("ro-title").textContent = winnerName ? `🏆 ${winnerName} takes round ${round}` : `Round ${round} drawn`;
-  $("ro-standing").innerHTML = standingHtml(standing);
+  $("ro-title").textContent = winnerName
+    ? `🏆 ${winnerName} takes round ${round}`
+    : `Round ${round} drawn`;
   const countEl = $("ro-count");
   let secs = Math.max(1, Math.round(nextInSeconds));
   countEl.textContent = String(secs);

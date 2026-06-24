@@ -1,6 +1,7 @@
 import {
   MAX_POWERUPS_ON_MAP,
   POWERUP_RADIUS,
+  ROUND_START_SHIELD_SECONDS,
   TANK_COLORS,
   TANK_REVERSE_SPEED,
   TANK_SPEED,
@@ -162,6 +163,14 @@ export class Game {
 
     // Initial players take sequential spawn points around the arena.
     for (const p of players) this.addPlayer(p, false);
+    this.grantSpawnShields(); // round 1 begins with spawn protection
+  }
+
+  /** Brief spawn protection given to every live tank when a round starts. */
+  private grantSpawnShields(): void {
+    for (const t of this.tanks.values()) {
+      if (t.alive) t.shieldTimer = ROUND_START_SHIELD_SECONDS;
+    }
   }
 
   addPlayer(
@@ -260,7 +269,7 @@ export class Game {
 
   /** Advance the simulation by `dt` seconds. */
   step(dt: number): void {
-    if (this.finished || this.roundOver) return; // frozen at match/round end
+    if (this.finished) return; // frozen only once the whole match is decided
 
     // Transient effects only live for the snapshot taken right after this step.
     this.pendingBlasts = [];
@@ -278,7 +287,7 @@ export class Game {
         tank.laserCharge -= dt;
         if (tank.laserCharge <= 0) {
           tank.laserCharge = 0;
-          if (tank.alive) this.fireLaser(tank, tank.turretAngle);
+          if (tank.alive && !this.roundOver) this.fireLaser(tank, tank.turretAngle);
         }
       }
       if (tank.reloadTimer > 0) {
@@ -294,6 +303,14 @@ export class Game {
         if (!tank.connected || tank.out) continue;
         tank.respawnIn = Math.max(0, tank.respawnIn - dt);
         if (tank.respawnIn === 0) this.respawn(tank);
+        continue;
+      }
+
+      // Between rounds the world keeps animating (bullets fly, blasts settle)
+      // but every player is locked out of all control until the next round.
+      if (this.roundOver) {
+        tank.vx = 0;
+        tank.vy = 0;
         continue;
       }
 
@@ -712,6 +729,7 @@ export class Game {
   /** Area damage from an explosive round; emits a blast for clients to render. */
   private explode(x: number, y: number, ownerId: string): void {
     this.pendingBlasts.push({ x, y });
+    if (this.roundOver) return; // between rounds: blast shows, but no damage
     const r2 = this.adv.explosionRadius * this.adv.explosionRadius;
     for (const tank of this.tanks.values()) {
       if (!tank.alive || tank.shieldTimer > 0) continue;
@@ -727,6 +745,7 @@ export class Game {
 
   /** Returns true if the bullet struck a tank (and should be consumed). */
   private checkBulletHit(b: Bullet): boolean {
+    if (this.roundOver) return false; // between rounds: rounds fly through players
     const rr = this.adv.tankRadius + this.adv.bulletRadius;
     for (const tank of this.tanks.values()) {
       if (!tank.alive) continue;
@@ -982,6 +1001,7 @@ export class Game {
       t.shieldTimer = 0;
       t.laserCharge = 0;
     }
+    this.grantSpawnShields(); // every round opens with spawn protection
   }
 
   /**

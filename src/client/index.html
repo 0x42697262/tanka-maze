@@ -283,10 +283,20 @@
                 <p>Respawning in <span id="respawn-count">3</span></p>
               </div>
             </div>
+
+            <!-- Between-rounds banner (non-blocking; the arena keeps animating) -->
+            <div id="roundover" class="round-banner hidden">
+              <span id="ro-title" class="ro-title"></span>
+              <span class="ro-next"><span id="ro-sub"></span><span id="ro-count"></span>s</span>
+            </div>
           </div>
 
           <!-- Leaderboard (placed outside the arena) -->
           <aside id="leaderboard" class="leaderboard">
+            <div id="series-board" class="series-board hidden">
+              <h3>Series</h3>
+              <ul id="series-board-rows" class="series-rows"></ul>
+            </div>
             <h3>Leaderboard</h3>
             <ol id="leaderboard-rows"></ol>
             <ul id="killlog" class="killlog"></ul>
@@ -302,15 +312,6 @@
           <p class="status">The battle rages on without you.</p>
           <button id="resume" class="primary">Resume</button>
           <button id="leave-game" class="ghost">Leave Game</button>
-        </div>
-      </div>
-
-      <!-- Round intermission overlay (between rounds of a multi-round match) -->
-      <div id="roundover" class="overlay hidden">
-        <div class="card paper-card">
-          <h2 id="ro-title"></h2>
-          <ul id="ro-standing" class="series-rows"></ul>
-          <p class="status"><span id="ro-sub"></span><span id="ro-count"></span>s…</p>
         </div>
       </div>
 

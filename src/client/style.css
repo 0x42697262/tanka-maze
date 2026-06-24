@@ -653,6 +653,52 @@ kbd {
   font-size: 18px;
 }
 
+/* ---- Between-rounds banner (non-blocking; arena keeps animating) ---- */
+.round-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-1deg);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(243, 235, 214, 0.94);
+  border: 2px solid var(--stamp-dark);
+  border-radius: 4px;
+  padding: 8px 18px;
+  line-height: normal;
+  white-space: nowrap;
+  box-shadow: 3px 4px 0 rgba(70, 55, 30, 0.25);
+  font-family: var(--font-hand);
+}
+.round-banner.hidden {
+  display: none;
+}
+.round-banner .ro-title {
+  font-size: 19px;
+  color: var(--stamp);
+}
+.round-banner .ro-next {
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- In-game round scoreboard (sidebar) ---- */
+.series-board {
+  margin-bottom: 10px;
+}
+.series-board.hidden {
+  display: none;
+}
+.series-board .series-rows {
+  margin: 0 0 4px;
+}
+.series-board .series-rows li {
+  font-size: 12.5px;
+  padding: 3px 2px;
+}
+
 /* ---- Overlays (pause / game over) ---- */
 .overlay {
   position: fixed;

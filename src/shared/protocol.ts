@@ -379,7 +379,14 @@ export type ServerMessage =
   | { type: "lobbyClosed"; reason: string }
   // Snapshots are sent as binary frames (see shared/wire.ts), not JSON.
   // gameStart carries the maze + roster; the first snapshot follows as binary.
-  | { type: "gameStart"; maze: MazeDTO; roster: RosterEntry[]; round: number; totalRounds: number }
+  | {
+      type: "gameStart";
+      maze: MazeDTO;
+      roster: RosterEntry[];
+      round: number;
+      totalRounds: number;
+      standing: RoundStanding[];
+    }
   | { type: "roster"; roster: RosterEntry[] }
   // A round ended but the match continues; the next round starts after the break.
   | {

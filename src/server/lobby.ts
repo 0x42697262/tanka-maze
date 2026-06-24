@@ -209,6 +209,7 @@ export class Lobby {
       roster: this.game.roster(),
       round: this.game.currentRound,
       totalRounds: this.game.roundCount,
+      standing: this.game.roundStandings(),
     });
     this.broadcastSnapshot(true); // initial state (binary)
     this.onChange(); // lobby list now shows inGame
@@ -239,6 +240,7 @@ export class Lobby {
         roster: this.game.roster(),
         round: this.game.currentRound,
         totalRounds: this.game.roundCount,
+        standing: this.game.roundStandings(),
       })
     );
     client.ws.send(encodeSnapshot(this.game.snapshot(Date.now())));
@@ -329,8 +331,10 @@ export class Lobby {
       return;
     }
 
-    // A round ended but the match continues: announce it, then start the next
-    // round on a fresh maze after a short intermission.
+    // A round ended but the match continues: announce it once, then start the
+    // next round on a fresh maze after a short intermission. The simulation
+    // keeps running (players locked, bullets still in flight) so the arena
+    // stays alive on screen — hence we fall through to the snapshot broadcast.
     if (this.game.isRoundOver && !this.roundBreak) {
       this.broadcast({
         type: "roundOver",
@@ -341,9 +345,7 @@ export class Lobby {
         nextInSeconds: ROUND_INTERMISSION_SECONDS,
       });
       this.roundBreak = setTimeout(() => this.beginNextRound(), ROUND_INTERMISSION_SECONDS * 1000);
-      return;
     }
-    if (this.game.isRoundOver) return; // mid-intermission; world is frozen
 
     // Broadcast only every Nth tick (network rate < sim rate); still gated so an
     // unchanged world sends nothing. Force a send on ticks that produced a blast
@@ -368,6 +370,7 @@ export class Lobby {
       roster: this.game.roster(),
       round: this.game.currentRound,
       totalRounds: this.game.roundCount,
+      standing: this.game.roundStandings(),
     });
     this.broadcastSnapshot(true);
   }
