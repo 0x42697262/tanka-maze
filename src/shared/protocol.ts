@@ -1,6 +1,76 @@
 // Wire protocol shared by client and server. All messages are JSON objects with
 // a discriminant `type` field.
 
+import {
+  BULLET_LIFETIME,
+  BULLET_MAX_BOUNCES,
+  BULLET_RADIUS,
+  BULLET_SPEED,
+  CELL,
+  EXPLOSION_RADIUS,
+  FIRE_COOLDOWN,
+  LASER_DELAY,
+  LASER_RANGE,
+  MAX_AMMO,
+  RELOAD_SECONDS,
+  SHIELD_SECONDS,
+  SNIPER_SPEED_MULT,
+  SPEED_BOOST_MULT,
+  SPEED_BOOST_SECONDS,
+  TANK_RADIUS,
+  TANK_TURN_SPEED,
+  TRACKING_TURN_RATE,
+  WALL_THICKNESS,
+} from "./constants.js";
+
+/**
+ * Advanced, normally-hardcoded tuning values, exposed so a host can override
+ * every object's behaviour. Defaults mirror the engine constants.
+ */
+export interface AdvancedConfig {
+  tankRadius: number;
+  tankTurnSpeed: number; // rad/s
+  fireCooldown: number; // s between shots
+  maxAmmo: number;
+  reloadSeconds: number;
+  bulletSpeed: number; // px/s
+  bulletRadius: number;
+  bulletBounces: number;
+  bulletLifetime: number; // s
+  cellSize: number; // px per maze cell
+  wallThickness: number; // px
+  speedBoostMult: number;
+  speedBoostSeconds: number;
+  shieldSeconds: number;
+  laserDelay: number; // s windup
+  sniperSpeedMult: number;
+  explosionRadius: number;
+  trackingTurnRate: number; // rad/s
+  laserRange: number; // px total beam length
+}
+
+export const DEFAULT_ADVANCED: AdvancedConfig = {
+  tankRadius: TANK_RADIUS,
+  tankTurnSpeed: TANK_TURN_SPEED,
+  fireCooldown: FIRE_COOLDOWN,
+  maxAmmo: MAX_AMMO,
+  reloadSeconds: RELOAD_SECONDS,
+  bulletSpeed: BULLET_SPEED,
+  bulletRadius: BULLET_RADIUS,
+  bulletBounces: BULLET_MAX_BOUNCES,
+  bulletLifetime: BULLET_LIFETIME,
+  cellSize: CELL,
+  wallThickness: WALL_THICKNESS,
+  speedBoostMult: SPEED_BOOST_MULT,
+  speedBoostSeconds: SPEED_BOOST_SECONDS,
+  shieldSeconds: SHIELD_SECONDS,
+  laserDelay: LASER_DELAY,
+  sniperSpeedMult: SNIPER_SPEED_MULT,
+  explosionRadius: EXPLOSION_RADIUS,
+  trackingTurnRate: TRACKING_TURN_RATE,
+  laserRange: LASER_RANGE,
+};
+
 // ---------------------------------------------------------------------------
 // Game configuration (set by the host when creating a lobby)
 // ---------------------------------------------------------------------------
@@ -34,6 +104,8 @@ export interface GameConfig {
   deathPenaltyPct: number; // 0..90 (% of score lost on death)
   winScore: number; // points to win (FFA / total per team in Team VS)
   teamCount: number; // 2..4 (Team VS only)
+  friendlyFire: boolean; // Team VS: allow damaging teammates
+  adv: AdvancedConfig; // advanced engine tuning
   // Power-ups
   powerups: boolean; // spawn pickups on the map
   powerupEverySeconds: number; // spawn cadence
@@ -53,6 +125,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   deathPenaltyPct: 33,
   winScore: 300,
   teamCount: 2,
+  friendlyFire: false,
+  adv: DEFAULT_ADVANCED,
   powerups: false,
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,

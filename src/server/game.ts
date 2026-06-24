@@ -1,30 +1,14 @@
 import {
-  BULLET_LIFETIME,
-  BULLET_MAX_BOUNCES,
-  BULLET_RADIUS,
-  BULLET_SPEED,
-  EXPLOSION_RADIUS,
-  FIRE_COOLDOWN,
-  LASER_DELAY,
-  LASER_RANGE,
-  MAX_AMMO,
   MAX_POWERUPS_ON_MAP,
   POWERUP_RADIUS,
-  RELOAD_SECONDS,
-  SHIELD_SECONDS,
-  SNIPER_SPEED_MULT,
-  SPEED_BOOST_MULT,
-  SPEED_BOOST_SECONDS,
   TANK_COLORS,
-  TANK_RADIUS,
   TANK_REVERSE_SPEED,
   TANK_SPEED,
-  TANK_TURN_SPEED,
   TEAM_COLORS,
-  TRACKING_TURN_RATE,
 } from "../shared/constants.js";
 import {
   POWERUP_TYPES,
+  type AdvancedConfig,
   type BulletKind,
   type GameConfig,
   type InputState,
@@ -108,6 +92,7 @@ interface Powerup {
 export class Game {
   readonly maze: Maze;
   private cfg: GameConfig;
+  private adv: AdvancedConfig;
   private tanks = new Map<string, Tank>();
   private bullets: Bullet[] = [];
   private nextBulletId = 1;
@@ -133,6 +118,7 @@ export class Game {
   ) {
     this.maze = maze;
     this.cfg = config;
+    this.adv = config.adv;
     this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
     this.powerupTimer = config.powerupEverySeconds;
@@ -171,7 +157,7 @@ export class Game {
       out: false,
       hp: this.cfg.hp,
       maxHp: this.cfg.hp,
-      ammo: MAX_AMMO,
+      ammo: this.adv.maxAmmo,
       reloadTimer: 0,
       deaths: 0,
       score: 0,
@@ -244,7 +230,7 @@ export class Game {
         tank.reloadTimer -= dt;
         if (tank.reloadTimer <= 0) {
           tank.reloadTimer = 0;
-          tank.ammo = MAX_AMMO; // instant full reload
+          tank.ammo = this.adv.maxAmmo; // instant full reload
         }
       }
 
@@ -262,7 +248,7 @@ export class Game {
       let turn = 0;
       if (tank.input.turnLeft) turn -= 1;
       if (tank.input.turnRight) turn += 1;
-      if (turn !== 0) tank.bodyAngle += turn * TANK_TURN_SPEED * dt;
+      if (turn !== 0) tank.bodyAngle += turn * this.adv.tankTurnSpeed * dt;
 
       // Drive: W/S move forward/backward along the heading.
       const oldX = tank.x;
@@ -272,14 +258,14 @@ export class Game {
       if (tank.input.backward) drive -= 1;
       if (drive !== 0) {
         const base = drive > 0 ? this.forwardSpeed : this.reverseSpeed;
-        const speed = tank.boostTimer > 0 ? base * SPEED_BOOST_MULT : base;
+        const speed = tank.boostTimer > 0 ? base * this.adv.speedBoostMult : base;
         const step = drive * speed * dt;
         const dx = Math.cos(tank.bodyAngle) * step;
         const dy = Math.sin(tank.bodyAngle) * step;
         const nx = tank.x + dx;
-        if (!this.circleHitsWall(nx, tank.y, TANK_RADIUS)) tank.x = nx;
+        if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
         const ny = tank.y + dy;
-        if (!this.circleHitsWall(tank.x, ny, TANK_RADIUS)) tank.y = ny;
+        if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
       }
       tank.vx = dt > 0 ? (tank.x - oldX) / dt : 0;
       tank.vy = dt > 0 ? (tank.y - oldY) / dt : 0;
@@ -300,16 +286,16 @@ export class Game {
     if (!usingWeapon) {
       if (tank.reloadTimer > 0) return; // mid-reload
       if (tank.ammo <= 0) {
-        tank.reloadTimer = RELOAD_SECONDS;
+        tank.reloadTimer = this.adv.reloadSeconds;
         return;
       }
     }
-    tank.fireCooldown = FIRE_COOLDOWN;
+    tank.fireCooldown = this.adv.fireCooldown;
     const a = tank.turretAngle;
 
     if (weapon === "laser") {
-      // Begin the windup; the beam fires after LASER_DELAY (see step()).
-      tank.laserCharge = LASER_DELAY;
+      // Begin the windup; the beam fires after this.adv.laserDelay (see step()).
+      tank.laserCharge = this.adv.laserDelay;
       tank.weaponCharges -= 1;
       if (tank.weaponCharges <= 0) tank.weapon = null;
       return;
@@ -318,8 +304,8 @@ export class Game {
     {
       // Only sniper / explosive / tracking reach here (laser & buffs handled above).
       const kind: BulletKind = (weapon ?? "normal") as BulletKind;
-      const speed = kind === "sniper" ? BULLET_SPEED * SNIPER_SPEED_MULT : BULLET_SPEED;
-      const muzzle = TANK_RADIUS + BULLET_RADIUS + 2;
+      const speed = kind === "sniper" ? this.adv.bulletSpeed * this.adv.sniperSpeedMult : this.adv.bulletSpeed;
+      const muzzle = this.adv.tankRadius + this.adv.bulletRadius + 2;
       // Sniper flies straight & fast (no momentum drift); others inherit it.
       const inheritVx = kind === "sniper" ? 0 : tank.vx;
       const inheritVy = kind === "sniper" ? 0 : tank.vy;
@@ -331,7 +317,7 @@ export class Game {
         vx: Math.cos(a) * speed + inheritVx,
         vy: Math.sin(a) * speed + inheritVy,
         bounces: 0,
-        life: BULLET_LIFETIME,
+        life: this.adv.bulletLifetime,
         kind,
         wallPierce: 0,
         pierceTanks: kind === "sniper",
@@ -345,35 +331,35 @@ export class Game {
       if (tank.weaponCharges <= 0) tank.weapon = null;
     } else {
       tank.ammo -= 1;
-      if (tank.ammo <= 0) tank.reloadTimer = RELOAD_SECONDS; // forced reload
+      if (tank.ammo <= 0) tank.reloadTimer = this.adv.reloadSeconds; // forced reload
     }
   }
 
   /**
    * Hitscan laser: an instant beam that reflects off walls, accumulating up to
-   * LASER_RANGE total length, damaging each tank it crosses (once).
+   * this.adv.laserRange total length, damaging each tank it crosses (once).
    */
   private fireLaser(tank: Tank, angle: number): void {
     const STEP = 3;
     let dx = Math.cos(angle);
     let dy = Math.sin(angle);
-    let x = tank.x + dx * (TANK_RADIUS + 2);
-    let y = tank.y + dy * (TANK_RADIUS + 2);
-    let remaining = LASER_RANGE;
+    let x = tank.x + dx * (this.adv.tankRadius + 2);
+    let y = tank.y + dy * (this.adv.tankRadius + 2);
+    let remaining = this.adv.laserRange;
     const pts: Array<{ x: number; y: number }> = [{ x, y }];
     const hit = new Set<string>();
     let guard = 0;
 
     while (remaining > 0 && guard++ < 4000) {
       const nx = x + dx * STEP;
-      if (this.circleHitsWall(nx, y, BULLET_RADIUS)) {
+      if (this.circleHitsWall(nx, y, this.adv.bulletRadius)) {
         dx = -dx;
         pts.push({ x, y });
       } else {
         x = nx;
       }
       const ny = y + dy * STEP;
-      if (this.circleHitsWall(x, ny, BULLET_RADIUS)) {
+      if (this.circleHitsWall(x, ny, this.adv.bulletRadius)) {
         dy = -dy;
         pts.push({ x, y });
       } else {
@@ -385,7 +371,7 @@ export class Game {
       for (const t of this.tanks.values()) {
         if (!t.alive || t.id === tank.id || t.shieldTimer > 0 || hit.has(t.id)) continue;
         if (this.isFriendly(tank.id, t)) continue;
-        if ((t.x - x) ** 2 + (t.y - y) ** 2 <= TANK_RADIUS * TANK_RADIUS) {
+        if ((t.x - x) ** 2 + (t.y - y) ** 2 <= this.adv.tankRadius * this.adv.tankRadius) {
           hit.add(t.id);
           t.hp -= 1;
           if (t.hp <= 0) this.kill(t, tank.id);
@@ -400,9 +386,9 @@ export class Game {
     }
   }
 
-  /** True if owner and tank are on the same team (Team VS friendly fire off). */
+  /** True if owner and tank are teammates and friendly fire is off. */
   private isFriendly(ownerId: string, tank: Tank): boolean {
-    if (this.cfg.mode !== "teams") return false;
+    if (this.cfg.mode !== "teams" || this.cfg.friendlyFire) return false;
     const o = this.tanks.get(ownerId);
     return !!o && o.id !== tank.id && o.team === tank.team;
   }
@@ -416,7 +402,7 @@ export class Game {
       if (b.kind === "tracking") this.steerHoming(b, dt);
 
       const speed = Math.hypot(b.vx, b.vy);
-      const steps = Math.max(1, Math.ceil((speed * dt) / (BULLET_RADIUS * 0.9)));
+      const steps = Math.max(1, Math.ceil((speed * dt) / (this.adv.bulletRadius * 0.9)));
       const sdt = dt / steps;
       let dead = false;
 
@@ -431,26 +417,26 @@ export class Game {
           }
         } else {
           const nx = b.x + b.vx * sdt;
-          if (this.circleHitsWall(nx, b.y, BULLET_RADIUS)) {
+          if (this.circleHitsWall(nx, b.y, this.adv.bulletRadius)) {
             if (b.kind === "explosive") {
               this.explode(b.x, b.y, b.ownerId);
               dead = true;
             } else {
               b.vx = -b.vx;
-              if (++b.bounces > BULLET_MAX_BOUNCES) dead = true;
+              if (++b.bounces > this.adv.bulletBounces) dead = true;
             }
           } else {
             b.x = nx;
           }
           if (!dead) {
             const ny = b.y + b.vy * sdt;
-            if (this.circleHitsWall(b.x, ny, BULLET_RADIUS)) {
+            if (this.circleHitsWall(b.x, ny, this.adv.bulletRadius)) {
               if (b.kind === "explosive") {
                 this.explode(b.x, b.y, b.ownerId);
                 dead = true;
               } else {
                 b.vy = -b.vy;
-                if (++b.bounces > BULLET_MAX_BOUNCES) dead = true;
+                if (++b.bounces > this.adv.bulletBounces) dead = true;
               }
             } else {
               b.y = ny;
@@ -470,12 +456,12 @@ export class Game {
   private steerHoming(b: Bullet, dt: number): void {
     const target = this.nearestTarget(b.x, b.y, b.ownerId);
     if (!target) return;
-    const speed = Math.hypot(b.vx, b.vy) || BULLET_SPEED;
+    const speed = Math.hypot(b.vx, b.vy) || this.adv.bulletSpeed;
     const cur = Math.atan2(b.vy, b.vx);
     const want = Math.atan2(target.y - b.y, target.x - b.x);
     let diff = ((want - cur + Math.PI) % (Math.PI * 2)) - Math.PI;
     if (diff < -Math.PI) diff += Math.PI * 2;
-    const max = TRACKING_TURN_RATE * dt;
+    const max = this.adv.trackingTurnRate * dt;
     const turn = Math.max(-max, Math.min(max, diff));
     const a = cur + turn;
     b.vx = Math.cos(a) * speed;
@@ -508,7 +494,7 @@ export class Game {
   /** Area damage from an explosive round; emits a blast for clients to render. */
   private explode(x: number, y: number, ownerId: string): void {
     this.pendingBlasts.push({ x, y });
-    const r2 = EXPLOSION_RADIUS * EXPLOSION_RADIUS;
+    const r2 = this.adv.explosionRadius * this.adv.explosionRadius;
     for (const tank of this.tanks.values()) {
       if (!tank.alive || tank.shieldTimer > 0) continue;
       if (this.isFriendly(ownerId, tank)) continue;
@@ -523,7 +509,7 @@ export class Game {
 
   /** Returns true if the bullet struck a tank (and should be consumed). */
   private checkBulletHit(b: Bullet): boolean {
-    const rr = TANK_RADIUS + BULLET_RADIUS;
+    const rr = this.adv.tankRadius + this.adv.bulletRadius;
     for (const tank of this.tanks.values()) {
       if (!tank.alive) continue;
       if (tank.id === b.ownerId && b.bounces === 0) continue; // no point-blank self-hit
@@ -583,7 +569,7 @@ export class Game {
     }
 
     // Pickups.
-    const reach = TANK_RADIUS + POWERUP_RADIUS;
+    const reach = this.adv.tankRadius + POWERUP_RADIUS;
     const reach2 = reach * reach;
     for (const tank of this.tanks.values()) {
       if (!tank.alive) continue;
@@ -601,9 +587,9 @@ export class Game {
 
   private applyPowerup(tank: Tank, type: PowerupType): void {
     if (type === "speed") {
-      tank.boostTimer = SPEED_BOOST_SECONDS;
+      tank.boostTimer = this.adv.speedBoostSeconds;
     } else if (type === "shield") {
-      tank.shieldTimer = SHIELD_SECONDS;
+      tank.shieldTimer = this.adv.shieldSeconds;
     } else {
       tank.weapon = type;
       tank.weaponCharges = this.cfg.powerupCharges;
@@ -672,7 +658,7 @@ export class Game {
     tank.vy = 0;
     tank.alive = true;
     tank.hp = tank.maxHp;
-    tank.ammo = MAX_AMMO;
+    tank.ammo = this.adv.maxAmmo;
     tank.reloadTimer = 0;
     tank.respawnIn = 0;
     tank.fireCooldown = 0;
@@ -732,7 +718,7 @@ export class Game {
           hp: t.hp,
           maxHp: t.maxHp,
           ammo: t.ammo,
-          maxAmmo: MAX_AMMO,
+          maxAmmo: this.adv.maxAmmo,
           reloadIn: round(t.reloadTimer, 2),
           weapon: t.weapon,
           weaponCharges: t.weaponCharges,

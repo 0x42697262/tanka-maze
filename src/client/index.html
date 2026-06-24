@@ -76,6 +76,13 @@
             <input id="team-count" type="number" min="2" max="4" value="2" />
           </div>
           <div class="row">
+            <label for="friendly-fire">Friendly fire</label>
+            <select id="friendly-fire">
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </div>
+          <div class="row">
             <label for="walls">Walls</label>
             <select id="walls">
               <option value="maze">Maze</option>
@@ -136,6 +143,70 @@
           <div class="row">
             <label for="pwr-despawn">Despawn s</label>
             <input id="pwr-despawn" type="number" min="3" max="60" value="12" />
+          </div>
+
+          <hr class="rule" />
+          <button id="adv-toggle" class="ghost small" type="button">⚙ Advanced options</button>
+          <div id="adv-panel" class="hidden">
+            <p class="adv-note">Fine-tune every object. Defaults match the engine.</p>
+            <div class="row two">
+              <label for="adv-tankRadius">Tank size</label>
+              <input id="adv-tankRadius" type="number" min="4" max="40" step="1" />
+              <label for="adv-tankTurnSpeed">Turn rate</label>
+              <input id="adv-tankTurnSpeed" type="number" min="0.5" max="12" step="0.1" />
+            </div>
+            <div class="row two">
+              <label for="adv-fireCooldown">Fire cd s</label>
+              <input id="adv-fireCooldown" type="number" min="0.05" max="5" step="0.05" />
+              <label for="adv-maxAmmo">Magazine</label>
+              <input id="adv-maxAmmo" type="number" min="1" max="50" step="1" />
+            </div>
+            <div class="row two">
+              <label for="adv-reloadSeconds">Reload s</label>
+              <input id="adv-reloadSeconds" type="number" min="0.2" max="20" step="0.1" />
+              <label for="adv-bulletSpeed">Bullet speed</label>
+              <input id="adv-bulletSpeed" type="number" min="40" max="2000" step="10" />
+            </div>
+            <div class="row two">
+              <label for="adv-bulletRadius">Bullet size</label>
+              <input id="adv-bulletRadius" type="number" min="1" max="30" step="1" />
+              <label for="adv-bulletBounces">Bounces</label>
+              <input id="adv-bulletBounces" type="number" min="0" max="20" step="1" />
+            </div>
+            <div class="row two">
+              <label for="adv-bulletLifetime">Bullet life s</label>
+              <input id="adv-bulletLifetime" type="number" min="0.5" max="20" step="0.5" />
+              <label for="adv-cellSize">Cell size</label>
+              <input id="adv-cellSize" type="number" min="40" max="200" step="4" />
+            </div>
+            <div class="row two">
+              <label for="adv-wallThickness">Wall thick</label>
+              <input id="adv-wallThickness" type="number" min="2" max="30" step="1" />
+              <label for="adv-explosionRadius">Blast radius</label>
+              <input id="adv-explosionRadius" type="number" min="10" max="300" step="2" />
+            </div>
+            <div class="row two">
+              <label for="adv-speedBoostMult">Boost ×</label>
+              <input id="adv-speedBoostMult" type="number" min="1" max="4" step="0.1" />
+              <label for="adv-speedBoostSeconds">Boost s</label>
+              <input id="adv-speedBoostSeconds" type="number" min="1" max="60" step="1" />
+            </div>
+            <div class="row two">
+              <label for="adv-shieldSeconds">Shield s</label>
+              <input id="adv-shieldSeconds" type="number" min="1" max="60" step="1" />
+              <label for="adv-laserDelay">Laser windup</label>
+              <input id="adv-laserDelay" type="number" min="0" max="5" step="0.1" />
+            </div>
+            <div class="row two">
+              <label for="adv-laserRange">Laser range</label>
+              <input id="adv-laserRange" type="number" min="100" max="5000" step="50" />
+              <label for="adv-sniperSpeedMult">Sniper ×</label>
+              <input id="adv-sniperSpeedMult" type="number" min="1" max="30" step="0.5" />
+            </div>
+            <div class="row">
+              <label for="adv-trackingTurnRate">Track turn</label>
+              <input id="adv-trackingTurnRate" type="number" min="0.5" max="20" step="0.5" />
+            </div>
           </div>
         </div>
 

@@ -296,6 +296,18 @@ ol {
   font-weight: 800;
   letter-spacing: 0.5px;
 }
+#lobby-config {
+  margin-top: 24px;
+}
+.adv-note {
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-style: italic;
+  margin: 8px 0 12px;
+}
+#lobby-players {
+  margin-bottom: 8px;
+}
 #lobby-players.teams {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

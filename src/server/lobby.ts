@@ -142,7 +142,13 @@ export class Lobby {
     if (this.members.length < 1) return "Need at least one player.";
 
     const { cols, rows } = mazeDimensions(this.config.mapSize);
-    this.maze = new Maze(cols, rows, this.config.wallStyle);
+    this.maze = new Maze(
+      cols,
+      rows,
+      this.config.wallStyle,
+      this.config.adv.cellSize,
+      this.config.adv.wallThickness
+    );
     this.game = new Game(
       this.maze,
       this.members.map((m) => ({ id: m.id, name: m.name, color: m.color, team: m.team })),

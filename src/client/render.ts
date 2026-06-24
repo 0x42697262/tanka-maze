@@ -10,12 +10,12 @@ import type {
 
 const INTERP_DELAY = 100; // ms of render delay for smooth interpolation
 
-const BULLET_STYLE: Record<BulletKind, { c: string; r: number }> = {
-  normal: { c: "#ff7a1a", r: BULLET_RADIUS },
-  sniper: { c: "#2fb8d6", r: BULLET_RADIUS },
-  explosive: { c: "#b23b2e", r: BULLET_RADIUS + 2 },
-  laser: { c: "#9b3fd6", r: BULLET_RADIUS - 1 },
-  tracking: { c: "#3f9b46", r: BULLET_RADIUS + 1 },
+const BULLET_STYLE: Record<BulletKind, { c: string; dr: number }> = {
+  normal: { c: "#ff7a1a", dr: 0 },
+  sniper: { c: "#2fb8d6", dr: 0 },
+  explosive: { c: "#b23b2e", dr: 2 },
+  laser: { c: "#9b3fd6", dr: -1 },
+  tracking: { c: "#3f9b46", dr: 1 },
 };
 
 const POWERUP_STYLE: Record<PowerupType, { c: string; g: string }> = {
@@ -56,8 +56,16 @@ export class Renderer {
   private buffer: Buffered[] = [];
   private explosions: Explosion[] = [];
   private beams: Beam[] = [];
+  // Per-game visual sizes (from the lobby's advanced config).
+  private tankR = TANK_RADIUS;
+  private bulletR = BULLET_RADIUS;
   // Last seen state per tank, to detect deaths and spawn explosions.
   private lastTankState = new Map<string, { x: number; y: number; alive: boolean; color: string }>();
+
+  setParams(tankRadius: number, bulletRadius: number): void {
+    this.tankR = tankRadius;
+    this.bulletR = bulletRadius;
+  }
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d");
@@ -129,7 +137,7 @@ export class Renderer {
     for (const b of interp.bullets) {
       const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
       ctx.beginPath();
-      ctx.arc(b.x, b.y, style.r, 0, Math.PI * 2);
+      ctx.arc(b.x, b.y, Math.max(1, this.bulletR + style.dr), 0, Math.PI * 2);
       ctx.fillStyle = style.c;
       ctx.fill();
       ctx.strokeStyle = "rgba(0,0,0,0.55)";
@@ -283,7 +291,7 @@ export class Renderer {
     // tank so you can find yourself at a glance.
     if (isLocal && t.alive) {
       ctx.beginPath();
-      ctx.arc(0, 0, TANK_RADIUS + 9, 0, Math.PI * 2);
+      ctx.arc(0, 0, this.tankR + 9, 0, Math.PI * 2);
       ctx.fillStyle = "rgba(255,252,240,0.3)";
       ctx.fill();
       ctx.setLineDash([4, 3]);
@@ -296,7 +304,7 @@ export class Renderer {
     // Body (oriented to movement direction).
     ctx.save();
     ctx.rotate(t.bodyAngle);
-    const r = TANK_RADIUS;
+    const r = this.tankR;
     // Elongated hull: longer front-to-back (x) than it is wide (y).
     const halfLen = r * 1.3;
     const halfWid = r * 0.82;
@@ -365,9 +373,9 @@ export class Renderer {
 
     // Health bar (only when HP > 1).
     if (t.alive && t.maxHp > 1) {
-      const bw = TANK_RADIUS * 2;
-      const bx = t.x - TANK_RADIUS;
-      const by = t.y - TANK_RADIUS - 6;
+      const bw = this.tankR * 2;
+      const bx = t.x - this.tankR;
+      const by = t.y - this.tankR - 6;
       const frac = Math.max(0, Math.min(1, t.hp / t.maxHp));
       ctx.fillStyle = "rgba(47,42,34,0.35)";
       ctx.fillRect(bx, by, bw, 3);
@@ -380,7 +388,7 @@ export class Renderer {
     ctx.textAlign = "center";
     if (t.alive) {
       ctx.fillStyle = "rgba(13,17,23,0.9)";
-      ctx.fillText(t.name, t.x, t.y - TANK_RADIUS - (t.maxHp > 1 ? 13 : 8));
+      ctx.fillText(t.name, t.x, t.y - this.tankR - (t.maxHp > 1 ? 13 : 8));
     } else {
       ctx.fillStyle = "rgba(13,17,23,0.65)";
       ctx.fillText(`${Math.ceil(t.respawnIn)}`, t.x, t.y + 4);

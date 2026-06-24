@@ -1,6 +1,7 @@
 import "./style.css";
 import {
   DEFAULT_GAME_CONFIG,
+  type AdvancedConfig,
   type GameConfig,
   type GameMode,
   type LobbyDTO,
@@ -267,6 +268,8 @@ function leaveToMenu(): void {
 // ---------------------------------------------------------------------------
 function startGame(maze: MazeDTO): void {
   renderer.setMaze(maze);
+  const adv = currentLobby?.config.adv ?? DEFAULT_GAME_CONFIG.adv;
+  renderer.setParams(adv.tankRadius, adv.bulletRadius);
   arena = { w: maze.width, h: maze.height };
   inGame = true;
   $("gh-lobby").textContent = currentLobby?.name ?? "";
@@ -502,6 +505,18 @@ $("create").onclick = () => {
 $("start").onclick = () => net.send({ type: "startGame" });
 
 // ---- In-lobby game settings (host) ----
+const ADV_KEYS = Object.keys(DEFAULT_GAME_CONFIG.adv) as (keyof AdvancedConfig)[];
+
+function gatherAdvanced(): AdvancedConfig {
+  const d = DEFAULT_GAME_CONFIG.adv;
+  const out = {} as AdvancedConfig;
+  for (const k of ADV_KEYS) {
+    const v = Number(($(`adv-${k}`) as HTMLInputElement).value);
+    out[k] = Number.isFinite(v) ? v : d[k];
+  }
+  return out;
+}
+
 function gatherConfig(): { maxPlayers: number; config: GameConfig } {
   const sel = (id: string) => ($(id) as HTMLSelectElement).value;
   const num = (id: string, d: number) => Number(($(id) as HTMLInputElement).value) || d;
@@ -519,6 +534,8 @@ function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       deathPenaltyPct: Number(($("death-penalty") as HTMLInputElement).value) || 0,
       winScore: num("win-score", 300),
       teamCount: num("team-count", 2),
+      friendlyFire: sel("friendly-fire") === "on",
+      adv: gatherAdvanced(),
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
       powerupDespawnSeconds: num("pwr-despawn", 12),
@@ -541,10 +558,12 @@ function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("kill-points", c.killPoints);
   set("death-penalty", c.deathPenaltyPct);
   set("win-score", c.winScore);
+  set("friendly-fire", c.friendlyFire ? "on" : "off");
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
   set("pwr-charges", c.powerupCharges);
   set("pwr-despawn", c.powerupDespawnSeconds);
+  for (const k of ADV_KEYS) set(`adv-${k}`, c.adv[k]);
 }
 
 $("lobby-config").addEventListener("change", () => {
@@ -552,6 +571,8 @@ $("lobby-config").addEventListener("change", () => {
   const { maxPlayers, config } = gatherConfig();
   net.send({ type: "updateConfig", maxPlayers, config });
 });
+
+$("adv-toggle").onclick = () => $("adv-panel").classList.toggle("hidden");
 
 $("leave").onclick = () => {
   net.send({ type: "leaveLobby" });

@@ -54,7 +54,8 @@ export class Maze {
   readonly rows: number;
   readonly width: number;
   readonly height: number;
-  readonly thickness = WALL_THICKNESS;
+  readonly cell: number;
+  readonly thickness: number;
   readonly walls: Segment[];
 
   // vWalls[x][y]: vertical wall on the left edge of cell column x, row y.
@@ -64,11 +65,19 @@ export class Maze {
   private vWalls: boolean[][];
   private hWalls: boolean[][];
 
-  constructor(cols: number, rows: number, wallStyle: WallStyle = "maze") {
+  constructor(
+    cols: number,
+    rows: number,
+    wallStyle: WallStyle = "maze",
+    cellSize: number = CELL,
+    thickness: number = WALL_THICKNESS
+  ) {
     this.cols = cols;
     this.rows = rows;
-    this.width = cols * CELL;
-    this.height = rows * CELL;
+    this.cell = cellSize;
+    this.thickness = thickness;
+    this.width = cols * cellSize;
+    this.height = rows * cellSize;
 
     // Grids start fully walled; the border edges are never removed.
     this.vWalls = makeGrid(cols + 1, rows, true);
@@ -229,7 +238,7 @@ export class Maze {
         const present = y < this.rows && this.vWalls[x][y];
         if (present && runStart === -1) runStart = y;
         if (!present && runStart !== -1) {
-          segs.push({ x1: x * CELL, y1: runStart * CELL, x2: x * CELL, y2: y * CELL });
+          segs.push({ x1: x * this.cell, y1: runStart * this.cell, x2: x * this.cell, y2: y * this.cell });
           runStart = -1;
         }
       }
@@ -242,7 +251,7 @@ export class Maze {
         const present = x < this.cols && this.hWalls[x][y];
         if (present && runStart === -1) runStart = x;
         if (!present && runStart !== -1) {
-          segs.push({ x1: runStart * CELL, y1: y * CELL, x2: x * CELL, y2: y * CELL });
+          segs.push({ x1: runStart * this.cell, y1: y * this.cell, x2: x * this.cell, y2: y * this.cell });
           runStart = -1;
         }
       }
@@ -256,7 +265,7 @@ export class Maze {
     const out: Array<{ x: number; y: number }> = [];
     for (let y = 0; y < this.rows; y++) {
       for (let x = 0; x < this.cols; x++) {
-        out.push({ x: (x + 0.5) * CELL, y: (y + 0.5) * CELL });
+        out.push({ x: (x + 0.5) * this.cell, y: (y + 0.5) * this.cell });
       }
     }
     return out;

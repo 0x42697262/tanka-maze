@@ -7,8 +7,10 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import {
   decode,
+  DEFAULT_ADVANCED,
   DEFAULT_GAME_CONFIG,
   encode,
+  type AdvancedConfig,
   type ClientMessage,
   type GameConfig,
   type ServerMessage,
@@ -250,6 +252,39 @@ function sanitizeColor(raw: unknown): string | null {
   return typeof raw === "string" && /^#[0-9a-fA-F]{6}$/.test(raw) ? raw.toLowerCase() : null;
 }
 
+/** Clamp/validate the advanced (engine tuning) sub-config. */
+function sanitizeAdvanced(raw: unknown): AdvancedConfig {
+  const c = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const d = DEFAULT_ADVANCED;
+  const f = (v: unknown, lo: number, hi: number, dflt: number): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+  };
+  const i = (v: unknown, lo: number, hi: number, dflt: number): number =>
+    Math.round(f(v, lo, hi, dflt));
+  return {
+    tankRadius: f(c.tankRadius, 4, 40, d.tankRadius),
+    tankTurnSpeed: f(c.tankTurnSpeed, 0.5, 12, d.tankTurnSpeed),
+    fireCooldown: f(c.fireCooldown, 0.05, 5, d.fireCooldown),
+    maxAmmo: i(c.maxAmmo, 1, 50, d.maxAmmo),
+    reloadSeconds: f(c.reloadSeconds, 0.2, 20, d.reloadSeconds),
+    bulletSpeed: f(c.bulletSpeed, 40, 2000, d.bulletSpeed),
+    bulletRadius: f(c.bulletRadius, 1, 30, d.bulletRadius),
+    bulletBounces: i(c.bulletBounces, 0, 20, d.bulletBounces),
+    bulletLifetime: f(c.bulletLifetime, 0.5, 20, d.bulletLifetime),
+    cellSize: i(c.cellSize, 40, 200, d.cellSize),
+    wallThickness: f(c.wallThickness, 2, 30, d.wallThickness),
+    speedBoostMult: f(c.speedBoostMult, 1, 4, d.speedBoostMult),
+    speedBoostSeconds: f(c.speedBoostSeconds, 1, 60, d.speedBoostSeconds),
+    shieldSeconds: f(c.shieldSeconds, 1, 60, d.shieldSeconds),
+    laserDelay: f(c.laserDelay, 0, 5, d.laserDelay),
+    sniperSpeedMult: f(c.sniperSpeedMult, 1, 30, d.sniperSpeedMult),
+    explosionRadius: f(c.explosionRadius, 10, 300, d.explosionRadius),
+    trackingTurnRate: f(c.trackingTurnRate, 0.5, 20, d.trackingTurnRate),
+    laserRange: f(c.laserRange, 100, 5000, d.laserRange),
+  };
+}
+
 /** Clamp/validate a client-supplied game config against the allowed ranges. */
 function sanitizeConfig(raw: unknown): GameConfig {
   const c = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
@@ -276,6 +311,8 @@ function sanitizeConfig(raw: unknown): GameConfig {
     deathPenaltyPct: clampInt(c.deathPenaltyPct, 0, 90, d.deathPenaltyPct),
     winScore: clampInt(c.winScore, 60, 6000, d.winScore),
     teamCount: clampInt(c.teamCount, 2, 4, d.teamCount),
+    friendlyFire: typeof c.friendlyFire === "boolean" ? c.friendlyFire : d.friendlyFire,
+    adv: sanitizeAdvanced(c.adv),
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
     powerupDespawnSeconds: clampInt(c.powerupDespawnSeconds, 3, 60, d.powerupDespawnSeconds),
