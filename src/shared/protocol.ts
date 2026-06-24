@@ -123,7 +123,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   lives: 0,
   respawnSeconds: 3,
   killPoints: 60,
-  deathPenaltyPct: 33,
+  deathPenaltyPct: 25,
   winScore: 300,
   teamCount: 2,
   friendlyFire: true,
