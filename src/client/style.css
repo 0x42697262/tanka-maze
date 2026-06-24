@@ -316,6 +316,16 @@ ol {
 .cfg-h:first-of-type {
   margin-top: 6px;
 }
+.adv-h {
+  font-family: var(--font-hand);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 14px 0 6px;
+  border-bottom: 1px dotted var(--rule);
+  padding-bottom: 2px;
+}
 #lobby-players {
   margin-bottom: 8px;
 }

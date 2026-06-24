@@ -21,7 +21,15 @@ export const MSG_SNAPSHOT = 2;
 
 const WEAPON_CODES: (PowerupType | null)[] = [null, "sniper", "explosive", "laser", "tracking"];
 const KIND_CODES: BulletKind[] = ["normal", "sniper", "explosive", "laser", "tracking"];
-const PUP_CODES: PowerupType[] = ["speed", "shield", "sniper", "explosive", "laser", "tracking"];
+const PUP_CODES: PowerupType[] = [
+  "speed",
+  "shield",
+  "sniper",
+  "explosive",
+  "laser",
+  "tracking",
+  "multishot",
+];
 
 const weaponCode = (w: PowerupType | null): number => {
   const i = WEAPON_CODES.indexOf(w);

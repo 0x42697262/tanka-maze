@@ -12,6 +12,8 @@ import {
   LASER_DELAY,
   LASER_RANGE,
   MAX_AMMO,
+  MULTISHOT_COUNT,
+  MULTISHOT_SPREAD_DEG,
   RELOAD_SECONDS,
   SHIELD_SECONDS,
   SNIPER_SPEED_MULT,
@@ -20,6 +22,8 @@ import {
   SPEED_BOOST_SECONDS,
   TANK_RADIUS,
   TANK_TURN_SPEED,
+  TRACKING_BOUNCES,
+  TRACKING_LIFETIME,
   TRACKING_TURN_RATE,
   WALL_THICKNESS,
 } from "./constants.js";
@@ -48,6 +52,10 @@ export interface AdvancedConfig {
   sniperWallPierce: number; // walls a sniper round punches through (0 = none)
   explosionRadius: number;
   trackingTurnRate: number; // rad/s
+  trackingLifetime: number; // s a tracking round lives (governs its range)
+  trackingBounces: number; // wall bounces a tracking round survives
+  multishotCount: number; // pellets released per multishot
+  multishotSpread: number; // total fan angle (degrees) of a multishot
   laserRange: number; // px total beam length
 }
 
@@ -71,6 +79,10 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
   sniperWallPierce: SNIPER_WALL_PIERCE,
   explosionRadius: EXPLOSION_RADIUS,
   trackingTurnRate: TRACKING_TURN_RATE,
+  trackingLifetime: TRACKING_LIFETIME,
+  trackingBounces: TRACKING_BOUNCES,
+  multishotCount: MULTISHOT_COUNT,
+  multishotSpread: MULTISHOT_SPREAD_DEG,
   laserRange: LASER_RANGE,
 };
 
@@ -83,7 +95,14 @@ export type WallStyle = "maze" | "sparse" | "open";
 export type MapSize = "small" | "normal" | "large" | "random";
 
 /** Pickup types. "speed"/"shield" are buffs; the rest change your shot. */
-export type PowerupType = "speed" | "shield" | "sniper" | "explosive" | "laser" | "tracking";
+export type PowerupType =
+  | "speed"
+  | "shield"
+  | "sniper"
+  | "explosive"
+  | "laser"
+  | "tracking"
+  | "multishot";
 export const POWERUP_TYPES: PowerupType[] = [
   "speed",
   "shield",
@@ -91,6 +110,7 @@ export const POWERUP_TYPES: PowerupType[] = [
   "explosive",
   "laser",
   "tracking",
+  "multishot",
 ];
 /** What a fired round is. "normal" plus the offensive power-up kinds. */
 export type BulletKind = "normal" | "sniper" | "explosive" | "laser" | "tracking";

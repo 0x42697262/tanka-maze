@@ -4,6 +4,7 @@ import {
   TANK_COLORS,
   TANK_REVERSE_SPEED,
   TANK_SPEED,
+  TRACKING_REPATH,
 } from "../shared/constants.js";
 import {
   POWERUP_TYPES,
@@ -18,6 +19,14 @@ import {
   type SnapshotDTO,
 } from "../shared/protocol.js";
 import { Maze } from "./maze.js";
+
+/** 4-neighbour offsets (up, right, down, left) for homing-round pathfinding. */
+const HOMING_DIRS: ReadonlyArray<readonly [number, number]> = [
+  [0, -1],
+  [1, 0],
+  [0, 1],
+  [-1, 0],
+];
 
 interface Tank {
   id: string;
@@ -66,6 +75,8 @@ interface Bullet {
   vx: number;
   vy: number;
   bounces: number;
+  /** Wall bounces this round survives before dying. */
+  maxBounces: number;
   life: number;
   kind: BulletKind;
   /** Walls this round can still punch through (sniper). */
@@ -76,6 +87,10 @@ interface Bullet {
   wasInWall: boolean;
   /** Tanks already damaged by a piercing round. */
   hitIds: Set<string>;
+  /** Homing: seconds until the next path recompute. */
+  repathIn: number;
+  /** Homing: current world point to steer toward (a path waypoint or target). */
+  waypoint: { x: number; y: number } | null;
 }
 
 interface Powerup {
@@ -115,6 +130,11 @@ export class Game {
   private pendingBlasts: Array<{ x: number; y: number }> = [];
   private pendingBeams: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
   private pendingEvents: KillEvent[] = [];
+  // Reused BFS scratch for homing-round pathfinding (stamped by generation so
+  // it never needs clearing). Sized to the maze grid on first use.
+  private pathSeen: Int32Array = new Int32Array(0);
+  private pathFrom: Int32Array = new Int32Array(0);
+  private pathGen = 0;
 
   constructor(
     maze: Maze,
@@ -315,7 +335,7 @@ export class Game {
 
   private fire(tank: Tank): void {
     if (tank.laserCharge > 0) return; // can't fire while a laser is winding up
-    const offensive: PowerupType[] = ["sniper", "explosive", "laser", "tracking"];
+    const offensive: PowerupType[] = ["sniper", "explosive", "laser", "tracking", "multishot"];
     const weapon = tank.weapon && offensive.includes(tank.weapon) ? tank.weapon : null;
     const usingWeapon = weapon !== null;
 
@@ -338,6 +358,39 @@ export class Game {
       return;
     }
 
+    if (weapon === "multishot") {
+      // Shotgun: release N ordinary pellets fanned across multishotSpread.
+      const n = Math.max(1, Math.round(this.adv.multishotCount));
+      const fan = (this.adv.multishotSpread * Math.PI) / 180;
+      const step = n > 1 ? fan / (n - 1) : 0;
+      const start = a - fan / 2;
+      const muzzle = this.adv.tankRadius + this.adv.bulletRadius + 2;
+      for (let i = 0; i < n; i++) {
+        const ang = n > 1 ? start + step * i : a;
+        this.bullets.push({
+          id: this.nextBulletId++,
+          ownerId: tank.id,
+          x: tank.x + Math.cos(ang) * muzzle,
+          y: tank.y + Math.sin(ang) * muzzle,
+          vx: Math.cos(ang) * this.adv.bulletSpeed + tank.vx,
+          vy: Math.sin(ang) * this.adv.bulletSpeed + tank.vy,
+          bounces: 0,
+          maxBounces: this.adv.bulletBounces,
+          life: this.adv.bulletLifetime,
+          kind: "normal",
+          wallPierce: 0,
+          pierceTanks: false,
+          wasInWall: false,
+          hitIds: new Set(),
+          repathIn: 0,
+          waypoint: null,
+        });
+      }
+      tank.weaponCharges -= 1;
+      if (tank.weaponCharges <= 0) tank.weapon = null;
+      return;
+    }
+
     {
       // Only sniper / explosive / tracking reach here (laser & buffs handled above).
       const kind: BulletKind = (weapon ?? "normal") as BulletKind;
@@ -354,13 +407,18 @@ export class Game {
         vx: Math.cos(a) * speed + inheritVx,
         vy: Math.sin(a) * speed + inheritVy,
         bounces: 0,
-        life: this.adv.bulletLifetime,
+        // Tracking rounds carry their own bounce budget; others use the default.
+        maxBounces: kind === "tracking" ? this.adv.trackingBounces : this.adv.bulletBounces,
+        // Tracking rounds live longer (their effective range); others use the default.
+        life: kind === "tracking" ? this.adv.trackingLifetime : this.adv.bulletLifetime,
         kind,
         // Walls a sniper round may pass through before stopping.
         wallPierce: kind === "sniper" ? this.adv.sniperWallPierce : 0,
         pierceTanks: kind === "sniper",
         wasInWall: false,
         hitIds: new Set(),
+        repathIn: 0,
+        waypoint: null,
       });
     }
 
@@ -473,7 +531,7 @@ export class Game {
               dead = true;
             } else {
               b.vx = -b.vx;
-              if (++b.bounces > this.adv.bulletBounces) dead = true;
+              if (++b.bounces > b.maxBounces) dead = true;
             }
           } else {
             b.x = nx;
@@ -486,7 +544,7 @@ export class Game {
                 dead = true;
               } else {
                 b.vy = -b.vy;
-                if (++b.bounces > this.adv.bulletBounces) dead = true;
+                if (++b.bounces > b.maxBounces) dead = true;
               }
             } else {
               b.y = ny;
@@ -502,13 +560,29 @@ export class Game {
     this.bullets = survivors;
   }
 
-  /** Steer a homing round toward the nearest tank (prefers an enemy). */
+  /**
+   * Steer a homing round toward the nearest tank (prefers an enemy; otherwise
+   * the closest tank, even the owner). Rather than aiming straight at the target
+   * — which makes the round ram walls and die — it follows the maze: a periodic
+   * grid BFS picks the next cell toward the target, and the round curves to it.
+   */
   private steerHoming(b: Bullet, dt: number): void {
-    const target = this.nearestTarget(b.x, b.y, b.ownerId);
-    if (!target) return;
+    b.repathIn -= dt;
+    if (b.repathIn <= 0 || !b.waypoint) {
+      const target = this.nearestTarget(b.x, b.y, b.ownerId);
+      if (!target) {
+        b.waypoint = null;
+        return;
+      }
+      b.waypoint = this.nextHopToward(b.x, b.y, target.x, target.y) ?? { x: target.x, y: target.y };
+      b.repathIn = TRACKING_REPATH;
+    }
+    const wp = b.waypoint;
+    if (!wp) return;
+
     const speed = Math.hypot(b.vx, b.vy) || this.adv.bulletSpeed;
     const cur = Math.atan2(b.vy, b.vx);
-    const want = Math.atan2(target.y - b.y, target.x - b.x);
+    const want = Math.atan2(wp.y - b.y, wp.x - b.x);
     let diff = ((want - cur + Math.PI) % (Math.PI * 2)) - Math.PI;
     if (diff < -Math.PI) diff += Math.PI * 2;
     const max = this.adv.trackingTurnRate * dt;
@@ -516,6 +590,72 @@ export class Game {
     const a = cur + turn;
     b.vx = Math.cos(a) * speed;
     b.vy = Math.sin(a) * speed;
+
+    // Recompute promptly once the current waypoint is reached.
+    const reach = this.maze.cell * 0.35;
+    if ((wp.x - b.x) ** 2 + (wp.y - b.y) ** 2 < reach * reach) b.repathIn = 0;
+  }
+
+  /**
+   * Next world point a homing round should steer toward to reach (tx, ty)
+   * through the maze. A breadth-first search rooted at the goal cell labels each
+   * cell with the neighbor one step closer to the goal, so the start cell's
+   * label is the first hop. Returns the target itself when already in its cell
+   * or on the final hop (for an accurate strike), or null if unreachable.
+   */
+  private nextHopToward(fx: number, fy: number, tx: number, ty: number): { x: number; y: number } | null {
+    const m = this.maze;
+    const start = m.cellAt(fx, fy);
+    const goal = m.cellAt(tx, ty);
+    if (start.cx === goal.cx && start.cy === goal.cy) return { x: tx, y: ty };
+
+    const cols = m.cols;
+    const rows = m.rows;
+    const n = cols * rows;
+    if (this.pathSeen.length !== n) {
+      this.pathSeen = new Int32Array(n);
+      this.pathFrom = new Int32Array(n);
+    }
+    const seen = this.pathSeen;
+    const from = this.pathFrom;
+    const gen = ++this.pathGen;
+
+    const startIdx = start.cy * cols + start.cx;
+    const goalIdx = goal.cy * cols + goal.cx;
+    const queue: number[] = [goalIdx];
+    seen[goalIdx] = gen;
+    from[goalIdx] = -1;
+
+    let head = 0;
+    let reached = false;
+    while (head < queue.length && !reached) {
+      const cur = queue[head++];
+      const cx = cur % cols;
+      const cy = (cur - cx) / cols;
+      for (const [dx, dy] of HOMING_DIRS) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+        const ni = ny * cols + nx;
+        if (seen[ni] === gen) continue;
+        if (!m.passable(cx, cy, nx, ny)) continue;
+        seen[ni] = gen;
+        from[ni] = cur; // cur is one step closer to the goal
+        if (ni === startIdx) {
+          reached = true;
+          break;
+        }
+        queue.push(ni);
+      }
+    }
+
+    if (seen[startIdx] !== gen) return null; // disconnected (shouldn't happen)
+    const hop = from[startIdx];
+    if (hop < 0) return { x: tx, y: ty };
+    const hx = hop % cols;
+    const hy = (hop - hx) / cols;
+    if (hx === goal.cx && hy === goal.cy) return { x: tx, y: ty }; // final hop: aim true
+    return m.cellCenter(hx, hy);
   }
 
   /** Nearest valid enemy; if none, the nearest tank at all (even the owner). */

@@ -497,6 +497,7 @@ const WEAPON_LABEL: Record<string, string> = {
   explosive: "Explosive",
   laser: "Laser",
   tracking: "Tracking",
+  multishot: "Multishot",
 };
 
 function renderAmmo(

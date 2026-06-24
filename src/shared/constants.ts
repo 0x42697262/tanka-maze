@@ -49,6 +49,11 @@ export const SNIPER_SPEED_MULT = 5; // very fast round
 export const SNIPER_WALL_PIERCE = 10; // walls a sniper round punches through
 export const EXPLOSION_RADIUS = 56; // area-damage radius for explosive rounds
 export const TRACKING_TURN_RATE = 4.5; // radians/sec a homing round can turn
+export const TRACKING_LIFETIME = 10; // seconds a tracking round lives (its range)
+export const TRACKING_BOUNCES = 10; // wall bounces a tracking round survives
+export const MULTISHOT_COUNT = 3; // pellets released by a multishot pickup
+export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multishot
+export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;

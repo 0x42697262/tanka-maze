@@ -266,7 +266,7 @@ class Hub {
 }
 
 function sanitizeName(raw: string): string {
-  return typeof raw === "string" ? raw.trim().slice(0, 16).replace(/[ -]/g, "") : "";
+  return typeof raw === "string" ? raw.trim().slice(0, 16).replace(/[\x00-\x1f]/g, "") : "";
 }
 
 /** Accept only a strict 6-digit hex color; anything else is rejected. This is
@@ -310,6 +310,10 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     sniperWallPierce: i(c.sniperWallPierce, 0, 20, d.sniperWallPierce),
     explosionRadius: f(c.explosionRadius, 10, 300, d.explosionRadius),
     trackingTurnRate: f(c.trackingTurnRate, 0.5, 20, d.trackingTurnRate),
+    trackingLifetime: f(c.trackingLifetime, 0.5, 30, d.trackingLifetime),
+    trackingBounces: i(c.trackingBounces, 0, 50, d.trackingBounces),
+    multishotCount: i(c.multishotCount, 1, 24, d.multishotCount),
+    multishotSpread: f(c.multishotSpread, 0, 180, d.multishotSpread),
     laserRange: f(c.laserRange, 100, 5000, d.laserRange),
   };
 }

@@ -200,6 +200,32 @@ export class Maze {
     }
   }
 
+  /** World point → grid cell indices (clamped to the arena). */
+  cellAt(px: number, py: number): { cx: number; cy: number } {
+    const cx = Math.min(this.cols - 1, Math.max(0, Math.floor(px / this.cell)));
+    const cy = Math.min(this.rows - 1, Math.max(0, Math.floor(py / this.cell)));
+    return { cx, cy };
+  }
+
+  /** Center world point of a cell. */
+  cellCenter(cx: number, cy: number): { x: number; y: number } {
+    return { x: (cx + 0.5) * this.cell, y: (cy + 0.5) * this.cell };
+  }
+
+  /**
+   * Whether you can pass between two orthogonally-adjacent cells (no wall on
+   * their shared edge). Returns false for non-adjacent or out-of-range cells.
+   */
+  passable(ax: number, ay: number, bx: number, by: number): boolean {
+    if (ax === bx && Math.abs(ay - by) === 1) {
+      return !this.hWalls[ax][Math.max(ay, by)]; // shared horizontal edge
+    }
+    if (ay === by && Math.abs(ax - bx) === 1) {
+      return !this.vWalls[Math.max(ax, bx)][ay]; // shared vertical edge
+    }
+    return false;
+  }
+
   /** Number of open sides (0-4) a cell currently has. */
   private cellOpenings(x: number, y: number): number {
     let walls = 0;
