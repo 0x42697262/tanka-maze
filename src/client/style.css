@@ -296,10 +296,45 @@ ol {
   font-weight: 800;
   letter-spacing: 0.5px;
 }
-#lobby-players .team-tag {
-  font-size: 12px;
-  font-weight: 700;
+#lobby-players.teams {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+#lobby-players .team-box {
+  display: block;
+  background: var(--paper-2);
+  border: 2px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+#lobby-players .team-box:hover {
+  filter: brightness(1.04);
+}
+#lobby-players .team-box.mine {
+  cursor: default;
+  box-shadow: 0 0 0 2px var(--ink) inset;
+}
+#lobby-players .team-box > ul {
+  margin: 6px 0 0;
+}
+#lobby-players .team-box li {
+  cursor: inherit;
+}
+.team-head {
+  font-family: var(--font-hand);
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  margin: 0 0 4px;
+}
+.team-head .team-n {
   color: var(--ink-soft);
+  font-size: 13px;
+  margin-left: 6px;
 }
 #lobby-players li.offline {
   opacity: 0.5;
@@ -487,6 +522,12 @@ kbd {
 }
 .ammo .weapon.boost {
   color: var(--leaf);
+}
+.ammo .weapon.shield {
+  color: #2f9b80;
+}
+.ammo .weapon.laser {
+  color: #9b3fd6;
 }
 
 /* ---- Respawn overlay (over the arena) ---- */

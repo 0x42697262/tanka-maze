@@ -9,9 +9,16 @@ export type GameMode = "ffa" | "lms" | "teams";
 export type WallStyle = "maze" | "sparse" | "open";
 export type MapSize = "small" | "normal" | "large" | "random";
 
-/** Pickup weapon types. "speed" is a movement buff; the rest change your shot. */
-export type PowerupType = "speed" | "sniper" | "explosive" | "laser" | "tracking";
-export const POWERUP_TYPES: PowerupType[] = ["speed", "sniper", "explosive", "laser", "tracking"];
+/** Pickup types. "speed"/"shield" are buffs; the rest change your shot. */
+export type PowerupType = "speed" | "shield" | "sniper" | "explosive" | "laser" | "tracking";
+export const POWERUP_TYPES: PowerupType[] = [
+  "speed",
+  "shield",
+  "sniper",
+  "explosive",
+  "laser",
+  "tracking",
+];
 /** What a fired round is. "normal" plus the offensive power-up kinds. */
 export type BulletKind = "normal" | "sniper" | "explosive" | "laser" | "tracking";
 
@@ -49,7 +56,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   powerups: false,
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,
-  powerupCharges: 3,
+  powerupCharges: 1,
 };
 
 // ---------------------------------------------------------------------------
@@ -128,6 +135,10 @@ export interface TankDTO {
   weaponCharges: number;
   /** Whether a speed boost is currently active. */
   boosted: boolean;
+  /** Whether a shield is currently active (invulnerable). */
+  shielded: boolean;
+  /** Whether a laser is winding up to fire. */
+  charging: boolean;
   /** Team index (Team VS); 0 in other modes. */
   team: number;
 }
@@ -199,6 +210,7 @@ export type ClientMessage =
   | { type: "setTeam"; team: number }
   | { type: "listLobbies" }
   | { type: "createLobby"; name: string; maxPlayers: number; config: GameConfig }
+  | { type: "updateConfig"; maxPlayers: number; config: GameConfig }
   | { type: "joinLobby"; lobbyId: string }
   | { type: "leaveLobby" }
   | { type: "startGame" }

@@ -1,14 +1,15 @@
 import "./style.css";
-import type {
-  GameConfig,
-  GameMode,
-  LobbyDTO,
-  LobbySummaryDTO,
-  MapSize,
-  MazeDTO,
-  ScoreDTO,
-  ServerMessage,
-  WallStyle,
+import {
+  DEFAULT_GAME_CONFIG,
+  type GameConfig,
+  type GameMode,
+  type LobbyDTO,
+  type LobbySummaryDTO,
+  type MapSize,
+  type MazeDTO,
+  type ScoreDTO,
+  type ServerMessage,
+  type WallStyle,
 } from "../shared/protocol.js";
 import { Input } from "./input.js";
 import { Net } from "./net.js";
@@ -129,10 +130,16 @@ net.onMessage((msg: ServerMessage) => {
       renderLobbyList(msg.lobbies);
       break;
     case "lobbyJoined":
+      currentLobby = msg.lobby;
+      if (!inGame) {
+        renderLobby(msg.lobby, true);
+        show("lobby");
+      }
+      break;
     case "lobbyUpdate":
       currentLobby = msg.lobby;
       if (!inGame) {
-        renderLobby(msg.lobby);
+        renderLobby(msg.lobby, false);
         show("lobby");
       }
       break;
@@ -188,35 +195,65 @@ function renderLobbyList(lobbies: LobbySummaryDTO[]): void {
   }
 }
 
-function renderLobby(lobby: LobbyDTO): void {
+function renderLobby(lobby: LobbyDTO, firstRender: boolean): void {
   $("lobby-title").textContent = lobby.name;
   $("lobby-meta").textContent = `${lobby.players.length}/${lobby.maxPlayers} players · ${configSummary(lobby.config)}`;
 
   const teams = lobby.config.mode === "teams";
+  const isHost = lobby.hostId === playerId;
   const ul = $("lobby-players");
   ul.innerHTML = "";
-  lobby.players.forEach((p) => {
-    const li = document.createElement("li");
-    if (!p.connected) li.className = "offline";
-    const you = p.id === playerId ? " (you)" : "";
-    const tag = p.connected ? you : " (reconnecting…)";
-    // In team mode the swatch shows the team color; otherwise the chosen color.
-    const swatch = teams ? TEAM_TINT[p.team % TEAM_TINT.length] : p.color;
-    const teamTag = teams ? `<span class="team-tag">Team ${p.team + 1}</span>` : "";
-    li.innerHTML = `<span><span class="swatch" style="background:${swatch}"></span>${escapeHtml(p.name)}${tag}</span>${teamTag}`;
-    if (p.isHost) {
-      const host = document.createElement("span");
-      host.className = "host";
-      host.textContent = "HOST";
-      li.appendChild(host);
-    }
-    ul.appendChild(li);
-  });
 
-  const isHost = lobby.hostId === playerId;
+  if (teams) {
+    // A boxed roster per team; clicking a box joins that team.
+    ul.classList.add("teams");
+    for (let team = 0; team < lobby.config.teamCount; team++) {
+      const members = lobby.players.filter((p) => p.team === team);
+      const mine = lobby.players.find((p) => p.id === playerId)?.team === team;
+      const box = document.createElement("li");
+      box.className = `team-box${mine ? " mine" : ""}`;
+      const tint = TEAM_TINT[team % TEAM_TINT.length];
+      box.style.borderColor = tint;
+      const head = document.createElement("div");
+      head.className = "team-head";
+      head.style.color = tint;
+      head.innerHTML = `<span class="swatch" style="background:${tint}"></span>Team ${team + 1} <span class="team-n">(${members.length})</span>`;
+      box.appendChild(head);
+      const sub = document.createElement("ul");
+      members.forEach((p) => sub.appendChild(playerRow(p, lobby.hostId)));
+      box.appendChild(sub);
+      box.onclick = () => {
+        if (!mine) net.send({ type: "setTeam", team });
+      };
+      ul.appendChild(box);
+    }
+  } else {
+    ul.classList.remove("teams");
+    lobby.players.forEach((p) => ul.appendChild(playerRow(p, lobby.hostId)));
+  }
+
+  $("team-hint").classList.toggle("hidden", !teams);
   $("start").classList.toggle("hidden", !isHost);
   $("waiting-host").classList.toggle("hidden", isHost);
-  $("switch-team").classList.toggle("hidden", !teams);
+
+  // Host configures the game here; populate the controls once on entry.
+  $("lobby-config").classList.toggle("hidden", !isHost);
+  if (isHost && firstRender) applyConfigToControls(lobby.config, lobby.maxPlayers);
+}
+
+function playerRow(p: LobbyDTO["players"][number], hostId: string): HTMLLIElement {
+  const li = document.createElement("li");
+  if (!p.connected) li.className = "offline";
+  const you = p.id === playerId ? " (you)" : "";
+  const tag = p.connected ? you : " (reconnecting…)";
+  li.innerHTML = `<span><span class="swatch" style="background:${p.color}"></span>${escapeHtml(p.name)}${tag}</span>`;
+  if (p.id === hostId) {
+    const host = document.createElement("span");
+    host.className = "host";
+    host.textContent = "HOST";
+    li.appendChild(host);
+  }
+  return li;
 }
 
 function leaveToMenu(): void {
@@ -284,12 +321,38 @@ function endGame(scores: ScoreDTO[], winnerName: string): void {
   $("gameover").classList.remove("hidden");
 }
 
-/** In-arena leaderboard, ranked by points; scales to many players. */
+/** In-arena leaderboard. Team VS ranks by combined team points; else per-player. */
 function renderLeaderboard(): void {
   const snap = renderer.latest();
   if (!snap) return;
   const ol = $("leaderboard-rows");
   ol.innerHTML = "";
+
+  if (currentLobby?.config.mode === "teams") {
+    const totals = new Map<number, { score: number; n: number }>();
+    for (const t of snap.tanks) {
+      const cur = totals.get(t.team) ?? { score: 0, n: 0 };
+      cur.score += t.score;
+      cur.n += 1;
+      totals.set(t.team, cur);
+    }
+    const myTeam = snap.tanks.find((t) => t.id === playerId)?.team;
+    [...totals.entries()]
+      .sort((a, b) => b[1].score - a[1].score || a[0] - b[0])
+      .forEach(([team, d], i) => {
+        const li = document.createElement("li");
+        if (team === myTeam) li.className = "me";
+        const tint = TEAM_TINT[team % TEAM_TINT.length];
+        li.innerHTML =
+          `<span class="rank">${i + 1}</span>` +
+          `<span class="swatch" style="background:${tint}"></span>` +
+          `<span class="nm">Team ${team + 1} (${d.n})</span>` +
+          `<span class="pts">${d.score}</span>`;
+        ol.appendChild(li);
+      });
+    return;
+  }
+
   [...snap.tanks]
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
     .forEach((t, i) => {
@@ -358,6 +421,8 @@ function renderAmmo(
         weapon: string | null;
         weaponCharges: number;
         boosted: boolean;
+        shielded: boolean;
+        charging: boolean;
       }
     | undefined
 ): void {
@@ -371,10 +436,12 @@ function renderAmmo(
     html += `<span class="pip ${i < me.ammo ? "" : "spent"}"></span>`;
   }
   if (me.reloadIn > 0) html += `<span class="reload">reloading ${Math.ceil(me.reloadIn)}s</span>`;
-  if (me.weapon && WEAPON_LABEL[me.weapon]) {
+  if (me.charging) html += `<span class="weapon laser">charging…</span>`;
+  else if (me.weapon && WEAPON_LABEL[me.weapon]) {
     html += `<span class="weapon">${WEAPON_LABEL[me.weapon]} ×${me.weaponCharges}</span>`;
   }
   if (me.boosted) html += `<span class="weapon boost">» boost</span>`;
+  if (me.shielded) html += `<span class="weapon shield">◈ shield</span>`;
   el.innerHTML = html;
 }
 
@@ -425,41 +492,66 @@ colorInput.addEventListener("input", commitColor);
 
 $("refresh").onclick = () => net.send({ type: "listLobbies" });
 
+// Create a lobby with defaults; the host then tunes settings in the lobby room.
 $("create").onclick = () => {
   commitName();
   const name = ($("lobby-name") as HTMLInputElement).value.trim();
-  const maxPlayers = Number(($("max-players") as HTMLInputElement).value) || 4;
-  const sel = (id: string) => ($(id) as HTMLSelectElement).value;
-  const num = (id: string, d: number) => Number(($(id) as HTMLInputElement).value) || d;
-  // The server clamps/validates all of this — these are just sensible defaults.
-  const config: GameConfig = {
-    mode: sel("mode") as GameMode,
-    wallStyle: sel("walls") as WallStyle,
-    mapSize: sel("map-size") as MapSize,
-    tankSpeedPct: num("tank-speed", 100),
-    hp: num("hp", 1),
-    lives: Number(($("lives") as HTMLInputElement).value) || 0,
-    respawnSeconds: num("cfg-respawn", 3),
-    killPoints: num("kill-points", 60),
-    deathPenaltyPct: Number(($("death-penalty") as HTMLInputElement).value) || 0,
-    winScore: num("win-score", 300),
-    teamCount: num("team-count", 2),
-    powerups: sel("powerups") === "on",
-    powerupEverySeconds: num("pwr-every", 8),
-    powerupDespawnSeconds: num("pwr-despawn", 12),
-    powerupCharges: num("pwr-charges", 3),
-  };
-  net.send({ type: "createLobby", name, maxPlayers, config });
+  net.send({ type: "createLobby", name, maxPlayers: 4, config: DEFAULT_GAME_CONFIG });
 };
 
 $("start").onclick = () => net.send({ type: "startGame" });
 
-$("switch-team").onclick = () => {
-  if (!currentLobby) return;
-  const me = currentLobby.players.find((p) => p.id === playerId);
-  const next = ((me?.team ?? 0) + 1) % currentLobby.config.teamCount;
-  net.send({ type: "setTeam", team: next });
-};
+// ---- In-lobby game settings (host) ----
+function gatherConfig(): { maxPlayers: number; config: GameConfig } {
+  const sel = (id: string) => ($(id) as HTMLSelectElement).value;
+  const num = (id: string, d: number) => Number(($(id) as HTMLInputElement).value) || d;
+  return {
+    maxPlayers: num("max-players", 4),
+    config: {
+      mode: sel("mode") as GameMode,
+      wallStyle: sel("walls") as WallStyle,
+      mapSize: sel("map-size") as MapSize,
+      tankSpeedPct: num("tank-speed", 100),
+      hp: num("hp", 1),
+      lives: Number(($("lives") as HTMLInputElement).value) || 0,
+      respawnSeconds: num("cfg-respawn", 3),
+      killPoints: num("kill-points", 60),
+      deathPenaltyPct: Number(($("death-penalty") as HTMLInputElement).value) || 0,
+      winScore: num("win-score", 300),
+      teamCount: num("team-count", 2),
+      powerups: sel("powerups") === "on",
+      powerupEverySeconds: num("pwr-every", 8),
+      powerupDespawnSeconds: num("pwr-despawn", 12),
+      powerupCharges: num("pwr-charges", 3),
+    },
+  };
+}
+
+function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
+  const set = (id: string, v: string | number) => (($(id) as HTMLInputElement).value = String(v));
+  set("max-players", maxPlayers);
+  set("mode", c.mode);
+  set("walls", c.wallStyle);
+  set("map-size", c.mapSize);
+  set("team-count", c.teamCount);
+  set("tank-speed", c.tankSpeedPct);
+  set("hp", c.hp);
+  set("lives", c.lives);
+  set("cfg-respawn", c.respawnSeconds);
+  set("kill-points", c.killPoints);
+  set("death-penalty", c.deathPenaltyPct);
+  set("win-score", c.winScore);
+  set("powerups", c.powerups ? "on" : "off");
+  set("pwr-every", c.powerupEverySeconds);
+  set("pwr-charges", c.powerupCharges);
+  set("pwr-despawn", c.powerupDespawnSeconds);
+}
+
+$("lobby-config").addEventListener("change", () => {
+  if (!currentLobby || currentLobby.hostId !== playerId) return;
+  const { maxPlayers, config } = gatherConfig();
+  net.send({ type: "updateConfig", maxPlayers, config });
+});
 
 $("leave").onclick = () => {
   net.send({ type: "leaveLobby" });
@@ -499,7 +591,7 @@ window.addEventListener("keydown", (e) => {
 $("back-to-lobby").onclick = () => {
   $("gameover").classList.add("hidden");
   if (currentLobby) {
-    renderLobby(currentLobby);
+    renderLobby(currentLobby, true);
     show("lobby");
   } else {
     leaveToMenu();

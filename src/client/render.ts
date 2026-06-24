@@ -20,6 +20,7 @@ const BULLET_STYLE: Record<BulletKind, { c: string; r: number }> = {
 
 const POWERUP_STYLE: Record<PowerupType, { c: string; g: string }> = {
   speed: { c: "#e6c23f", g: "»" },
+  shield: { c: "#4fd6a0", g: "◈" },
   sniper: { c: "#2fb8d6", g: "•" },
   explosive: { c: "#b23b2e", g: "✸" },
   laser: { c: "#9b3fd6", g: "≡" },
@@ -137,7 +138,7 @@ export class Renderer {
     }
 
     for (const t of interp.tanks) {
-      this.drawTank(t, t.id === localId);
+      this.drawTank(t, t.id === localId, nowMs);
     }
 
     this.drawBeams(nowMs);
@@ -272,7 +273,7 @@ export class Renderer {
     ctx.stroke();
   }
 
-  private drawTank(t: TankDTO, isLocal: boolean): void {
+  private drawTank(t: TankDTO, isLocal: boolean, nowMs: number): void {
     const { ctx } = this;
     ctx.save();
     ctx.translate(t.x, t.y);
@@ -332,6 +333,32 @@ export class Renderer {
     ctx.fillStyle = shade(t.color, -25);
     ctx.fill();
     ctx.restore();
+
+    // Laser windup preview: a thin flickering beam along the aim.
+    if (t.charging && t.alive) {
+      ctx.save();
+      ctx.rotate(t.turretAngle);
+      ctx.globalAlpha = 0.4 + 0.35 * Math.abs(Math.sin(nowMs / 60));
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(r + 4, 0);
+      ctx.lineTo(r + 54, 0);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    // Shield bubble.
+    if (t.shielded && t.alive) {
+      ctx.beginPath();
+      ctx.arc(0, 0, r + 8, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(79,214,160,0.18)";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(79,214,160,${0.55 + 0.3 * Math.abs(Math.sin(nowMs / 200))})`;
+      ctx.stroke();
+    }
 
     ctx.globalAlpha = 1;
     ctx.restore();

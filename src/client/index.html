@@ -42,6 +42,21 @@
             <label for="lobby-name">Name</label>
             <input id="lobby-name" maxlength="24" placeholder="My battle" autocomplete="off" />
           </div>
+          <button id="create" class="primary">Create &amp; Host</button>
+        </div>
+      </section>
+
+      <!-- Lobby waiting room -->
+      <section id="lobby" class="screen hidden">
+        <h2 id="lobby-title">Lobby</h2>
+        <p class="status"><span id="lobby-meta"></span></p>
+
+        <p id="team-hint" class="status hidden">Click a team box to join it.</p>
+        <ul id="lobby-players"></ul>
+
+        <!-- Host-only game settings (configured here, in the lobby) -->
+        <div id="lobby-config" class="panel hidden">
+          <h2>Game Settings</h2>
           <div class="row">
             <label for="max-players">Max players</label>
             <input id="max-players" type="number" min="2" max="32" value="4" />
@@ -116,24 +131,15 @@
             <label for="pwr-every">Spawn / s</label>
             <input id="pwr-every" type="number" min="3" max="60" value="8" />
             <label for="pwr-charges">Charges</label>
-            <input id="pwr-charges" type="number" min="1" max="20" value="3" />
+            <input id="pwr-charges" type="number" min="1" max="20" value="1" />
           </div>
           <div class="row">
             <label for="pwr-despawn">Despawn s</label>
             <input id="pwr-despawn" type="number" min="3" max="60" value="12" />
           </div>
-
-          <button id="create" class="primary">Create &amp; Host</button>
         </div>
-      </section>
 
-      <!-- Lobby waiting room -->
-      <section id="lobby" class="screen hidden">
-        <h2 id="lobby-title">Lobby</h2>
-        <p class="status"><span id="lobby-meta"></span></p>
-        <ul id="lobby-players"></ul>
         <div class="actions">
-          <button id="switch-team" class="ghost hidden">Switch Team</button>
           <button id="start" class="primary hidden">Start Game</button>
           <p id="waiting-host" class="status hidden">Waiting for the host to start…</p>
           <button id="leave" class="ghost">Leave Lobby</button>

@@ -5,13 +5,14 @@ import {
   BULLET_SPEED,
   EXPLOSION_RADIUS,
   FIRE_COOLDOWN,
+  LASER_DELAY,
   LASER_RANGE,
   MAX_AMMO,
   MAX_POWERUPS_ON_MAP,
   POWERUP_RADIUS,
   RELOAD_SECONDS,
+  SHIELD_SECONDS,
   SNIPER_SPEED_MULT,
-  SNIPER_WALL_PIERCE,
   SPEED_BOOST_MULT,
   SPEED_BOOST_SECONDS,
   TANK_COLORS,
@@ -64,6 +65,10 @@ interface Tank {
   weaponCharges: number;
   /** Seconds of speed boost remaining. */
   boostTimer: number;
+  /** Seconds of shield (invulnerability) remaining. */
+  shieldTimer: number;
+  /** Seconds left on a laser windup (0 = not charging). */
+  laserCharge: number;
   team: number;
 }
 
@@ -183,6 +188,8 @@ export class Game {
       weapon: null,
       weaponCharges: 0,
       boostTimer: 0,
+      shieldTimer: 0,
+      laserCharge: 0,
       team,
     });
     if (this.tanks.size > 1) this.everMultiple = true;
@@ -224,6 +231,15 @@ export class Game {
     for (const tank of this.tanks.values()) {
       tank.fireCooldown = Math.max(0, tank.fireCooldown - dt);
       if (tank.boostTimer > 0) tank.boostTimer = Math.max(0, tank.boostTimer - dt);
+      if (tank.shieldTimer > 0) tank.shieldTimer = Math.max(0, tank.shieldTimer - dt);
+      // Laser windup: fire the beam once the charge completes.
+      if (tank.laserCharge > 0) {
+        tank.laserCharge -= dt;
+        if (tank.laserCharge <= 0) {
+          tank.laserCharge = 0;
+          if (tank.alive) this.fireLaser(tank, tank.turretAngle);
+        }
+      }
       if (tank.reloadTimer > 0) {
         tank.reloadTimer -= dt;
         if (tank.reloadTimer <= 0) {
@@ -275,7 +291,9 @@ export class Game {
   }
 
   private fire(tank: Tank): void {
-    const weapon = tank.weapon && tank.weapon !== "speed" ? tank.weapon : null;
+    if (tank.laserCharge > 0) return; // can't fire while a laser is winding up
+    const offensive: PowerupType[] = ["sniper", "explosive", "laser", "tracking"];
+    const weapon = tank.weapon && offensive.includes(tank.weapon) ? tank.weapon : null;
     const usingWeapon = weapon !== null;
 
     // Power-up shots don't draw from the magazine — only normal shots do.
@@ -290,9 +308,16 @@ export class Game {
     const a = tank.turretAngle;
 
     if (weapon === "laser") {
-      this.fireLaser(tank, a);
-    } else {
-      const kind: BulletKind = weapon ?? "normal";
+      // Begin the windup; the beam fires after LASER_DELAY (see step()).
+      tank.laserCharge = LASER_DELAY;
+      tank.weaponCharges -= 1;
+      if (tank.weaponCharges <= 0) tank.weapon = null;
+      return;
+    }
+
+    {
+      // Only sniper / explosive / tracking reach here (laser & buffs handled above).
+      const kind: BulletKind = (weapon ?? "normal") as BulletKind;
       const speed = kind === "sniper" ? BULLET_SPEED * SNIPER_SPEED_MULT : BULLET_SPEED;
       const muzzle = TANK_RADIUS + BULLET_RADIUS + 2;
       // Sniper flies straight & fast (no momentum drift); others inherit it.
@@ -308,7 +333,7 @@ export class Game {
         bounces: 0,
         life: BULLET_LIFETIME,
         kind,
-        wallPierce: kind === "sniper" ? SNIPER_WALL_PIERCE : 0,
+        wallPierce: 0,
         pierceTanks: kind === "sniper",
         wasInWall: false,
         hitIds: new Set(),
@@ -324,29 +349,54 @@ export class Game {
     }
   }
 
-  /** Hitscan laser: instant straight beam, ignores walls, hits all in range. */
+  /**
+   * Hitscan laser: an instant beam that reflects off walls, accumulating up to
+   * LASER_RANGE total length, damaging each tank it crosses (once).
+   */
   private fireLaser(tank: Tank, angle: number): void {
-    const dx = Math.cos(angle);
-    const dy = Math.sin(angle);
-    const x1 = tank.x + dx * (TANK_RADIUS + 2);
-    const y1 = tank.y + dy * (TANK_RADIUS + 2);
-    const x2 = tank.x + dx * LASER_RANGE;
-    const y2 = tank.y + dy * LASER_RANGE;
-    this.pendingBeams.push({ x1, y1, x2, y2 });
+    const STEP = 3;
+    let dx = Math.cos(angle);
+    let dy = Math.sin(angle);
+    let x = tank.x + dx * (TANK_RADIUS + 2);
+    let y = tank.y + dy * (TANK_RADIUS + 2);
+    let remaining = LASER_RANGE;
+    const pts: Array<{ x: number; y: number }> = [{ x, y }];
+    const hit = new Set<string>();
+    let guard = 0;
 
-    for (const t of this.tanks.values()) {
-      if (!t.alive || t.id === tank.id) continue;
-      if (this.isFriendly(tank.id, t)) continue;
-      // Distance from the tank center to the beam segment.
-      const proj = ((t.x - x1) * dx + (t.y - y1) * dy);
-      if (proj < 0 || proj > LASER_RANGE) continue;
-      const cx = x1 + dx * proj;
-      const cy = y1 + dy * proj;
-      const d2 = (t.x - cx) ** 2 + (t.y - cy) ** 2;
-      if (d2 <= TANK_RADIUS * TANK_RADIUS) {
-        t.hp -= 1;
-        if (t.hp <= 0) this.kill(t, tank.id);
+    while (remaining > 0 && guard++ < 4000) {
+      const nx = x + dx * STEP;
+      if (this.circleHitsWall(nx, y, BULLET_RADIUS)) {
+        dx = -dx;
+        pts.push({ x, y });
+      } else {
+        x = nx;
       }
+      const ny = y + dy * STEP;
+      if (this.circleHitsWall(x, ny, BULLET_RADIUS)) {
+        dy = -dy;
+        pts.push({ x, y });
+      } else {
+        y = ny;
+      }
+      remaining -= STEP;
+      if (x < 0 || y < 0 || x > this.maze.width || y > this.maze.height) break;
+
+      for (const t of this.tanks.values()) {
+        if (!t.alive || t.id === tank.id || t.shieldTimer > 0 || hit.has(t.id)) continue;
+        if (this.isFriendly(tank.id, t)) continue;
+        if ((t.x - x) ** 2 + (t.y - y) ** 2 <= TANK_RADIUS * TANK_RADIUS) {
+          hit.add(t.id);
+          t.hp -= 1;
+          if (t.hp <= 0) this.kill(t, tank.id);
+        }
+      }
+    }
+    pts.push({ x, y });
+
+    // Emit each leg of the reflected path for the client to draw.
+    for (let i = 0; i < pts.length - 1; i++) {
+      this.pendingBeams.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
     }
   }
 
@@ -372,19 +422,12 @@ export class Game {
 
       for (let s = 0; s < steps && !dead; s++) {
         if (b.pierceTanks) {
-          // Sniper: fly straight, punch through walls (limited), pierce tanks.
+          // Sniper: fly straight through every wall and tank; stops only at the
+          // map edge (or when its lifetime runs out).
           b.x += b.vx * sdt;
           b.y += b.vy * sdt;
           if (b.x < 0 || b.y < 0 || b.x > this.maze.width || b.y > this.maze.height) {
             dead = true;
-          } else {
-            const inWall = this.circleHitsWall(b.x, b.y, BULLET_RADIUS);
-            if (inWall && !b.wasInWall) {
-              // Entered a fresh wall: spend a penetration charge or die.
-              if (b.wallPierce > 0) b.wallPierce -= 1;
-              else dead = true;
-            }
-            b.wasInWall = inWall;
           }
         } else {
           const nx = b.x + b.vx * sdt;
@@ -467,7 +510,7 @@ export class Game {
     this.pendingBlasts.push({ x, y });
     const r2 = EXPLOSION_RADIUS * EXPLOSION_RADIUS;
     for (const tank of this.tanks.values()) {
-      if (!tank.alive) continue;
+      if (!tank.alive || tank.shieldTimer > 0) continue;
       if (this.isFriendly(ownerId, tank)) continue;
       const dx = tank.x - x;
       const dy = tank.y - y;
@@ -493,6 +536,14 @@ export class Game {
       if (b.kind === "explosive") {
         this.explode(b.x, b.y, b.ownerId);
         return true;
+      }
+      // Shield blocks the hit (no damage); the round is still stopped/passes.
+      if (tank.shieldTimer > 0) {
+        if (b.pierceTanks) {
+          b.hitIds.add(tank.id);
+          continue;
+        }
+        return true; // normal round absorbed by the shield
       }
       tank.hp -= 1;
       if (tank.hp <= 0) this.kill(tank, b.ownerId);
@@ -551,6 +602,8 @@ export class Game {
   private applyPowerup(tank: Tank, type: PowerupType): void {
     if (type === "speed") {
       tank.boostTimer = SPEED_BOOST_SECONDS;
+    } else if (type === "shield") {
+      tank.shieldTimer = SHIELD_SECONDS;
     } else {
       tank.weapon = type;
       tank.weaponCharges = this.cfg.powerupCharges;
@@ -627,6 +680,8 @@ export class Game {
     tank.weapon = null;
     tank.weaponCharges = 0;
     tank.boostTimer = 0;
+    tank.shieldTimer = 0;
+    tank.laserCharge = 0;
   }
 
   /**
@@ -682,6 +737,8 @@ export class Game {
           weapon: t.weapon,
           weaponCharges: t.weaponCharges,
           boosted: t.boostTimer > 0,
+          shielded: t.shieldTimer > 0,
+          charging: t.laserCharge > 0,
           team: t.team,
         })),
       bullets: this.bullets.map((b) => ({

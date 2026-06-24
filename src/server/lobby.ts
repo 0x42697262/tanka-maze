@@ -102,6 +102,19 @@ export class Lobby {
     this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
   }
 
+  /** Host updates the game settings while in the lobby. */
+  setConfig(requesterId: string, maxPlayers: number, config: GameConfig): void {
+    if (this.inGame || requesterId !== this.hostId) return;
+    this.config = config;
+    this.maxPlayers = clamp(maxPlayers, 2, 32) || this.maxPlayers;
+    // Keep team assignments valid if the team count shrank.
+    for (const m of this.members) {
+      if (m.team >= config.teamCount) m.team = config.teamCount - 1;
+    }
+    this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
+    this.onChange(); // listing shows the new mode
+  }
+
   /** Remove a member; returns true if the lobby should be destroyed. */
   remove(clientId: string): boolean {
     const idx = this.members.findIndex((m) => m.id === clientId);
