@@ -208,6 +208,9 @@ class Hub {
     const lobby = this.lobbies.get(lobbyId);
     if (!lobby) return this.send(client, { type: "error", message: "Lobby not found." });
     if (lobby.isFull()) return this.send(client, { type: "error", message: "Lobby is full." });
+    if (lobby.inGame && !lobby.config.allowLateJoin) {
+      return this.send(client, { type: "error", message: "This match is closed to late joiners." });
+    }
 
     this.leaveLobby(client);
     lobby.add(client);
@@ -337,6 +340,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     wallStyle: oneOf(c.wallStyle, ["maze", "sparse", "open"] as const, d.wallStyle),
     mapSize: oneOf(c.mapSize, ["small", "normal", "large", "random"] as const, d.mapSize),
     rounds: clampInt(c.rounds, 1, 15, d.rounds),
+    allowLateJoin: typeof c.allowLateJoin === "boolean" ? c.allowLateJoin : d.allowLateJoin,
     tankSpeedPct: clampInt(c.tankSpeedPct, 50, 200, d.tankSpeedPct),
     hp: clampInt(c.hp, 1, 10, d.hp),
     lives,

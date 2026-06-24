@@ -45,6 +45,9 @@
         <h2 id="lobby-title">Lobby</h2>
         <p class="status"><span id="lobby-meta"></span></p>
 
+        <div class="lobby-layout">
+          <div class="lobby-main">
+
         <p id="team-hint" class="status hidden">Click a team box to join it.</p>
 
         <!-- Tank customization (per-player; hidden in Team VS where team color rules) -->
@@ -122,6 +125,13 @@
             <input id="lives" type="number" min="0" max="99" value="0" />
             <label for="cfg-respawn">Respawn s</label>
             <input id="cfg-respawn" type="number" min="1" max="10" value="3" />
+          </div>
+          <div class="row">
+            <label for="allow-late">Join after start</label>
+            <select id="allow-late">
+              <option value="on">Allowed</option>
+              <option value="off">Closed once started</option>
+            </select>
           </div>
 
           <h3 class="cfg-h">Scoring</h3>
@@ -261,6 +271,14 @@
           <p id="waiting-host" class="status hidden">Waiting for the host to start…</p>
           <button id="leave" class="ghost">Leave Lobby</button>
         </div>
+
+          </div><!-- /.lobby-main -->
+
+          <aside id="lobby-details" class="lobby-details panel">
+            <h2>Game Configuration</h2>
+            <div id="details-body" class="details-body"></div>
+          </aside>
+        </div><!-- /.lobby-layout -->
       </section>
 
       <!-- Game -->

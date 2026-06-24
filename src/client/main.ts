@@ -214,18 +214,21 @@ function renderLobbyList(lobbies: LobbySummaryDTO[]): void {
   }
   for (const l of lobbies) {
     const li = document.createElement("li");
-    const joinable = l.playerCount < l.maxPlayers;
+    const full = l.playerCount >= l.maxPlayers;
+    const closed = l.inGame && !l.allowLateJoin; // started + late join disabled
+    const joinable = !full && !closed;
+    const status = l.inGame ? (closed ? "● in progress" : "● live") : "";
     li.innerHTML = `
       <div class="lobby-info">
         <span class="name">${escapeHtml(l.name)}</span>
         <span class="sub">host ${escapeHtml(l.hostName)} · ${modeLabel(l.mode)}</span>
       </div>
       <span class="badge ${l.inGame ? "live" : ""}">
-        ${l.inGame ? "● live" : ""} ${l.playerCount}/${l.maxPlayers}
+        ${status} ${l.playerCount}/${l.maxPlayers}
       </span>`;
     const btn = document.createElement("button");
     btn.className = "ghost small";
-    btn.textContent = !joinable ? "Full" : l.inGame ? "Join live" : "Join";
+    btn.textContent = full ? "Full" : closed ? "Closed" : l.inGame ? "Join live" : "Join";
     btn.disabled = !joinable;
     btn.onclick = () => net.send({ type: "joinLobby", lobbyId: l.id });
     li.appendChild(btn);
@@ -301,6 +304,124 @@ function renderLobby(lobby: LobbyDTO, firstRender: boolean): void {
   // Host configures the game here; populate the controls once on entry.
   $("lobby-config").classList.toggle("hidden", !isHost);
   if (isHost && firstRender) applyConfigToControls(lobby.config, lobby.maxPlayers);
+
+  // Everyone sees the full, read-only configuration on the right.
+  renderConfigDetails(lobby);
+}
+
+/** Render the complete (read-only) lobby configuration, organized into groups. */
+function renderConfigDetails(lobby: LobbyDTO): void {
+  const c = lobby.config;
+  const a = c.adv;
+  const teams = c.mode === "teams";
+  const hasWin = c.mode !== "lms";
+  const onOff = (b: boolean) => (b ? "On" : "Off");
+  type Row = [string, string | number];
+  const groups: Array<{ title: string; rows: Row[] }> = [];
+
+  const mode: Row[] = [["Mode", modeLabel(c.mode)]];
+  if (teams) {
+    mode.push(["Teams", c.teamCount]);
+    mode.push(["Friendly fire", onOff(c.friendlyFire)]);
+    mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
+  }
+  groups.push({ title: "Mode", rows: mode });
+
+  groups.push({
+    title: "Map",
+    rows: [
+      ["Walls", WALL_LABEL[c.wallStyle]],
+      ["Size", SIZE_LABEL[c.mapSize]],
+    ],
+  });
+
+  groups.push({
+    title: "Match",
+    rows: [
+      ["Rounds", c.rounds > 1 ? `best of ${c.rounds}` : "single round"],
+      ["Max players", lobby.maxPlayers],
+      ["Join after start", c.allowLateJoin ? "Allowed" : "Closed"],
+      ["Tank speed", `${c.tankSpeedPct}%`],
+      ["HP", c.hp],
+      ["Lives", c.lives > 0 ? c.lives : "∞"],
+      ["Respawn", `${c.respawnSeconds}s`],
+    ],
+  });
+
+  const scoring: Row[] = [
+    ["Kill", `${c.killPoints} pts`],
+    ["Death penalty", `${c.deathPenaltyPct}%`],
+  ];
+  if (hasWin) scoring.push(["Points to win", `${c.winScore}`]);
+  groups.push({ title: "Scoring", rows: scoring });
+
+  const pwr: Row[] = [["Power-ups", onOff(c.powerups)]];
+  if (c.powerups) {
+    pwr.push(["Spawn every", `${c.powerupEverySeconds}s`]);
+    pwr.push(["Despawn after", `${c.powerupDespawnSeconds}s`]);
+    pwr.push(["Charges / pickup", c.powerupCharges]);
+  }
+  groups.push({ title: "Power-ups", rows: pwr });
+
+  // Advanced engine tuning, grouped the same way as the host's editor.
+  groups.push({
+    title: "Adv · Tank",
+    rows: [
+      ["Size", a.tankRadius],
+      ["Turn rate", a.tankTurnSpeed],
+      ["Fire cooldown", `${a.fireCooldown}s`],
+      ["Magazine", a.maxAmmo],
+      ["Reload", `${a.reloadSeconds}s`],
+    ],
+  });
+  groups.push({
+    title: "Adv · Bullet",
+    rows: [
+      ["Speed", a.bulletSpeed],
+      ["Size", a.bulletRadius],
+      ["Bounces", a.bulletBounces],
+      ["Lifetime", `${a.bulletLifetime}s`],
+    ],
+  });
+  groups.push({
+    title: "Adv · Map",
+    rows: [
+      ["Cell size", a.cellSize],
+      ["Wall thickness", a.wallThickness],
+    ],
+  });
+  groups.push({
+    title: "Adv · Power-ups",
+    rows: [
+      ["Boost ×", a.speedBoostMult],
+      ["Boost duration", `${a.speedBoostSeconds}s`],
+      ["Shield duration", `${a.shieldSeconds}s`],
+      ["Laser windup", `${a.laserDelay}s`],
+      ["Laser range", a.laserRange],
+      ["Sniper ×", a.sniperSpeedMult],
+      ["Sniper wall pierce", a.sniperWallPierce],
+      ["Explosion radius", a.explosionRadius],
+      ["Tracking turn", a.trackingTurnRate],
+      ["Tracking life", `${a.trackingLifetime}s`],
+      ["Tracking bounces", a.trackingBounces],
+      ["Multishot pellets", a.multishotCount],
+      ["Multishot spread", `${a.multishotSpread}°`],
+    ],
+  });
+
+  $("details-body").innerHTML = groups
+    .map(
+      (g) =>
+        `<div class="det-group"><h4>${g.title}</h4><dl>` +
+        g.rows
+          .map(
+            ([k, v]) =>
+              `<div class="det-row"><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(String(v))}</dd></div>`
+          )
+          .join("") +
+        `</dl></div>`
+    )
+    .join("");
 }
 
 function teamColorInput(team: number, color: string): HTMLInputElement {
@@ -622,15 +743,15 @@ const WEAPON_LABEL: Record<string, string> = {
 function renderAmmo(
   me:
     | {
-        ammo: number;
-        maxAmmo: number;
-        reloadIn: number;
-        weapon: string | null;
-        weaponCharges: number;
-        boosted: boolean;
-        shielded: boolean;
-        charging: boolean;
-      }
+      ammo: number;
+      maxAmmo: number;
+      reloadIn: number;
+      weapon: string | null;
+      weaponCharges: number;
+      boosted: boolean;
+      shielded: boolean;
+      charging: boolean;
+    }
     | undefined
 ): void {
   const el = $("ammo");
@@ -725,12 +846,13 @@ function gatherConfig(): { maxPlayers: number; config: GameConfig } {
   const sel = (id: string) => ($(id) as HTMLSelectElement).value;
   const num = (id: string, d: number) => Number(($(id) as HTMLInputElement).value) || d;
   return {
-    maxPlayers: num("max-players", 4),
+    maxPlayers: num("max-players", 8),
     config: {
       mode: sel("mode") as GameMode,
       wallStyle: sel("walls") as WallStyle,
       mapSize: sel("map-size") as MapSize,
       rounds: num("rounds", 3),
+      allowLateJoin: sel("allow-late") === "on",
       tankSpeedPct: num("tank-speed", 100),
       hp: num("hp", 1),
       lives: Number(($("lives") as HTMLInputElement).value) || 0,
@@ -757,6 +879,7 @@ function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("walls", c.wallStyle);
   set("map-size", c.mapSize);
   set("rounds", c.rounds);
+  set("allow-late", c.allowLateJoin ? "on" : "off");
   set("team-count", c.teamCount);
   set("tank-speed", c.tankSpeedPct);
   set("hp", c.hp);

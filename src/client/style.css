@@ -51,6 +51,71 @@ body {
   display: none !important;
 }
 
+/* ---- Lobby two-column layout (controls left, full config right) ---- */
+#lobby {
+  max-width: 940px;
+}
+.lobby-layout {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.lobby-main {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.lobby-details {
+  flex: 0 0 300px;
+  max-height: 78vh;
+  overflow-y: auto;
+  margin-top: 0;
+}
+.lobby-details h2 {
+  margin-top: 0;
+}
+.det-group {
+  margin-bottom: 12px;
+}
+.det-group h4 {
+  font-family: var(--font-hand);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--stamp);
+  margin: 0 0 4px;
+  border-bottom: 1px dashed var(--rule);
+  padding-bottom: 2px;
+}
+.det-group dl {
+  margin: 0;
+}
+.det-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  padding: 2px 0;
+}
+.det-row dt {
+  color: var(--ink-soft);
+}
+.det-row dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 760px) {
+  .lobby-layout {
+    flex-direction: column;
+  }
+  .lobby-details {
+    flex-basis: auto;
+    width: 100%;
+    max-height: none;
+  }
+}
+
 /* ---- Masthead ---- */
 .masthead {
   text-align: center;

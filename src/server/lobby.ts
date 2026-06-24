@@ -431,6 +431,7 @@ export class Lobby {
       maxPlayers: this.maxPlayers,
       mode: this.config.mode,
       inGame: this.inGame,
+      allowLateJoin: this.config.allowLateJoin,
     };
   }
 }

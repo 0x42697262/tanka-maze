@@ -121,6 +121,7 @@ export interface GameConfig {
   wallStyle: WallStyle;
   mapSize: MapSize;
   rounds: number; // best-of-N; the side with the most round wins takes the match
+  allowLateJoin: boolean; // may players join after the match has started?
   tankSpeedPct: number; // 50..200 (% of base speed)
   hp: number; // 1..10 hits to destroy
   lives: number; // 0 = unlimited respawns; otherwise max respawns
@@ -144,6 +145,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   wallStyle: "maze",
   mapSize: "random",
   rounds: ROUNDS_DEFAULT,
+  allowLateJoin: true,
   tankSpeedPct: 100,
   hp: 1,
   lives: 0,
@@ -182,6 +184,7 @@ export interface LobbySummaryDTO {
   maxPlayers: number;
   mode: GameMode;
   inGame: boolean;
+  allowLateJoin: boolean; // whether a started match still accepts players
 }
 
 export interface LobbyDTO {
