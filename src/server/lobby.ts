@@ -29,6 +29,10 @@ export interface Client {
   connected: boolean;
   removalTimer: ReturnType<typeof setTimeout> | null;
   team: number;
+  /** Last measured round-trip latency in ms (via WebSocket ping/pong). */
+  latency: number;
+  /** Timestamp (ms) the outstanding ping was sent, or 0 if none pending. */
+  pingAt: number;
 }
 
 const IDLE_INPUT: InputState = {
@@ -162,18 +166,37 @@ export class Lobby {
     this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
   }
 
-  /** Host updates the game settings while in the lobby. */
+  /**
+   * Host updates the game settings. Allowed both in the lobby and mid-match: a
+   * running game picks up live-applicable tuning (speeds, scoring, power-ups,
+   * bullet/adv values) immediately; structural changes (mode, map, team count)
+   * are stored and take effect on the next start/restart.
+   */
   setConfig(requesterId: string, maxPlayers: number, config: GameConfig): void {
-    if (this.inGame || requesterId !== this.hostId) return;
+    if (requesterId !== this.hostId) return;
     this.config = config;
     this.maxPlayers = clamp(maxPlayers, 2, 32) || this.maxPlayers;
     this.ensureTeams();
-    // Keep team assignments valid if the team count shrank.
-    for (const m of this.members) {
-      if (m.team >= config.teamCount) m.team = config.teamCount - 1;
+    if (this.inGame) {
+      this.game?.updateConfig(config);
+    } else {
+      // Keep team assignments valid if the team count shrank.
+      for (const m of this.members) {
+        if (m.team >= config.teamCount) m.team = config.teamCount - 1;
+      }
     }
     this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
     this.onChange(); // listing shows the new mode
+  }
+
+  /** Host restarts the match with the current config (fresh maze, scores, rounds). */
+  restartGame(requesterId: string): void {
+    if (!this.game || requesterId !== this.hostId) return;
+    if (this.roundBreak) {
+      clearTimeout(this.roundBreak);
+      this.roundBreak = null;
+    }
+    this.createMatch();
   }
 
   /** Remove a member; returns true if the lobby should be destroyed. */
@@ -202,6 +225,14 @@ export class Lobby {
     if (requesterId !== this.hostId) return "Only the host can start the game.";
     if (this.members.length < 1) return "Need at least one player.";
 
+    this.createMatch();
+    this.loop = setInterval(() => this.tick(), TICK_MS);
+    this.onChange(); // lobby list now shows inGame
+    return null;
+  }
+
+  /** Build a fresh maze + Game from the current members/config and broadcast it. */
+  private createMatch(): void {
     this.maze = this.buildMaze();
     this.game = new Game(
       this.maze,
@@ -209,7 +240,7 @@ export class Lobby {
       this.config,
       this.teamNames
     );
-
+    this.lastSnapBytes = null;
     this.lastStep = Date.now();
     this.broadcast({
       type: "gameStart",
@@ -220,10 +251,6 @@ export class Lobby {
       standing: this.game.roundStandings(),
     });
     this.broadcastSnapshot(true); // initial state (binary)
-    this.onChange(); // lobby list now shows inGame
-
-    this.loop = setInterval(() => this.tick(), TICK_MS);
-    return null;
   }
 
   /** A fresh maze sized for the configured map size + wall style. */

@@ -790,6 +790,121 @@ kbd {
   font-size: 30px;
   margin-bottom: 8px;
 }
+
+/* Pause (host editor) + scoreboard need to be wide and scrollable. */
+.pause-card,
+.scoreboard-card {
+  width: 480px;
+  max-width: 94vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  transform: none;
+}
+#pause-host {
+  margin: 10px 0 4px;
+  text-align: left;
+}
+#pause-host.hidden {
+  display: none;
+}
+#pause-host #lobby-config {
+  margin-top: 4px;
+}
+.pause-note {
+  font-size: 12px;
+  font-style: italic;
+  margin: 8px 0;
+}
+#pause-restart {
+  width: 100%;
+}
+
+/* ---- Scoreboard (Tab) ---- */
+.sb-table-wrap {
+  overflow-x: auto;
+  margin: 10px 0 6px;
+}
+.sb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+.sb-table th {
+  font-family: var(--font-hand);
+  color: var(--ink-soft);
+  font-weight: 400;
+  border-bottom: 1.5px solid var(--rule);
+  padding: 3px 6px;
+}
+.sb-table td {
+  padding: 5px 6px;
+  border-bottom: 1px dashed var(--rule);
+  vertical-align: middle;
+}
+.sb-table .swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+.sb-table tr.sb-off {
+  opacity: 0.5;
+}
+.sb-table .sb-score {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sb-you,
+.sb-host {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--stamp);
+}
+.sb-act {
+  text-align: right;
+}
+.sb-kick {
+  color: var(--stamp);
+  border-color: var(--stamp);
+}
+.sb-cfg-h {
+  font-family: var(--font-hand);
+  font-size: 16px;
+  color: var(--stamp);
+  margin: 12px 0 4px;
+  border-bottom: 1.5px dashed var(--rule);
+  padding-bottom: 3px;
+  text-align: left;
+}
+.scoreboard-card .details-body {
+  text-align: left;
+  columns: 2;
+  column-gap: 18px;
+}
+.scoreboard-card .det-group {
+  break-inside: avoid;
+}
+
+/* ---- Latency badge (lobby rows + scoreboard) ---- */
+.ping {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.ping.good {
+  color: #2f8f46;
+}
+.ping.ok {
+  color: #c98a1e;
+}
+.ping.bad {
+  color: var(--stamp);
+}
 .card .ghost {
   margin-top: 8px;
 }

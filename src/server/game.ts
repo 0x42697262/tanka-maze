@@ -240,6 +240,21 @@ export class Game {
     return this.roundWinnerName;
   }
 
+  /**
+   * Apply a live config change to the running match. Tuning that's read each
+   * tick (scoring, power-ups, bullet/advanced values) takes effect immediately;
+   * cached derived values (movement speeds, round count) are recomputed here.
+   * Structural changes (mode, map, team count, HP) only fully apply on a
+   * restart — the new maze/teams are rebuilt then.
+   */
+  updateConfig(config: GameConfig): void {
+    this.cfg = config;
+    this.adv = config.adv;
+    this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
+    this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
+    this.totalRounds = Math.max(1, config.rounds);
+  }
+
   setInput(playerId: string, input: InputState): void {
     const tank = this.tanks.get(playerId);
     if (tank) tank.input = input;

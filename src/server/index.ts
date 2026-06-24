@@ -81,6 +81,8 @@ class Hub {
       connected: true,
       removalTimer: null,
       team: 0,
+      latency: 0,
+      pingAt: 0,
     };
     this.sessions.set(client.sessionId, client);
     this.send(client, { type: "welcome", playerId: client.id, sessionId: client.sessionId, resumed: false });
@@ -174,6 +176,19 @@ class Hub {
         if (err) this.send(client, { type: "error", message: err });
         break;
       }
+      case "restartGame": {
+        this.lobbyOf(client)?.restartGame(client.id);
+        break;
+      }
+      case "kickPlayer": {
+        const lobby = this.lobbyOf(client);
+        if (!lobby || lobby.hostId !== client.id) break;
+        const target = this.clientById(msg.targetId);
+        if (!target || target.id === client.id || target.lobbyId !== lobby.id) break;
+        this.send(target, { type: "kicked", reason: "You were removed by the host." });
+        this.leaveLobby(target);
+        break;
+      }
       case "input": {
         const lobby = this.lobbyOf(client);
         lobby?.setInput(client.id, msg.input);
@@ -239,6 +254,41 @@ class Hub {
 
   private lobbyOf(client: Client): Lobby | undefined {
     return client.lobbyId ? this.lobbies.get(client.lobbyId) : undefined;
+  }
+
+  /** Find a connected client by its public player id. */
+  clientById(id: string): Client | undefined {
+    for (const c of this.sessions.values()) if (c.id === id) return c;
+    return undefined;
+  }
+
+  /** Record a pong reply's round-trip time against the client. */
+  notePong(client: Client): void {
+    if (client.pingAt) {
+      client.latency = Math.max(0, Date.now() - client.pingAt);
+      client.pingAt = 0;
+    }
+  }
+
+  /**
+   * Periodic latency tick: broadcast each lobby's current per-player latencies,
+   * then ping every connected socket so the next tick has fresh measurements.
+   */
+  pingPulse(): void {
+    for (const lobby of this.lobbies.values()) {
+      const pings = lobby.members.map((m) => ({ id: m.id, ms: m.latency }));
+      lobby.broadcast({ type: "latencies", pings });
+    }
+    const now = Date.now();
+    for (const c of this.sessions.values()) {
+      if (!c.connected || c.ws.readyState !== c.ws.OPEN) continue;
+      c.pingAt = now;
+      try {
+        c.ws.ping();
+      } catch {
+        /* socket may be closing; ignore */
+      }
+    }
   }
 
   private sendLobbyList(client: Client): void {
@@ -411,6 +461,9 @@ wss.on("connection", (ws) => {
     }
   });
 
+  ws.on("pong", () => {
+    if (client) hub.notePong(client);
+  });
   ws.on("close", () => {
     if (client) hub.onDisconnect(client, ws);
   });
@@ -418,6 +471,9 @@ wss.on("connection", (ws) => {
     if (client) hub.onDisconnect(client, ws);
   });
 });
+
+// Measure & broadcast per-player latency a couple times a second.
+setInterval(() => hub.pingPulse(), 2000);
 
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {

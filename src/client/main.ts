@@ -65,6 +65,9 @@ let moveMode: "relative" | "eight" = "relative";
 let roundInfo: { round: number; total: number } = { round: 1, total: 1 };
 let roundStanding: RoundStanding[] = [];
 let roundCountdown: ReturnType<typeof setInterval> | null = null;
+const latencies = new Map<string, number>(); // player id -> round-trip ms
+let scoreboardOpen = false;
+let scoreboardTimer: ReturnType<typeof setInterval> | null = null;
 
 const IDLE_INPUT = {
   forward: false,
@@ -170,6 +173,20 @@ net.onMessage((msg: ServerMessage) => {
       break;
     case "gameOver":
       endGame(msg.scores, msg.winnerName, msg.standing, msg.totalRounds);
+      break;
+    case "latencies":
+      for (const p of msg.pings) latencies.set(p.id, p.ms);
+      if (scoreboardOpen) renderScoreboard();
+      if (!inGame && currentLobby) renderLobby(currentLobby, false);
+      break;
+    case "kicked":
+      closeScoreboard();
+      closePause();
+      input?.dispose();
+      input = null;
+      currentLobby = null;
+      toast(msg.reason);
+      leaveToMenu();
       break;
     case "error":
       toast(msg.message);
@@ -309,8 +326,13 @@ function renderLobby(lobby: LobbyDTO, firstRender: boolean): void {
   renderConfigDetails(lobby);
 }
 
-/** Render the complete (read-only) lobby configuration, organized into groups. */
+/** Render the complete (read-only) lobby configuration into the lobby sidebar. */
 function renderConfigDetails(lobby: LobbyDTO): void {
+  $("details-body").innerHTML = buildConfigDetailsHtml(lobby);
+}
+
+/** Build the complete (read-only) config as organized HTML groups. */
+function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   const c = lobby.config;
   const a = c.adv;
   const teams = c.mode === "teams";
@@ -409,7 +431,7 @@ function renderConfigDetails(lobby: LobbyDTO): void {
     ],
   });
 
-  $("details-body").innerHTML = groups
+  return groups
     .map(
       (g) =>
         `<div class="det-group"><h4>${g.title}</h4><dl>` +
@@ -454,7 +476,7 @@ function playerRow(p: LobbyDTO["players"][number], hostId: string): HTMLLIElemen
   if (!p.connected) li.className = "offline";
   const you = p.id === playerId ? " (you)" : "";
   const tag = p.connected ? you : " (reconnecting…)";
-  li.innerHTML = `<span><span class="swatch" style="background:${p.color}"></span>${escapeHtml(p.name)}${tag}</span>`;
+  li.innerHTML = `<span><span class="swatch" style="background:${p.color}"></span>${escapeHtml(p.name)}${tag}</span>${pingBadge(p.id)}`;
   if (p.id === hostId) {
     const host = document.createElement("span");
     host.className = "host";
@@ -464,8 +486,87 @@ function playerRow(p: LobbyDTO["players"][number], hostId: string): HTMLLIElemen
   return li;
 }
 
+/** Colored latency badge (— when unknown) for a player id. */
+function pingBadge(id: string): string {
+  const ms = latencies.get(id);
+  if (ms == null) return `<span class="ping">—</span>`;
+  const cls = ms < 80 ? "good" : ms < 160 ? "ok" : "bad";
+  return `<span class="ping ${cls}">${ms} ms</span>`;
+}
+
+// ---------------------------------------------------------------------------
+// In-game scoreboard (Tab): connected players, latency, full config, host kick
+// ---------------------------------------------------------------------------
+function renderScoreboard(): void {
+  if (!currentLobby) return;
+  const lobby = currentLobby;
+  const teams = lobby.config.mode === "teams";
+  const isHost = lobby.hostId === playerId;
+  const snap = renderer.latest();
+  const scoreById = new Map<string, number>();
+  if (snap) for (const t of snap.tanks) scoreById.set(t.id, t.score);
+
+  const rows = [...lobby.players].sort(
+    (a, b) => (scoreById.get(b.id) ?? 0) - (scoreById.get(a.id) ?? 0)
+  );
+  const teamHead = teams ? "<th>Team</th>" : "";
+  const body = rows
+    .map((p) => {
+      const teamCell = teams
+        ? `<td>${escapeHtml(lobby.teamNames[p.team] ?? `Team ${p.team + 1}`)}</td>`
+        : "";
+      const kick =
+        isHost && p.id !== playerId
+          ? `<button class="sb-kick ghost small" data-id="${p.id}">Kick</button>`
+          : "";
+      const tag = p.id === playerId ? ' <span class="sb-you">you</span>' : "";
+      const host = p.id === lobby.hostId ? ' <span class="sb-host">host</span>' : "";
+      return (
+        `<tr class="${p.connected ? "" : "sb-off"}">` +
+        `<td><span class="swatch" style="background:${p.color}"></span>${escapeHtml(p.name)}${tag}${host}</td>` +
+        teamCell +
+        `<td class="sb-score">${scoreById.get(p.id) ?? 0}</td>` +
+        `<td>${pingBadge(p.id)}</td>` +
+        `<td class="sb-act">${kick}</td>` +
+        `</tr>`
+      );
+    })
+    .join("");
+
+  $("sb-table-wrap").innerHTML =
+    `<table class="sb-table"><thead><tr>` +
+    `<th>Player</th>${teamHead}<th>Score</th><th>Ping</th><th></th>` +
+    `</tr></thead><tbody>${body}</tbody></table>`;
+
+  $("sb-table-wrap")
+    .querySelectorAll<HTMLButtonElement>(".sb-kick")
+    .forEach((b) => {
+      b.onclick = () => net.send({ type: "kickPlayer", targetId: b.dataset.id ?? "" });
+    });
+
+  $("sb-details").innerHTML = buildConfigDetailsHtml(lobby);
+}
+
+function openScoreboard(): void {
+  if (!inGame) return;
+  scoreboardOpen = true;
+  renderScoreboard();
+  $("scoreboard").classList.remove("hidden");
+  if (scoreboardTimer) clearInterval(scoreboardTimer);
+  scoreboardTimer = setInterval(renderScoreboard, 500); // live scores + latency
+}
+function closeScoreboard(): void {
+  scoreboardOpen = false;
+  $("scoreboard").classList.add("hidden");
+  if (scoreboardTimer) {
+    clearInterval(scoreboardTimer);
+    scoreboardTimer = null;
+  }
+}
+
 function leaveToMenu(): void {
   inGame = false;
+  closeScoreboard();
   if (roundCountdown) {
     clearInterval(roundCountdown);
     roundCountdown = null;
@@ -492,9 +593,9 @@ function startGame(maze: MazeDTO, round = 1, totalRounds = 1, standing: RoundSta
   roundInfo = { round, total: totalRounds };
   roundStanding = standing;
   lastInputBytes = null; // force the first input of the new game to send
-  $("gh-lobby").textContent = currentLobby
-    ? `${currentLobby.name} · ${configSummary(currentLobby.config)}`
-    : "";
+  // Full config + players live in the Tab scoreboard now; the header just names
+  // the lobby and hints at Tab.
+  $("gh-lobby").textContent = currentLobby ? currentLobby.name : "";
   renderRoundBadge();
   renderSeriesBoard();
   closePause();
@@ -944,19 +1045,46 @@ $("leave").onclick = () => {
 };
 
 // ---- Pause / in-game menu (Esc) ----
+// The config editor (#lobby-config) is a single element shared between the
+// lobby screen and the pause menu. A comment anchor marks its lobby home so we
+// can return it after the host finishes editing mid-match.
+const configEl = $("lobby-config");
+const configHomeAnchor = document.createComment("lobby-config-home");
+configEl.parentElement?.insertBefore(configHomeAnchor, configEl);
+
+function moveConfigToPause(): void {
+  $("pause-config-slot").appendChild(configEl);
+  configEl.classList.remove("hidden");
+}
+function moveConfigHome(): void {
+  configHomeAnchor.parentElement?.insertBefore(configEl, configHomeAnchor.nextSibling);
+}
+
 function openPause(): void {
   if (!inGame) return;
   paused = true;
   const idle = encodeInput(IDLE_INPUT); // halt the tank while paused
   net.sendBinary(idle);
   lastInputBytes = idle;
+  const isHost = !!currentLobby && currentLobby.hostId === playerId;
+  $("pause-host").classList.toggle("hidden", !isHost);
+  if (isHost && currentLobby) {
+    moveConfigToPause();
+    applyConfigToControls(currentLobby.config, currentLobby.maxPlayers);
+    applyModeVisibility();
+  }
   $("pause").classList.remove("hidden");
 }
 function closePause(): void {
   paused = false;
   $("pause").classList.add("hidden");
+  moveConfigHome(); // return the editor to the lobby (no-op if already there)
 }
 $("resume").onclick = closePause;
+$("pause-restart").onclick = () => {
+  net.send({ type: "restartGame" });
+  closePause();
+};
 $("leave-game").onclick = () => {
   closePause();
   net.send({ type: "leaveLobby" });
@@ -971,6 +1099,9 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && inGame) {
     e.preventDefault();
     paused ? closePause() : openPause();
+  } else if (e.key === "Tab" && inGame) {
+    e.preventDefault();
+    scoreboardOpen ? closeScoreboard() : openScoreboard();
   }
 });
 

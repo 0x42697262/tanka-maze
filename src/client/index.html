@@ -322,16 +322,38 @@
             <ul id="killlog" class="killlog"></ul>
           </aside>
         </div>
-        <p class="hint">W/↑ forward · S/↓ reverse · A/D or ←/→ steer · Mouse aims · Click/Space fire · <kbd>Esc</kbd> menu</p>
+        <p class="hint">W/↑ forward · S/↓ reverse · A/D or ←/→ steer · Mouse aims · Click/Space fire · <kbd>Tab</kbd> scores · <kbd>Esc</kbd> menu</p>
       </section>
 
       <!-- Pause / in-game menu (Esc) -->
       <div id="pause" class="overlay hidden">
-        <div class="card paper-card">
+        <div class="card paper-card pause-card">
           <h2>Paused</h2>
           <p class="status">The battle rages on without you.</p>
+
+          <!-- Host-only: live settings editor + restart. The #lobby-config
+               editor is moved in here while paused, then returned to the lobby. -->
+          <div id="pause-host" class="hidden">
+            <div id="pause-config-slot"></div>
+            <p class="status pause-note">
+              Changes apply live. Mode, map &amp; team count take effect on restart.
+            </p>
+            <button id="pause-restart" class="primary">Restart match</button>
+          </div>
+
           <button id="resume" class="primary">Resume</button>
           <button id="leave-game" class="ghost">Leave Game</button>
+        </div>
+      </div>
+
+      <!-- In-game scoreboard (Tab): players, latency, full config, host kick -->
+      <div id="scoreboard" class="overlay hidden">
+        <div class="card paper-card scoreboard-card">
+          <h2>Scoreboard</h2>
+          <div id="sb-table-wrap" class="sb-table-wrap"></div>
+          <h3 class="sb-cfg-h">Game Configuration</h3>
+          <div id="sb-details" class="details-body"></div>
+          <p class="status">Press <kbd>Tab</kbd> to close</p>
         </div>
       </div>
 

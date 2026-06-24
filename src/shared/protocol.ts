@@ -366,6 +366,9 @@ export type ClientMessage =
   | { type: "joinLobby"; lobbyId: string }
   | { type: "leaveLobby" }
   | { type: "startGame" }
+  // Host-only, mid-match: restart the match with the current config, or remove a player.
+  | { type: "restartGame" }
+  | { type: "kickPlayer"; targetId: string }
   | { type: "input"; input: InputState };
 
 // ---------------------------------------------------------------------------
@@ -408,6 +411,10 @@ export type ServerMessage =
       totalRounds: number;
       standing: RoundStanding[];
     }
+  // Periodic round-trip latency per player (id -> ms), for the scoreboard.
+  | { type: "latencies"; pings: Array<{ id: string; ms: number }> }
+  // This client was removed from the lobby by the host.
+  | { type: "kicked"; reason: string }
   | { type: "error"; message: string };
 
 export function encode(msg: ServerMessage | ClientMessage): string {
