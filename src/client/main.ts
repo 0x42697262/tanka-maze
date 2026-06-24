@@ -192,6 +192,7 @@ function renderLobby(lobby: LobbyDTO): void {
   $("lobby-title").textContent = lobby.name;
   $("lobby-meta").textContent = `${lobby.players.length}/${lobby.maxPlayers} players · ${configSummary(lobby.config)}`;
 
+  const teams = lobby.config.mode === "teams";
   const ul = $("lobby-players");
   ul.innerHTML = "";
   lobby.players.forEach((p) => {
@@ -199,8 +200,10 @@ function renderLobby(lobby: LobbyDTO): void {
     if (!p.connected) li.className = "offline";
     const you = p.id === playerId ? " (you)" : "";
     const tag = p.connected ? you : " (reconnecting…)";
-    // p.color is validated to a hex string server-side before it reaches here.
-    li.innerHTML = `<span><span class="swatch" style="background:${p.color}"></span>${escapeHtml(p.name)}${tag}</span>`;
+    // In team mode the swatch shows the team color; otherwise the chosen color.
+    const swatch = teams ? TEAM_TINT[p.team % TEAM_TINT.length] : p.color;
+    const teamTag = teams ? `<span class="team-tag">Team ${p.team + 1}</span>` : "";
+    li.innerHTML = `<span><span class="swatch" style="background:${swatch}"></span>${escapeHtml(p.name)}${tag}</span>${teamTag}`;
     if (p.isHost) {
       const host = document.createElement("span");
       host.className = "host";
@@ -213,6 +216,7 @@ function renderLobby(lobby: LobbyDTO): void {
   const isHost = lobby.hostId === playerId;
   $("start").classList.toggle("hidden", !isHost);
   $("waiting-host").classList.toggle("hidden", isHost);
+  $("switch-team").classList.toggle("hidden", !teams);
 }
 
 function leaveToMenu(): void {
@@ -228,6 +232,7 @@ function startGame(maze: MazeDTO): void {
   renderer.setMaze(maze);
   arena = { w: maze.width, h: maze.height };
   inGame = true;
+  $("gh-lobby").textContent = currentLobby?.name ?? "";
   closePause();
   $("gameover").classList.add("hidden");
   $("respawn").classList.add("hidden");
@@ -246,9 +251,11 @@ function startGame(maze: MazeDTO): void {
 function fitCanvas(): void {
   if (!arena) return;
   const hint = (document.querySelector("#game .hint") as HTMLElement)?.offsetHeight ?? 24;
-  // Reserve room for the hint line, flex gap, and page padding.
-  const reservedV = hint + 64;
-  const availW = window.innerWidth - 48;
+  const header = (document.querySelector("#game .game-header") as HTMLElement)?.offsetHeight ?? 0;
+  // Reserve room for the header, hint line, flex gaps, and page padding.
+  const reservedV = header + hint + 72;
+  // Reserve the leaderboard side column (200px + 14px gap) plus page padding.
+  const availW = window.innerWidth - 48 - 214;
   const availH = window.innerHeight - reservedV;
   const scale = Math.max(0.1, Math.min(availW / arena.w, availH / arena.h));
   canvas.style.width = `${Math.floor(arena.w * scale)}px`;
@@ -327,12 +334,32 @@ function frame(): void {
     renderLeaderboard();
     updateRespawnOverlay(me);
     renderAmmo(me);
+    if (snap) {
+      const alive = snap.tanks.filter((t) => t.alive).length;
+      $("gh-count").textContent = `${snap.tanks.length} players · ${alive} alive`;
+    }
   }
   requestAnimationFrame(frame);
 }
 
+const WEAPON_LABEL: Record<string, string> = {
+  sniper: "Sniper",
+  explosive: "Explosive",
+  laser: "Laser",
+  tracking: "Tracking",
+};
+
 function renderAmmo(
-  me: { ammo: number; maxAmmo: number; reloadIn: number; alive: boolean } | undefined
+  me:
+    | {
+        ammo: number;
+        maxAmmo: number;
+        reloadIn: number;
+        weapon: string | null;
+        weaponCharges: number;
+        boosted: boolean;
+      }
+    | undefined
 ): void {
   const el = $("ammo");
   if (!me) {
@@ -344,6 +371,10 @@ function renderAmmo(
     html += `<span class="pip ${i < me.ammo ? "" : "spent"}"></span>`;
   }
   if (me.reloadIn > 0) html += `<span class="reload">reloading ${Math.ceil(me.reloadIn)}s</span>`;
+  if (me.weapon && WEAPON_LABEL[me.weapon]) {
+    html += `<span class="weapon">${WEAPON_LABEL[me.weapon]} ×${me.weaponCharges}</span>`;
+  }
+  if (me.boosted) html += `<span class="weapon boost">» boost</span>`;
   el.innerHTML = html;
 }
 
@@ -408,15 +439,27 @@ $("create").onclick = () => {
     tankSpeedPct: num("tank-speed", 100),
     hp: num("hp", 1),
     lives: Number(($("lives") as HTMLInputElement).value) || 0,
-    respawnSeconds: num("respawn", 3),
+    respawnSeconds: num("cfg-respawn", 3),
     killPoints: num("kill-points", 60),
     deathPenaltyPct: Number(($("death-penalty") as HTMLInputElement).value) || 0,
     winScore: num("win-score", 300),
+    teamCount: num("team-count", 2),
+    powerups: sel("powerups") === "on",
+    powerupEverySeconds: num("pwr-every", 8),
+    powerupDespawnSeconds: num("pwr-despawn", 12),
+    powerupCharges: num("pwr-charges", 3),
   };
   net.send({ type: "createLobby", name, maxPlayers, config });
 };
 
 $("start").onclick = () => net.send({ type: "startGame" });
+
+$("switch-team").onclick = () => {
+  if (!currentLobby) return;
+  const me = currentLobby.players.find((p) => p.id === playerId);
+  const next = ((me?.team ?? 0) + 1) % currentLobby.config.teamCount;
+  net.send({ type: "setTeam", team: next });
+};
 
 $("leave").onclick = () => {
   net.send({ type: "leaveLobby" });
@@ -464,8 +507,10 @@ $("back-to-lobby").onclick = () => {
 };
 
 function modeLabel(mode: GameMode): string {
-  return mode === "lms" ? "Last Man Standing" : "Free-for-all";
+  return mode === "lms" ? "Last Man Standing" : mode === "teams" ? "Team VS" : "Free-for-all";
 }
+
+const TEAM_TINT = ["#3f8ce6", "#e6453f", "#46c24f", "#e6c23f"];
 
 const WALL_LABEL: Record<WallStyle, string> = {
   maze: "Maze",
@@ -484,7 +529,9 @@ function configSummary(c: GameConfig): string {
   if (c.hp > 1) bits.push(`${c.hp} HP`);
   if (c.tankSpeedPct !== 100) bits.push(`${c.tankSpeedPct}% speed`);
   if (c.mode === "lms") bits.push(c.lives > 0 ? `${c.lives} lives` : "1 life");
+  else if (c.mode === "teams") bits.push(`${c.teamCount} teams · first to ${c.winScore} pts`);
   else bits.push(`first to ${c.winScore} pts`);
+  if (c.powerups) bits.push("power-ups");
   return bits.join(" · ");
 }
 

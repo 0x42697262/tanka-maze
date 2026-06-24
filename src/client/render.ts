@@ -1,7 +1,30 @@
-import { BULLET_RADIUS, TANK_RADIUS } from "../shared/constants.js";
-import type { MazeDTO, SnapshotDTO, TankDTO } from "../shared/protocol.js";
+import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS } from "../shared/constants.js";
+import type {
+  BulletKind,
+  MazeDTO,
+  PowerupDTO,
+  PowerupType,
+  SnapshotDTO,
+  TankDTO,
+} from "../shared/protocol.js";
 
 const INTERP_DELAY = 100; // ms of render delay for smooth interpolation
+
+const BULLET_STYLE: Record<BulletKind, { c: string; r: number }> = {
+  normal: { c: "#ff7a1a", r: BULLET_RADIUS },
+  sniper: { c: "#2fb8d6", r: BULLET_RADIUS },
+  explosive: { c: "#b23b2e", r: BULLET_RADIUS + 2 },
+  laser: { c: "#9b3fd6", r: BULLET_RADIUS - 1 },
+  tracking: { c: "#3f9b46", r: BULLET_RADIUS + 1 },
+};
+
+const POWERUP_STYLE: Record<PowerupType, { c: string; g: string }> = {
+  speed: { c: "#e6c23f", g: "»" },
+  sniper: { c: "#2fb8d6", g: "•" },
+  explosive: { c: "#b23b2e", g: "✸" },
+  laser: { c: "#9b3fd6", g: "≡" },
+  tracking: { c: "#3f9b46", g: "◎" },
+};
 
 interface Buffered {
   snap: SnapshotDTO;
@@ -16,12 +39,22 @@ interface Explosion {
 }
 
 const EXPLOSION_MS = 600;
+const BEAM_MS = 170;
+
+interface Beam {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  start: number;
+}
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private maze: MazeDTO | null = null;
   private buffer: Buffered[] = [];
   private explosions: Explosion[] = [];
+  private beams: Beam[] = [];
   // Last seen state per tank, to detect deaths and spawn explosions.
   private lastTankState = new Map<string, { x: number; y: number; alive: boolean; color: string }>();
 
@@ -37,11 +70,19 @@ export class Renderer {
     this.canvas.height = maze.height;
     this.buffer = [];
     this.explosions = [];
+    this.beams = [];
     this.lastTankState.clear();
   }
 
   push(snap: SnapshotDTO, nowMs: number): void {
     this.detectDeaths(snap, nowMs);
+    // Transient effects emitted by the server this tick.
+    for (const b of snap.blasts) {
+      this.explosions.push({ x: b.x, y: b.y, color: "#e6863f", start: nowMs });
+    }
+    for (const bm of snap.beams) {
+      this.beams.push({ x1: bm.x1, y1: bm.y1, x2: bm.x2, y2: bm.y2, start: nowMs });
+    }
     this.buffer.push({ snap, recvAt: nowMs });
     if (this.buffer.length > 30) this.buffer.shift();
   }
@@ -81,10 +122,14 @@ export class Renderer {
     const interp = this.interpolated(nowMs);
     if (!interp) return;
 
+    // Power-up pickups (stationary — drawn from the latest snapshot, no interp).
+    this.drawPowerups(this.latest()?.powerups ?? [], nowMs);
+
     for (const b of interp.bullets) {
+      const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
       ctx.beginPath();
-      ctx.arc(b.x, b.y, BULLET_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = "#ff7a1a";
+      ctx.arc(b.x, b.y, style.r, 0, Math.PI * 2);
+      ctx.fillStyle = style.c;
       ctx.fill();
       ctx.strokeStyle = "rgba(0,0,0,0.55)";
       ctx.lineWidth = 1.5;
@@ -95,7 +140,78 @@ export class Renderer {
       this.drawTank(t, t.id === localId);
     }
 
+    this.drawBeams(nowMs);
     this.drawExplosions(nowMs);
+  }
+
+  private drawBeams(nowMs: number): void {
+    const { ctx } = this;
+    this.beams = this.beams.filter((b) => nowMs - b.start < BEAM_MS);
+    ctx.lineCap = "round";
+    for (const b of this.beams) {
+      const alpha = 1 - (nowMs - b.start) / BEAM_MS;
+      // Layered beam: violet glow → blue → white core.
+      ctx.globalAlpha = alpha * 0.3;
+      ctx.strokeStyle = "#9b3fd6";
+      ctx.lineWidth = 8;
+      this.strokeLine(b);
+      ctx.globalAlpha = alpha * 0.6;
+      ctx.strokeStyle = "#6aa6ff";
+      ctx.lineWidth = 4;
+      this.strokeLine(b);
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.8;
+      this.strokeLine(b);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  private strokeLine(b: Beam): void {
+    const { ctx } = this;
+    ctx.beginPath();
+    ctx.moveTo(b.x1, b.y1);
+    ctx.lineTo(b.x2, b.y2);
+    ctx.stroke();
+  }
+
+  private drawPowerups(powerups: PowerupDTO[], nowMs: number): void {
+    const { ctx } = this;
+    const bob = Math.sin(nowMs / 300) * 1.5;
+    for (const p of powerups) {
+      const style = POWERUP_STYLE[p.type];
+      const s = POWERUP_RADIUS;
+      ctx.save();
+      ctx.translate(p.x, p.y + bob);
+
+      // Wooden crate body.
+      ctx.fillStyle = "#c79a5b";
+      ctx.fillRect(-s, -s, s * 2, s * 2);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#6e4a1e";
+      ctx.strokeRect(-s, -s, s * 2, s * 2);
+      // Plank bracing.
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "rgba(110,74,30,0.7)";
+      ctx.beginPath();
+      ctx.moveTo(-s, -s);
+      ctx.lineTo(s, s);
+      ctx.moveTo(s, -s);
+      ctx.lineTo(-s, s);
+      ctx.stroke();
+
+      // Power-up emblem.
+      ctx.fillStyle = style.c;
+      ctx.font = "bold 14px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.strokeStyle = "rgba(27,22,16,0.85)";
+      ctx.lineWidth = 3;
+      ctx.strokeText(style.g, 0, 1);
+      ctx.fillText(style.g, 0, 1);
+      ctx.restore();
+    }
+    ctx.textBaseline = "alphabetic";
   }
 
   private drawExplosions(nowMs: number): void {
@@ -281,7 +397,7 @@ export class Renderer {
       return ba ? { ...bb, x: lerp(ba.x, bb.x, f), y: lerp(ba.y, bb.y, f) } : bb;
     });
 
-    return { t: target, tanks, bullets };
+    return { t: target, tanks, bullets, powerups: [], blasts: [], beams: [] };
   }
 }
 

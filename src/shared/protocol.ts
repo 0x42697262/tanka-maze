@@ -5,9 +5,15 @@
 // Game configuration (set by the host when creating a lobby)
 // ---------------------------------------------------------------------------
 
-export type GameMode = "ffa" | "lms";
+export type GameMode = "ffa" | "lms" | "teams";
 export type WallStyle = "maze" | "sparse" | "open";
 export type MapSize = "small" | "normal" | "large" | "random";
+
+/** Pickup weapon types. "speed" is a movement buff; the rest change your shot. */
+export type PowerupType = "speed" | "sniper" | "explosive" | "laser" | "tracking";
+export const POWERUP_TYPES: PowerupType[] = ["speed", "sniper", "explosive", "laser", "tracking"];
+/** What a fired round is. "normal" plus the offensive power-up kinds. */
+export type BulletKind = "normal" | "sniper" | "explosive" | "laser" | "tracking";
 
 export interface GameConfig {
   mode: GameMode;
@@ -17,9 +23,15 @@ export interface GameConfig {
   hp: number; // 1..10 hits to destroy
   lives: number; // 0 = unlimited respawns; otherwise max respawns
   respawnSeconds: number; // 1..10
-  killPoints: number; // points per kill (FFA)
+  killPoints: number; // points per kill
   deathPenaltyPct: number; // 0..90 (% of score lost on death)
-  winScore: number; // points to win (FFA)
+  winScore: number; // points to win (FFA / total per team in Team VS)
+  teamCount: number; // 2..4 (Team VS only)
+  // Power-ups
+  powerups: boolean; // spawn pickups on the map
+  powerupEverySeconds: number; // spawn cadence
+  powerupDespawnSeconds: number; // uncollected pickups vanish after this
+  powerupCharges: number; // uses granted per pickup (weapon types)
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
@@ -33,6 +45,11 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   killPoints: 60,
   deathPenaltyPct: 33,
   winScore: 300,
+  teamCount: 2,
+  powerups: false,
+  powerupEverySeconds: 8,
+  powerupDespawnSeconds: 12,
+  powerupCharges: 3,
 };
 
 // ---------------------------------------------------------------------------
@@ -45,6 +62,7 @@ export interface LobbyPlayerDTO {
   color: string;
   isHost: boolean;
   connected: boolean;
+  team: number;
 }
 
 export interface LobbySummaryDTO {
@@ -104,6 +122,14 @@ export interface TankDTO {
   maxAmmo: number;
   /** Seconds left on a reload, 0 when not reloading. */
   reloadIn: number;
+  /** Active power-up weapon, or null. */
+  weapon: PowerupType | null;
+  /** Charges left on the active weapon (0 for none / speed buff). */
+  weaponCharges: number;
+  /** Whether a speed boost is currently active. */
+  boosted: boolean;
+  /** Team index (Team VS); 0 in other modes. */
+  team: number;
 }
 
 export interface BulletDTO {
@@ -111,12 +137,33 @@ export interface BulletDTO {
   x: number;
   y: number;
   ownerId: string;
+  kind: BulletKind;
+}
+
+export interface PowerupDTO {
+  id: number;
+  type: PowerupType;
+  x: number;
+  y: number;
+}
+
+/** A laser beam fired this tick (for transient rendering). */
+export interface BeamDTO {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
 }
 
 export interface SnapshotDTO {
   t: number; // server timestamp (ms)
   tanks: TankDTO[];
   bullets: BulletDTO[];
+  powerups: PowerupDTO[];
+  /** Explosion centers that occurred this tick (transient). */
+  blasts: { x: number; y: number }[];
+  /** Laser beams fired this tick (transient). */
+  beams: BeamDTO[];
 }
 
 export interface ScoreDTO {
@@ -149,6 +196,7 @@ export type ClientMessage =
   | { type: "identify"; sessionId?: string }
   | { type: "setName"; name: string }
   | { type: "setColor"; color: string }
+  | { type: "setTeam"; team: number }
   | { type: "listLobbies" }
   | { type: "createLobby"; name: string; maxPlayers: number; config: GameConfig }
   | { type: "joinLobby"; lobbyId: string }

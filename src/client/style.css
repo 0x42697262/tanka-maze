@@ -296,6 +296,11 @@ ol {
   font-weight: 800;
   letter-spacing: 0.5px;
 }
+#lobby-players .team-tag {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
 #lobby-players li.offline {
   opacity: 0.5;
 }
@@ -323,6 +328,40 @@ ol {
   flex-direction: column;
   align-items: center;
   gap: 10px;
+}
+.game-header {
+  width: 100%;
+  max-width: 980px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-family: var(--font-hand);
+}
+.gh-title {
+  font-size: 22px;
+}
+.gh-title b {
+  color: var(--stamp);
+  font-weight: 400;
+}
+.gh-lobby {
+  flex: 1;
+  text-align: center;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+.gh-count {
+  font-size: 15px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.game-layout {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
 }
 .stage {
   position: relative;
@@ -353,14 +392,13 @@ kbd {
   font-style: normal;
 }
 
-/* ---- In-arena leaderboard ---- */
+/* ---- Leaderboard (side column beside the arena) ---- */
 .leaderboard {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 196px;
-  max-height: calc(100% - 20px);
+  flex: 0 0 auto;
+  width: 200px;
+  max-height: 82vh;
   overflow-y: auto;
+  align-self: stretch;
   background: rgba(243, 235, 214, 0.8);
   border: 1.5px solid rgba(120, 100, 70, 0.55);
   border-radius: 4px;
@@ -440,6 +478,15 @@ kbd {
   font-size: 14px;
   color: var(--stamp);
   margin-left: 2px;
+}
+.ammo .weapon {
+  font-family: var(--font-hand);
+  font-size: 14px;
+  color: var(--blue);
+  margin-left: 4px;
+}
+.ammo .weapon.boost {
+  color: var(--leaf);
 }
 
 /* ---- Respawn overlay (over the arena) ---- */

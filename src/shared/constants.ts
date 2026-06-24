@@ -35,6 +35,21 @@ export const BULLET_SPEED = 240; // px / second
 export const BULLET_MAX_BOUNCES = 3;
 export const BULLET_LIFETIME = 5; // seconds
 
+// Power-ups
+export const POWERUP_RADIUS = 12;
+export const MAX_POWERUPS_ON_MAP = 4;
+export const SPEED_BOOST_MULT = 1.6;
+export const SPEED_BOOST_SECONDS = 6;
+export const SNIPER_SPEED_MULT = 10; // very fast round
+export const SNIPER_WALL_PIERCE = 1; // walls a sniper round punches through
+export const EXPLOSION_RADIUS = 56; // area-damage radius for explosive rounds
+export const TRACKING_TURN_RATE = 4.5; // radians/sec a homing round can turn
+// Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
+// can't reach all the way across.
+export const LASER_RANGE = 7 * CELL;
+
+export const TEAM_COLORS = ["#3f8ce6", "#e6453f", "#46c24f", "#e6c23f"]; // blue, red, green, yellow
+
 export const DEFAULT_MAX_PLAYERS = 4;
 
 // Scoring (integer points only).

@@ -20,6 +20,7 @@ export interface Client {
   lobbyId: string | null;
   connected: boolean;
   removalTimer: ReturnType<typeof setTimeout> | null;
+  team: number;
 }
 
 const IDLE_INPUT: InputState = {
@@ -78,8 +79,27 @@ export class Lobby {
   }
 
   add(client: Client): void {
+    client.team = this.balancedTeam();
     this.members.push(client);
     client.lobbyId = this.id;
+  }
+
+  /** Pick the team with the fewest members (for auto-balanced joins). */
+  private balancedTeam(): number {
+    const counts = new Array<number>(Math.max(2, this.config.teamCount)).fill(0);
+    for (const m of this.members) counts[m.team % counts.length]++;
+    let best = 0;
+    for (let i = 1; i < counts.length; i++) if (counts[i] < counts[best]) best = i;
+    return best;
+  }
+
+  /** Switch a member's team (Team VS, lobby only). */
+  setTeam(clientId: string, team: number): void {
+    const m = this.members.find((c) => c.id === clientId);
+    if (!m || this.inGame) return;
+    if (team < 0 || team >= this.config.teamCount) return;
+    m.team = team;
+    this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
   }
 
   /** Remove a member; returns true if the lobby should be destroyed. */
@@ -112,7 +132,7 @@ export class Lobby {
     this.maze = new Maze(cols, rows, this.config.wallStyle);
     this.game = new Game(
       this.maze,
-      this.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
+      this.members.map((m) => ({ id: m.id, name: m.name, color: m.color, team: m.team })),
       this.config
     );
 
@@ -131,7 +151,12 @@ export class Lobby {
    */
   spawnLateJoiner(client: Client): void {
     if (!this.game || !this.maze) return;
-    this.game.addPlayer({ id: client.id, name: client.name, color: client.color });
+    this.game.addPlayer({
+      id: client.id,
+      name: client.name,
+      color: client.color,
+      team: client.team,
+    });
     if (client.ws.readyState === client.ws.OPEN) {
       client.ws.send(
         encode({
@@ -234,6 +259,7 @@ export class Lobby {
         color: m.color,
         isHost: m.id === this.hostId,
         connected: m.connected,
+        team: m.team,
       })),
     };
   }

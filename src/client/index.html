@@ -53,7 +53,12 @@
             <select id="mode">
               <option value="ffa">Free-for-all</option>
               <option value="lms">Last Man Standing</option>
+              <option value="teams">Team VS</option>
             </select>
+          </div>
+          <div class="row">
+            <label for="team-count">Teams</label>
+            <input id="team-count" type="number" min="2" max="4" value="2" />
           </div>
           <div class="row">
             <label for="walls">Walls</label>
@@ -83,8 +88,8 @@
           <div class="row two">
             <label for="lives">Lives (0=∞)</label>
             <input id="lives" type="number" min="0" max="99" value="0" />
-            <label for="respawn">Respawn s</label>
-            <input id="respawn" type="number" min="1" max="10" value="3" />
+            <label for="cfg-respawn">Respawn s</label>
+            <input id="cfg-respawn" type="number" min="1" max="10" value="3" />
           </div>
 
           <hr class="rule" />
@@ -98,6 +103,26 @@
             <label for="win-score">Points to win</label>
             <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
           </div>
+
+          <hr class="rule" />
+          <div class="row">
+            <label for="powerups">Power-ups</label>
+            <select id="powerups">
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </div>
+          <div class="row two">
+            <label for="pwr-every">Spawn / s</label>
+            <input id="pwr-every" type="number" min="3" max="60" value="8" />
+            <label for="pwr-charges">Charges</label>
+            <input id="pwr-charges" type="number" min="1" max="20" value="3" />
+          </div>
+          <div class="row">
+            <label for="pwr-despawn">Despawn s</label>
+            <input id="pwr-despawn" type="number" min="3" max="60" value="12" />
+          </div>
+
           <button id="create" class="primary">Create &amp; Host</button>
         </div>
       </section>
@@ -108,6 +133,7 @@
         <p class="status"><span id="lobby-meta"></span></p>
         <ul id="lobby-players"></ul>
         <div class="actions">
+          <button id="switch-team" class="ghost hidden">Switch Team</button>
           <button id="start" class="primary hidden">Start Game</button>
           <p id="waiting-host" class="status hidden">Waiting for the host to start…</p>
           <button id="leave" class="ghost">Leave Lobby</button>
@@ -116,6 +142,11 @@
 
       <!-- Game -->
       <section id="game" class="screen hidden">
+        <div class="game-header">
+          <span class="gh-title">Tanka<b>Maze</b></span>
+          <span class="gh-lobby" id="gh-lobby"></span>
+          <span class="gh-count" id="gh-count"></span>
+        </div>
         <div class="game-layout">
           <div class="stage">
             <canvas id="canvas"></canvas>
