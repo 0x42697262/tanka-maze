@@ -26,8 +26,8 @@ export const TANK_TURN_SPEED = 3.2; // radians / second (steering rate)
 // Ammunition: a magazine of MAX_AMMO rounds. Emptying it forces a reload that
 // takes RELOAD_SECONDS, then instantly refills the whole magazine.
 export const MAX_AMMO = 5;
-export const RELOAD_SECONDS = 5;
-export const FIRE_COOLDOWN = 0.15; // min seconds between individual shots
+export const RELOAD_SECONDS = 3;
+export const FIRE_COOLDOWN = 0.5; // min seconds between individual shots
 export const RESPAWN_TIME = 3; // default respawn delay (seconds)
 
 export const BULLET_RADIUS = 4;

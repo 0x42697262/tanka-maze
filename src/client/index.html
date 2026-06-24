@@ -116,25 +116,27 @@
 
       <!-- Game -->
       <section id="game" class="screen hidden">
-        <div class="stage">
-          <canvas id="canvas"></canvas>
+        <div class="game-layout">
+          <div class="stage">
+            <canvas id="canvas"></canvas>
 
-          <!-- In-arena leaderboard (semi-transparent) -->
+            <!-- Ammo / reload indicator -->
+            <div id="ammo" class="ammo"></div>
+
+            <!-- Local respawn overlay -->
+            <div id="respawn" class="respawn hidden">
+              <div class="respawn-card">
+                <h3>Destroyed</h3>
+                <p>Respawning in <span id="respawn-count">3</span></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Leaderboard (placed outside the arena) -->
           <aside id="leaderboard" class="leaderboard">
             <h3>Leaderboard</h3>
             <ol id="leaderboard-rows"></ol>
           </aside>
-
-          <!-- Ammo / reload indicator -->
-          <div id="ammo" class="ammo"></div>
-
-          <!-- Local respawn overlay -->
-          <div id="respawn" class="respawn hidden">
-            <div class="respawn-card">
-              <h3>Destroyed</h3>
-              <p>Respawning in <span id="respawn-count">3</span></p>
-            </div>
-          </div>
         </div>
         <p class="hint">W/↑ forward · S/↓ reverse · A/D or ←/→ steer · Mouse aims · Click/Space fire · <kbd>Esc</kbd> menu</p>
       </section>
