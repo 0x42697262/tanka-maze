@@ -1068,6 +1068,8 @@ function openPause(): void {
   lastInputBytes = idle;
   const isHost = !!currentLobby && currentLobby.hostId === playerId;
   $("pause-host").classList.toggle("hidden", !isHost);
+  // Wide "landscape" card only while the host is editing settings.
+  $("pause").querySelector(".pause-card")?.classList.toggle("host-editing", isHost);
   if (isHost && currentLobby) {
     moveConfigToPause();
     applyConfigToControls(currentLobby.config, currentLobby.maxPlayers);
@@ -1078,6 +1080,7 @@ function openPause(): void {
 function closePause(): void {
   paused = false;
   $("pause").classList.add("hidden");
+  $("pause").querySelector(".pause-card")?.classList.remove("host-editing");
   moveConfigHome(); // return the editor to the lobby (no-op if already there)
 }
 $("resume").onclick = closePause;

@@ -791,14 +791,24 @@ kbd {
   margin-bottom: 8px;
 }
 
-/* Pause (host editor) + scoreboard need to be wide and scrollable. */
+/* Pause + scoreboard need to be scrollable. */
 .pause-card,
 .scoreboard-card {
-  width: 480px;
   max-width: 94vw;
   max-height: 90vh;
   overflow-y: auto;
   transform: none;
+}
+.scoreboard-card {
+  width: 480px;
+}
+.pause-card {
+  width: 380px;
+}
+/* Landscape layout while the host is editing settings: a wide card whose
+   config sections flow across multiple columns (easier than a tall scroll). */
+.pause-card.host-editing {
+  width: min(1080px, 94vw);
 }
 #pause-host {
   margin: 10px 0 4px;
@@ -809,6 +819,30 @@ kbd {
 }
 #pause-host #lobby-config {
   margin-top: 4px;
+  columns: 240px;
+  column-gap: 22px;
+}
+#pause-host #lobby-config > h2,
+#pause-host #lobby-config .rule,
+#pause-host #lobby-config #adv-toggle {
+  column-span: all;
+}
+/* Keep a section heading with its following rows, and never split a row. */
+#pause-host #lobby-config .cfg-h,
+#pause-host #lobby-config .adv-h {
+  break-after: avoid-column;
+}
+#pause-host #lobby-config .row {
+  break-inside: avoid;
+}
+/* Advanced panel spans the full width and flows in its own columns. */
+#pause-host #lobby-config #adv-panel {
+  column-span: all;
+  columns: 240px;
+  column-gap: 22px;
+}
+#pause-host #lobby-config #adv-panel .adv-note {
+  column-span: all;
 }
 .pause-note {
   font-size: 12px;
