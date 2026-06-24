@@ -22,12 +22,6 @@
           <input id="name" maxlength="16" placeholder="Player" autocomplete="off" />
         </div>
 
-        <div class="row">
-          <label for="color">Tank color</label>
-          <input id="color" type="color" value="#3f8ce6" />
-          <div id="swatches" class="swatches"></div>
-        </div>
-
         <div class="panel">
           <div class="panel-head">
             <h2>Open Lobbies</h2>
@@ -52,6 +46,14 @@
         <p class="status"><span id="lobby-meta"></span></p>
 
         <p id="team-hint" class="status hidden">Click a team box to join it.</p>
+
+        <!-- Tank customization (per-player; hidden in Team VS where team color rules) -->
+        <div id="lobby-customize" class="row">
+          <label for="color">Your tank color</label>
+          <input id="color" type="color" value="#3f8ce6" />
+          <div id="swatches" class="swatches"></div>
+        </div>
+
         <ul id="lobby-players"></ul>
 
         <!-- Host-only game settings (configured here, in the lobby) -->

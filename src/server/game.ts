@@ -1,7 +1,7 @@
 import {
   MAX_POWERUPS_ON_MAP,
   POWERUP_RADIUS,
-  ROUND_START_SHIELD_SECONDS,
+  SPAWN_SHIELD_SECONDS,
   TANK_COLORS,
   TANK_REVERSE_SPEED,
   TANK_SPEED,
@@ -163,14 +163,6 @@ export class Game {
 
     // Initial players take sequential spawn points around the arena.
     for (const p of players) this.addPlayer(p, false);
-    this.grantSpawnShields(); // round 1 begins with spawn protection
-  }
-
-  /** Brief spawn protection given to every live tank when a round starts. */
-  private grantSpawnShields(): void {
-    for (const t of this.tanks.values()) {
-      if (t.alive) t.shieldTimer = ROUND_START_SHIELD_SECONDS;
-    }
   }
 
   addPlayer(
@@ -219,7 +211,7 @@ export class Game {
       weapon: null,
       weaponCharges: 0,
       boostTimer: 0,
-      shieldTimer: 0,
+      shieldTimer: SPAWN_SHIELD_SECONDS, // spawn protection
       laserCharge: 0,
       team,
     });
@@ -998,10 +990,9 @@ export class Game {
       t.weapon = null;
       t.weaponCharges = 0;
       t.boostTimer = 0;
-      t.shieldTimer = 0;
+      t.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection at round start
       t.laserCharge = 0;
     }
-    this.grantSpawnShields(); // every round opens with spawn protection
   }
 
   /**
@@ -1057,7 +1048,7 @@ export class Game {
     tank.weapon = null;
     tank.weaponCharges = 0;
     tank.boostTimer = 0;
-    tank.shieldTimer = 0;
+    tank.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection on respawn
     tank.laserCharge = 0;
   }
 

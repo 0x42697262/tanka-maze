@@ -58,14 +58,14 @@ export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomp
 // Rounds: a match is best-of-N; the side with the most round wins takes it.
 export const ROUNDS_DEFAULT = 3;
 export const ROUND_INTERMISSION_SECONDS = 5; // break between rounds
-export const ROUND_START_SHIELD_SECONDS = 2; // spawn protection at each round start
+export const SPAWN_SHIELD_SECONDS = 2; // spawn protection whenever a tank (re)spawns
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;
 
 export const TEAM_COLORS = ["#3f8ce6", "#e6453f", "#46c24f", "#e6c23f"]; // blue, red, green, yellow
 
-export const DEFAULT_MAX_PLAYERS = 4;
+export const DEFAULT_MAX_PLAYERS = 8;
 
 // Scoring (integer points only).
 export const KILL_POINTS = 60; // points gained per kill

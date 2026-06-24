@@ -108,11 +108,8 @@ net.onStatus((status) => {
       ($("name") as HTMLInputElement).value = saved;
       net.send({ type: "setName", name: saved });
     }
-    // Sync the chosen tank color so the server matches what's shown.
-    const savedColor = localStorage.getItem(COLOR_KEY);
-    if (savedColor) (colorInput as HTMLInputElement).value = savedColor;
-    net.send({ type: "setColor", color: (colorInput as HTMLInputElement).value });
-    updateSwatchSelection();
+    // Tank color is auto-assigned by the server on join and tweakable in the
+    // lobby — no color is chosen here on the connect screen.
     net.send({ type: "listLobbies" });
   } else if (status === "connecting") {
     el.textContent = "Connecting…";
@@ -291,6 +288,15 @@ function renderLobby(lobby: LobbyDTO, firstRender: boolean): void {
   $("team-hint").classList.toggle("hidden", !teams);
   $("start").classList.toggle("hidden", !isHost);
   $("waiting-host").classList.toggle("hidden", isHost);
+
+  // Per-player tank color: reflect the server-assigned color; hide in Team VS
+  // (there the team color governs the tank's in-game appearance).
+  const me = lobby.players.find((p) => p.id === playerId);
+  if (me) {
+    colorInput.value = me.color;
+    updateSwatchSelection();
+  }
+  $("lobby-customize").classList.toggle("hidden", teams);
 
   // Host configures the game here; populate the controls once on entry.
   $("lobby-config").classList.toggle("hidden", !isHost);

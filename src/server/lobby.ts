@@ -3,6 +3,7 @@ import {
   DEFAULT_MAX_PLAYERS,
   ROUND_INTERMISSION_SECONDS,
   SNAPSHOT_EVERY_TICKS,
+  TANK_COLORS,
   TEAM_COLORS,
   TICK_MS,
 } from "../shared/constants.js";
@@ -132,8 +133,15 @@ export class Lobby {
 
   add(client: Client): void {
     client.team = this.balancedTeam();
+    client.color = this.pickUnusedColor();
     this.members.push(client);
     client.lobbyId = this.id;
+  }
+
+  /** First palette color not already worn by a member (falls back if all taken). */
+  private pickUnusedColor(): string {
+    const taken = new Set(this.members.map((m) => m.color.toLowerCase()));
+    return TANK_COLORS.find((c) => !taken.has(c.toLowerCase())) ?? TANK_COLORS[this.members.length % TANK_COLORS.length];
   }
 
   /** Pick the team with the fewest members (for auto-balanced joins). */
