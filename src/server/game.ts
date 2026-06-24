@@ -173,6 +173,7 @@ export class Game {
         turnRight: false,
         fire: false,
         aim: 0,
+        eightDir: false,
       },
       weapon: null,
       weaponCharges: 0,
@@ -247,28 +248,50 @@ export class Game {
 
       tank.turretAngle = tank.input.aim;
 
-      // Steer: A/D rotate the tank's heading (bodyAngle).
-      let turn = 0;
-      if (tank.input.turnLeft) turn -= 1;
-      if (tank.input.turnRight) turn += 1;
-      if (turn !== 0) tank.bodyAngle += turn * this.adv.tankTurnSpeed * dt;
-
-      // Drive: W/S move forward/backward along the heading.
       const oldX = tank.x;
       const oldY = tank.y;
-      let drive = 0;
-      if (tank.input.forward) drive += 1;
-      if (tank.input.backward) drive -= 1;
-      if (drive !== 0) {
-        const base = drive > 0 ? this.forwardSpeed : this.reverseSpeed;
-        const speed = tank.boostTimer > 0 ? base * this.adv.speedBoostMult : base;
-        const step = drive * speed * dt;
-        const dx = Math.cos(tank.bodyAngle) * step;
-        const dy = Math.sin(tank.bodyAngle) * step;
-        const nx = tank.x + dx;
-        if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
-        const ny = tank.y + dy;
-        if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+      const boost = tank.boostTimer > 0 ? this.adv.speedBoostMult : 1;
+
+      if (tank.input.eightDir) {
+        // 8-directional world movement (MMORPG-style): WASD = up/left/down/right,
+        // the body faces the direction of travel. Turret still tracks the cursor.
+        let mx = 0;
+        let my = 0;
+        if (tank.input.forward) my -= 1; // W
+        if (tank.input.backward) my += 1; // S
+        if (tank.input.turnLeft) mx -= 1; // A
+        if (tank.input.turnRight) mx += 1; // D
+        if (mx !== 0 || my !== 0) {
+          const len = Math.hypot(mx, my);
+          mx /= len;
+          my /= len;
+          tank.bodyAngle = Math.atan2(my, mx);
+          const step = this.forwardSpeed * boost * dt;
+          const nx = tank.x + mx * step;
+          if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
+          const ny = tank.y + my * step;
+          if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+        }
+      } else {
+        // Tank-relative: A/D rotate the heading, W/S drive along it.
+        let turn = 0;
+        if (tank.input.turnLeft) turn -= 1;
+        if (tank.input.turnRight) turn += 1;
+        if (turn !== 0) tank.bodyAngle += turn * this.adv.tankTurnSpeed * dt;
+
+        let drive = 0;
+        if (tank.input.forward) drive += 1;
+        if (tank.input.backward) drive -= 1;
+        if (drive !== 0) {
+          const base = drive > 0 ? this.forwardSpeed : this.reverseSpeed;
+          const step = drive * base * boost * dt;
+          const dx = Math.cos(tank.bodyAngle) * step;
+          const dy = Math.sin(tank.bodyAngle) * step;
+          const nx = tank.x + dx;
+          if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
+          const ny = tank.y + dy;
+          if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+        }
       }
       tank.vx = dt > 0 ? (tank.x - oldX) / dt : 0;
       tank.vy = dt > 0 ? (tank.y - oldY) / dt : 0;

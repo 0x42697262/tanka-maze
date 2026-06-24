@@ -31,6 +31,7 @@ const IDLE_INPUT: InputState = {
   turnRight: false,
   fire: false,
   aim: 0,
+  eightDir: false,
 };
 
 /**

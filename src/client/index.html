@@ -274,6 +274,20 @@
         </div>
       </div>
 
+      <!-- Per-player settings (client-side) -->
+      <button id="settings-gear" class="settings-gear" title="Settings" aria-label="Settings">⚙</button>
+      <div id="settings-panel" class="settings-panel hidden">
+        <h3>Settings</h3>
+        <div class="row">
+          <label for="move-mode">Movement</label>
+          <select id="move-mode">
+            <option value="relative">Tank — rotate &amp; drive</option>
+            <option value="eight">8-direction — strafe</option>
+          </select>
+        </div>
+        <p class="settings-hint" id="move-hint"></p>
+      </div>
+
       <div id="toast" class="toast hidden"></div>
     </div>
 

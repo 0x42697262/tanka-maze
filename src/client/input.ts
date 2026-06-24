@@ -11,6 +11,8 @@ export class Input {
   private mouseX = 0; // canvas (world) pixel space
   private mouseY = 0;
   private canvas: HTMLCanvasElement;
+  /** Control scheme: true = 8-direction world movement. Set from settings. */
+  eightDir = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -62,6 +64,7 @@ export class Input {
       turnRight: this.keys.has("KeyD") || this.keys.has("ArrowRight"),
       fire: this.mouseDown || this.keys.has("Space"),
       aim: Math.atan2(this.mouseY - tankY, this.mouseX - tankX),
+      eightDir: this.eightDir,
     };
   }
 }

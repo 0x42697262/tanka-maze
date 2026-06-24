@@ -293,6 +293,9 @@ export interface InputState {
   fire: boolean;
   /** Turret aim angle in radians (world space), pointed at the cursor. */
   aim: number;
+  /** Per-player control scheme: true = 8-direction world movement (WASD =
+   *  up/left/down/right), false = tank-relative (A/D rotate, W/S drive). */
+  eightDir: boolean;
 }
 
 export type ClientMessage =

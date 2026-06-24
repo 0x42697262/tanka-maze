@@ -60,6 +60,7 @@ let lastInputSent = 0;
 let lastInputBytes: Uint8Array | null = null;
 let roster = new Map<number, RosterEntry>();
 let arena: { w: number; h: number } | null = null;
+let moveMode: "relative" | "eight" = "relative";
 
 const IDLE_INPUT = {
   forward: false,
@@ -68,9 +69,11 @@ const IDLE_INPUT = {
   turnRight: false,
   fire: false,
   aim: 0,
+  eightDir: false,
 };
 
 const STORAGE_KEY = "tanka-maze-name";
+const MOVE_KEY = "tanka-maze-move"; // "relative" | "eight"
 const COLOR_KEY = "tanka-maze-color";
 const SESSION_KEY = "tanka-maze-session";
 const colorInput = $<HTMLInputElement>("color");
@@ -329,6 +332,7 @@ function startGame(maze: MazeDTO): void {
   $("respawn").classList.add("hidden");
   input?.dispose();
   input = new Input(canvas);
+  input.eightDir = moveMode === "eight";
   show("game");
   fitCanvas();
 }
@@ -645,6 +649,24 @@ $("lobby-config").addEventListener("change", () => {
 });
 
 $("adv-toggle").onclick = () => $("adv-panel").classList.toggle("hidden");
+
+// ---- Per-player settings (gear) ----
+function applyMoveSetting(): void {
+  ($("move-mode") as HTMLSelectElement).value = moveMode;
+  $("move-hint").textContent =
+    moveMode === "eight"
+      ? "WASD moves up/left/down/right (world). Cannon aims at the cursor."
+      : "W/S drive, A/D rotate the tank. Cannon aims at the cursor.";
+  if (input) input.eightDir = moveMode === "eight";
+}
+$("settings-gear").onclick = () => $("settings-panel").classList.toggle("hidden");
+$("move-mode").addEventListener("change", () => {
+  moveMode = ($("move-mode") as HTMLSelectElement).value === "eight" ? "eight" : "relative";
+  localStorage.setItem(MOVE_KEY, moveMode);
+  applyMoveSetting();
+});
+moveMode = localStorage.getItem(MOVE_KEY) === "eight" ? "eight" : "relative";
+applyMoveSetting();
 
 $("leave").onclick = () => {
   net.send({ type: "leaveLobby" });
