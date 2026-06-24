@@ -57,12 +57,8 @@
         <!-- Host-only game settings (configured here, in the lobby) -->
         <div id="lobby-config" class="panel hidden">
           <h2>Game Settings</h2>
-          <div class="row">
-            <label for="max-players">Max players</label>
-            <input id="max-players" type="number" min="2" max="32" value="4" />
-          </div>
 
-          <hr class="rule" />
+          <h3 class="cfg-h">Mode</h3>
           <div class="row">
             <label for="mode">Mode</label>
             <select id="mode">
@@ -71,17 +67,23 @@
               <option value="teams">Team VS</option>
             </select>
           </div>
-          <div class="row">
+          <div class="row cfg-teams">
             <label for="team-count">Teams</label>
             <input id="team-count" type="number" min="2" max="4" value="2" />
           </div>
-          <div class="row">
+          <div class="row cfg-teams">
             <label for="friendly-fire">Friendly fire</label>
             <select id="friendly-fire">
               <option value="off">Off</option>
               <option value="on">On</option>
             </select>
           </div>
+          <div class="row cfg-teams">
+            <label for="team-kill">Team-kill Penalty (pts)</label>
+            <input id="team-kill" type="number" min="0" max="500" value="60" />
+          </div>
+
+          <h3 class="cfg-h">Map</h3>
           <div class="row">
             <label for="walls">Walls</label>
             <select id="walls">
@@ -100,7 +102,11 @@
             </select>
           </div>
 
-          <hr class="rule" />
+          <h3 class="cfg-h">Match</h3>
+          <div class="row">
+            <label for="max-players">Max players</label>
+            <input id="max-players" type="number" min="2" max="32" value="4" />
+          </div>
           <div class="row two">
             <label for="tank-speed">Tank speed %</label>
             <input id="tank-speed" type="number" min="50" max="200" step="10" value="100" />
@@ -114,19 +120,19 @@
             <input id="cfg-respawn" type="number" min="1" max="10" value="3" />
           </div>
 
-          <hr class="rule" />
+          <h3 class="cfg-h">Scoring</h3>
           <div class="row two">
             <label for="kill-points">Kill pts</label>
             <input id="kill-points" type="number" min="1" max="500" value="60" />
             <label for="death-penalty">Death −%</label>
             <input id="death-penalty" type="number" min="0" max="90" value="33" />
           </div>
-          <div class="row">
+          <div class="row cfg-haswin">
             <label for="win-score">Points to win</label>
             <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
           </div>
 
-          <hr class="rule" />
+          <h3 class="cfg-h">Power-ups</h3>
           <div class="row">
             <label for="powerups">Power-ups</label>
             <select id="powerups">

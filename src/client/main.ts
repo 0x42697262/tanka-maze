@@ -578,6 +578,7 @@ function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       winScore: num("win-score", 300),
       teamCount: num("team-count", 2),
       friendlyFire: sel("friendly-fire") === "on",
+      teamKillPenalty: Number(($("team-kill") as HTMLInputElement).value) || 0,
       adv: gatherAdvanced(),
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
@@ -602,15 +603,30 @@ function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("death-penalty", c.deathPenaltyPct);
   set("win-score", c.winScore);
   set("friendly-fire", c.friendlyFire ? "on" : "off");
+  set("team-kill", c.teamKillPenalty);
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
   set("pwr-charges", c.powerupCharges);
   set("pwr-despawn", c.powerupDespawnSeconds);
   for (const k of ADV_KEYS) set(`adv-${k}`, c.adv[k]);
+  applyModeVisibility();
+}
+
+/** Show only the settings relevant to the selected mode. */
+function applyModeVisibility(): void {
+  const mode = ($("mode") as HTMLSelectElement).value;
+  const cfg = $("lobby-config");
+  cfg.querySelectorAll(".cfg-teams").forEach((el) =>
+    el.classList.toggle("hidden", mode !== "teams")
+  );
+  cfg.querySelectorAll(".cfg-haswin").forEach((el) =>
+    el.classList.toggle("hidden", mode === "lms")
+  );
 }
 
 $("lobby-config").addEventListener("change", () => {
   if (!currentLobby || currentLobby.hostId !== playerId) return;
+  applyModeVisibility();
   const { maxPlayers, config } = gatherConfig();
   net.send({ type: "updateConfig", maxPlayers, config });
 });

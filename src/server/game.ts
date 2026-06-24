@@ -615,7 +615,7 @@ export class Game {
       const teamKill = this.cfg.mode === "teams" && killer.team === victim.team;
       if (teamKill) {
         // Team-killing is penalized, not rewarded.
-        killer.score = Math.max(0, killer.score - this.cfg.killPoints);
+        killer.score = Math.max(0, killer.score - this.cfg.teamKillPenalty);
       } else {
         killer.score += this.cfg.killPoints;
         if (killer.score < 1) killer.score = 1; // a kill always leaves you ≥ 1

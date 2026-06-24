@@ -105,6 +105,7 @@ export interface GameConfig {
   winScore: number; // points to win (FFA / total per team in Team VS)
   teamCount: number; // 2..4 (Team VS only)
   friendlyFire: boolean; // Team VS: allow damaging teammates
+  teamKillPenalty: number; // points lost for killing a teammate (Team VS)
   adv: AdvancedConfig; // advanced engine tuning
   // Power-ups
   powerups: boolean; // spawn pickups on the map
@@ -126,6 +127,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   winScore: 300,
   teamCount: 2,
   friendlyFire: true,
+  teamKillPenalty: 60,
   adv: DEFAULT_ADVANCED,
   powerups: false,
   powerupEverySeconds: 8,

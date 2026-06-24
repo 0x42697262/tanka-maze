@@ -9,9 +9,15 @@ type Handler = (msg: ServerMessage) => void;
 type StatusHandler = (status: "connecting" | "open" | "closed") => void;
 
 function resolveWsUrl(): string {
+  // Explicit override (set VITE_WS_URL at build time) — used when the client is
+  // hosted separately from the server, e.g. client on Vercel + server on Render:
+  //   VITE_WS_URL=wss://your-app.onrender.com
+  const configured = import.meta.env.VITE_WS_URL;
+  if (configured) return configured;
+
   // In Vite dev the page is served from :5173 while the game server runs on
-  // :8080. In production the static client is served by the game server, so we
-  // connect to the same origin.
+  // :8080. In a single-service deploy (e.g. Render) the server also serves the
+  // static client, so we connect to the same origin.
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   if (import.meta.env.DEV) {
     return `${proto}//${location.hostname}:8080`;

@@ -305,6 +305,17 @@ ol {
   font-style: italic;
   margin: 8px 0 12px;
 }
+.cfg-h {
+  font-family: var(--font-hand);
+  font-size: 16px;
+  color: var(--stamp);
+  margin: 18px 0 8px;
+  border-bottom: 1.5px dashed var(--rule);
+  padding-bottom: 3px;
+}
+.cfg-h:first-of-type {
+  margin-top: 6px;
+}
 #lobby-players {
   margin-bottom: 8px;
 }
