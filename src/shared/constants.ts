@@ -1,8 +1,11 @@
 // Shared tuning constants. The server is authoritative; the client uses these
 // purely for rendering scale and prediction-free interpolation.
 
-export const TICK_RATE = 30; // server simulation ticks per second
+export const TICK_RATE = 30; // server simulation ticks per second (physics)
 export const TICK_MS = 1000 / TICK_RATE;
+// Snapshots are broadcast every Nth sim tick (network rate = TICK_RATE / N).
+// The client interpolates, so a lower send rate saves bandwidth invisibly.
+export const SNAPSHOT_EVERY_TICKS = 2; // 30 Hz sim -> 15 Hz network
 
 // The arena is an open, limited field divided into a grid of cells. Walls are
 // thin line segments placed on the edges between cells; most are removed so the

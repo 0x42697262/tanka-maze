@@ -1,5 +1,10 @@
 import type { WebSocket } from "ws";
-import { DEFAULT_MAX_PLAYERS, TEAM_COLORS, TICK_MS } from "../shared/constants.js";
+import {
+  DEFAULT_MAX_PLAYERS,
+  SNAPSHOT_EVERY_TICKS,
+  TEAM_COLORS,
+  TICK_MS,
+} from "../shared/constants.js";
 import {
   encode,
   type GameConfig,
@@ -51,6 +56,7 @@ export class Lobby {
   private game: Game | null = null;
   private maze: Maze | null = null;
   private lastSnapBytes: Uint8Array | null = null;
+  private tickCount = 0;
   private loop: ReturnType<typeof setInterval> | null = null;
   private lastStep = 0;
   private onChange: () => void;
@@ -285,7 +291,7 @@ export class Lobby {
     const dt = Math.min(0.1, (now - this.lastStep) / 1000);
     this.lastStep = now;
 
-    this.game.step(dt);
+    this.game.step(dt); // physics every tick (smooth)
 
     if (this.game.isFinished) {
       this.broadcast({
@@ -299,7 +305,13 @@ export class Lobby {
       return;
     }
 
-    this.broadcastSnapshot(); // gated: only sends when the state actually changed
+    // Broadcast only every Nth tick (network rate < sim rate); still gated so an
+    // unchanged world sends nothing. Force a send on ticks that produced a blast
+    // or beam so those transient effects are never dropped on a skipped tick.
+    this.tickCount += 1;
+    if (this.tickCount % SNAPSHOT_EVERY_TICKS === 0 || this.game.hasEffects()) {
+      this.broadcastSnapshot();
+    }
   }
 
   private stopGame(): void {

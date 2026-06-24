@@ -8,7 +8,9 @@ import type {
   TankDTO,
 } from "../shared/protocol.js";
 
-const INTERP_DELAY = 100; // ms of render delay for smooth interpolation
+// Render this far in the past so we always have two snapshots to interpolate
+// between. Must exceed the network send interval (≈66ms at 15 Hz) with margin.
+const INTERP_DELAY = 140;
 
 const BULLET_STYLE: Record<BulletKind, { c: string; dr: number }> = {
   normal: { c: "#ff7a1a", dr: 0 },

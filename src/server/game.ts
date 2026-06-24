@@ -783,6 +783,12 @@ export class Game {
     };
   }
 
+  /** True if a blast or beam was produced this tick (force a broadcast so the
+   *  transient effect isn't lost on a skipped network tick). */
+  hasEffects(): boolean {
+    return this.pendingBlasts.length > 0 || this.pendingBeams.length > 0;
+  }
+
   /** Static per-player info clients need to decode binary snapshots. */
   roster(): RosterEntry[] {
     return [...this.tanks.values()].map((t) => ({
