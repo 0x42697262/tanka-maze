@@ -15,6 +15,7 @@ import {
   RELOAD_SECONDS,
   SHIELD_SECONDS,
   SNIPER_SPEED_MULT,
+  SNIPER_WALL_PIERCE,
   SPEED_BOOST_MULT,
   SPEED_BOOST_SECONDS,
   TANK_RADIUS,
@@ -44,6 +45,7 @@ export interface AdvancedConfig {
   shieldSeconds: number;
   laserDelay: number; // s windup
   sniperSpeedMult: number;
+  sniperWallPierce: number; // walls a sniper round punches through (0 = none)
   explosionRadius: number;
   trackingTurnRate: number; // rad/s
   laserRange: number; // px total beam length
@@ -66,6 +68,7 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
   shieldSeconds: SHIELD_SECONDS,
   laserDelay: LASER_DELAY,
   sniperSpeedMult: SNIPER_SPEED_MULT,
+  sniperWallPierce: SNIPER_WALL_PIERCE,
   explosionRadius: EXPLOSION_RADIUS,
   trackingTurnRate: TRACKING_TURN_RATE,
   laserRange: LASER_RANGE,
@@ -242,6 +245,20 @@ export interface BulletDTO {
   y: number;
   ownerId: string;
   kind: BulletKind;
+  /** Travel direction (radians), filled client-side from interpolation. */
+  dir?: number;
+}
+
+/** A kill/suicide/team-kill event for the in-game log. */
+export interface KillEvent {
+  /** 0 = kill, 1 = suicide/self-destruct, 2 = team-kill (friendly fire). */
+  type: number;
+  /** Roster index of the attacker (255 = none/environment). */
+  killer: number;
+  /** Roster index of the victim. */
+  victim: number;
+  /** Signed point delta (positive for the killer's gain, negative for a loss). */
+  points: number;
 }
 
 export interface PowerupDTO {
@@ -268,6 +285,8 @@ export interface SnapshotDTO {
   blasts: { x: number; y: number }[];
   /** Laser beams fired this tick (transient). */
   beams: BeamDTO[];
+  /** Kill/suicide/team-kill events this tick (transient; for the log). */
+  events: KillEvent[];
 }
 
 export interface ScoreDTO {

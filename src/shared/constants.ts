@@ -46,7 +46,7 @@ export const SPEED_BOOST_SECONDS = 6;
 export const SHIELD_SECONDS = 6; // invulnerability duration from a shield pickup
 export const LASER_DELAY = 1; // windup (seconds) before a laser actually fires
 export const SNIPER_SPEED_MULT = 5; // very fast round
-export const SNIPER_WALL_PIERCE = 1; // walls a sniper round punches through
+export const SNIPER_WALL_PIERCE = 10; // walls a sniper round punches through
 export const EXPLOSION_RADIUS = 56; // area-damage radius for explosive rounds
 export const TRACKING_TURN_RATE = 4.5; // radians/sec a homing round can turn
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it

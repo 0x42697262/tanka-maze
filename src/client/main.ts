@@ -175,8 +175,28 @@ net.onMessage((msg: ServerMessage) => {
 
 // Snapshots arrive as binary frames; decode against the current roster.
 net.onBinary((buf) => {
-  if (inGame) renderer.push(decodeSnapshot(buf, roster), performance.now());
+  if (!inGame) return;
+  const snap = decodeSnapshot(buf, roster);
+  for (const e of snap.events) logKillEvent(e);
+  renderer.push(snap, performance.now());
 });
+
+// ---- In-game kill/suicide log (icons + colored names + points) ----
+const killLog: string[] = [];
+function nameSpan(index: number): string {
+  const r = roster.get(index);
+  return `<span class="lg-name" style="color:${r?.color ?? "#888"}">${escapeHtml(r?.name ?? "?")}</span>`;
+}
+function logKillEvent(e: { type: number; killer: number; victim: number; points: number }): void {
+  const pts = `<span class="lg-pts ${e.points >= 0 ? "pos" : "neg"}">${e.points >= 0 ? "+" : ""}${e.points}</span>`;
+  let html: string;
+  if (e.type === 0) html = `${nameSpan(e.killer)} 🎯 ${nameSpan(e.victim)} ${pts}`; // kill
+  else if (e.type === 2) html = `${nameSpan(e.killer)} 💀 ${nameSpan(e.victim)} ${pts}`; // team-kill
+  else html = `💀 ${nameSpan(e.victim)} ${pts}`; // suicide / self-destruct
+  killLog.push(`<li>${html}</li>`);
+  if (killLog.length > 6) killLog.shift();
+  $("killlog").innerHTML = killLog.join("");
+}
 
 // ---------------------------------------------------------------------------
 // Menu / lobby UI
@@ -326,13 +346,17 @@ function startGame(maze: MazeDTO): void {
   arena = { w: maze.width, h: maze.height };
   inGame = true;
   lastInputBytes = null; // force the first input of the new game to send
-  $("gh-lobby").textContent = currentLobby?.name ?? "";
+  $("gh-lobby").textContent = currentLobby
+    ? `${currentLobby.name} · ${configSummary(currentLobby.config)}`
+    : "";
   closePause();
   $("gameover").classList.add("hidden");
   $("respawn").classList.add("hidden");
   input?.dispose();
   input = new Input(canvas);
   input.eightDir = moveMode === "eight";
+  killLog.length = 0;
+  $("killlog").innerHTML = "";
   show("game");
   fitCanvas();
 }

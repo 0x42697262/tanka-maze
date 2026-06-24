@@ -522,6 +522,31 @@ kbd {
 #leaderboard-rows li.dead {
   opacity: 0.55;
 }
+.killlog {
+  margin: 8px 0 0;
+  padding-top: 6px;
+  border-top: 1.5px dashed var(--rule);
+  list-style: none;
+}
+.killlog li {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.killlog .lg-name {
+  font-weight: 700;
+}
+.killlog .lg-pts {
+  font-variant-numeric: tabular-nums;
+}
+.killlog .lg-pts.pos {
+  color: var(--leaf);
+}
+.killlog .lg-pts.neg {
+  color: var(--stamp);
+}
 
 /* ---- Ammo / reload indicator ---- */
 .ammo {

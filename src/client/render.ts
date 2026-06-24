@@ -12,12 +12,15 @@ import type {
 // between. Must exceed the network send interval (≈66ms at 15 Hz) with margin.
 const INTERP_DELAY = 140;
 
-const BULLET_STYLE: Record<BulletKind, { c: string; dr: number }> = {
-  normal: { c: "#ff7a1a", dr: 0 },
-  sniper: { c: "#2fb8d6", dr: 0 },
-  explosive: { c: "#b23b2e", dr: 2 },
-  laser: { c: "#9b3fd6", dr: -1 },
-  tracking: { c: "#3f9b46", dr: 1 },
+// Bullets are black; size varies a little by kind. Tracking rounds render as a
+// triangle (drawn separately), the rest as filled circles.
+const BULLET_COLOR = "#11100e";
+const BULLET_STYLE: Record<BulletKind, { dr: number }> = {
+  normal: { dr: 0 },
+  sniper: { dr: 0 },
+  explosive: { dr: 2 },
+  laser: { dr: -1 },
+  tracking: { dr: 1 },
 };
 
 const POWERUP_STYLE: Record<PowerupType, { c: string; g: string }> = {
@@ -138,13 +141,26 @@ export class Renderer {
 
     for (const b of interp.bullets) {
       const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, Math.max(1, this.bulletR + style.dr), 0, Math.PI * 2);
-      ctx.fillStyle = style.c;
-      ctx.fill();
-      ctx.strokeStyle = "rgba(0,0,0,0.55)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+      const rad = Math.max(1, this.bulletR + style.dr);
+      ctx.fillStyle = BULLET_COLOR;
+      if (b.kind === "tracking") {
+        // Triangle pointing in the travel direction.
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.dir ?? 0);
+        const r = rad + 1.5;
+        ctx.beginPath();
+        ctx.moveTo(r, 0);
+        ctx.lineTo(-r * 0.8, r * 0.8);
+        ctx.lineTo(-r * 0.8, -r * 0.8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     for (const t of interp.tanks) {
@@ -431,10 +447,13 @@ export class Renderer {
     const aBullets = new Map(a.snap.bullets.map((bl) => [bl.id, bl]));
     const bullets = b.snap.bullets.map((bb) => {
       const ba = aBullets.get(bb.id);
-      return ba ? { ...bb, x: lerp(ba.x, bb.x, f), y: lerp(ba.y, bb.y, f) } : bb;
+      if (!ba) return bb;
+      // Travel direction from the movement between the two samples (for tracking).
+      const dir = bb.x !== ba.x || bb.y !== ba.y ? Math.atan2(bb.y - ba.y, bb.x - ba.x) : bb.dir;
+      return { ...bb, x: lerp(ba.x, bb.x, f), y: lerp(ba.y, bb.y, f), dir };
     });
 
-    return { t: target, tanks, bullets, powerups: [], blasts: [], beams: [] };
+    return { t: target, tanks, bullets, powerups: [], blasts: [], beams: [], events: [] };
   }
 }
 

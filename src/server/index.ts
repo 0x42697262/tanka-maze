@@ -307,6 +307,7 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     shieldSeconds: f(c.shieldSeconds, 1, 60, d.shieldSeconds),
     laserDelay: f(c.laserDelay, 0, 5, d.laserDelay),
     sniperSpeedMult: f(c.sniperSpeedMult, 1, 30, d.sniperSpeedMult),
+    sniperWallPierce: i(c.sniperWallPierce, 0, 20, d.sniperWallPierce),
     explosionRadius: f(c.explosionRadius, 10, 300, d.explosionRadius),
     trackingTurnRate: f(c.trackingTurnRate, 0.5, 20, d.trackingTurnRate),
     laserRange: f(c.laserRange, 100, 5000, d.laserRange),

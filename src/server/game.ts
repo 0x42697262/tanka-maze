@@ -11,6 +11,7 @@ import {
   type BulletKind,
   type GameConfig,
   type InputState,
+  type KillEvent,
   type PowerupType,
   type RosterEntry,
   type ScoreDTO,
@@ -113,6 +114,7 @@ export class Game {
   // Transient effects emitted during the last step (sent once, then cleared).
   private pendingBlasts: Array<{ x: number; y: number }> = [];
   private pendingBeams: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+  private pendingEvents: KillEvent[] = [];
 
   constructor(
     maze: Maze,
@@ -215,6 +217,7 @@ export class Game {
     // Transient effects only live for the snapshot taken right after this step.
     this.pendingBlasts = [];
     this.pendingBeams = [];
+    this.pendingEvents = [];
 
     this.stepPowerups(dt);
 
@@ -243,6 +246,14 @@ export class Game {
         if (!tank.connected || tank.out) continue;
         tank.respawnIn = Math.max(0, tank.respawnIn - dt);
         if (tank.respawnIn === 0) this.respawn(tank);
+        continue;
+      }
+
+      // Locked during the laser windup: no movement, no aim change, no firing.
+      // The turret stays at the angle captured when the laser was triggered.
+      if (tank.laserCharge > 0) {
+        tank.vx = 0;
+        tank.vy = 0;
         continue;
       }
 
@@ -345,7 +356,8 @@ export class Game {
         bounces: 0,
         life: this.adv.bulletLifetime,
         kind,
-        wallPierce: 0,
+        // Walls a sniper round may pass through before stopping.
+        wallPierce: kind === "sniper" ? this.adv.sniperWallPierce : 0,
         pierceTanks: kind === "sniper",
         wasInWall: false,
         hitIds: new Set(),
@@ -375,11 +387,13 @@ export class Game {
     const pts: Array<{ x: number; y: number }> = [{ x, y }];
     const hit = new Set<string>();
     let guard = 0;
+    let bounces = 0;
 
     while (remaining > 0 && guard++ < 4000) {
       const nx = x + dx * STEP;
       if (this.circleHitsWall(nx, y, this.adv.bulletRadius)) {
         dx = -dx;
+        bounces += 1;
         pts.push({ x, y });
       } else {
         x = nx;
@@ -387,6 +401,7 @@ export class Game {
       const ny = y + dy * STEP;
       if (this.circleHitsWall(x, ny, this.adv.bulletRadius)) {
         dy = -dy;
+        bounces += 1;
         pts.push({ x, y });
       } else {
         y = ny;
@@ -395,8 +410,10 @@ export class Game {
       if (x < 0 || y < 0 || x > this.maze.width || y > this.maze.height) break;
 
       for (const t of this.tanks.values()) {
-        if (!t.alive || t.id === tank.id || t.shieldTimer > 0 || hit.has(t.id)) continue;
-        if (this.isFriendly(tank.id, t)) continue;
+        if (!t.alive || t.shieldTimer > 0 || hit.has(t.id)) continue;
+        // Your own ricochet can come back and hit you (after at least one bounce).
+        if (t.id === tank.id && bounces === 0) continue;
+        if (this.isFriendly(tank.id, t)) continue; // teammates only when FF is on
         if ((t.x - x) ** 2 + (t.y - y) ** 2 <= this.adv.tankRadius * this.adv.tankRadius) {
           hit.add(t.id);
           t.hp -= 1;
@@ -434,12 +451,19 @@ export class Game {
 
       for (let s = 0; s < steps && !dead; s++) {
         if (b.pierceTanks) {
-          // Sniper: fly straight through every wall and tank; stops only at the
-          // map edge (or when its lifetime runs out).
+          // Sniper: flies straight through tanks; punches through up to
+          // `wallPierce` walls (-1 = unlimited), then stops. Also dies off-map.
           b.x += b.vx * sdt;
           b.y += b.vy * sdt;
           if (b.x < 0 || b.y < 0 || b.x > this.maze.width || b.y > this.maze.height) {
             dead = true;
+          } else {
+            const inWall = this.circleHitsWall(b.x, b.y, this.adv.bulletRadius);
+            if (inWall && !b.wasInWall) {
+              if (b.wallPierce <= 0) dead = true;
+              else b.wallPierce -= 1;
+            }
+            b.wasInWall = inWall;
           }
         } else {
           const nx = b.x + b.vx * sdt;
@@ -642,15 +666,31 @@ export class Game {
       const teamKill = this.cfg.mode === "teams" && killer.team === victim.team;
       if (teamKill) {
         // Team-killing is penalized, not rewarded.
+        const before = killer.score;
         killer.score = Math.max(0, killer.score - this.cfg.teamKillPenalty);
+        this.pendingEvents.push({
+          type: 2,
+          killer: killer.index,
+          victim: victim.index,
+          points: killer.score - before,
+        });
       } else {
         killer.score += this.cfg.killPoints;
         if (killer.score < 1) killer.score = 1; // a kill always leaves you ≥ 1
+        this.pendingEvents.push({
+          type: 0,
+          killer: killer.index,
+          victim: victim.index,
+          points: this.cfg.killPoints,
+        });
         if (this.cfg.mode === "ffa" && killer.score >= this.cfg.winScore) {
           this.finished = true;
           this.winnerName = killer.name;
         }
       }
+    } else {
+      // Self-destruct / environment (e.g. own ricochet).
+      this.pendingEvents.push({ type: 1, killer: 255, victim: victim.index, points: -loss });
     }
     this.checkLmsWin();
     this.checkTeamWin();
@@ -780,13 +820,18 @@ export class Game {
         x2: round(b.x2),
         y2: round(b.y2),
       })),
+      events: this.pendingEvents.slice(),
     };
   }
 
   /** True if a blast or beam was produced this tick (force a broadcast so the
    *  transient effect isn't lost on a skipped network tick). */
   hasEffects(): boolean {
-    return this.pendingBlasts.length > 0 || this.pendingBeams.length > 0;
+    return (
+      this.pendingBlasts.length > 0 ||
+      this.pendingBeams.length > 0 ||
+      this.pendingEvents.length > 0
+    );
   }
 
   /** Static per-player info clients need to decode binary snapshots. */

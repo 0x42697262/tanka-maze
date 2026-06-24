@@ -96,7 +96,9 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     1 +
     s.blasts.length * 4 +
     1 +
-    s.beams.length * 8;
+    s.beams.length * 8 +
+    1 +
+    s.events.length * 5;
   const dv = new DataView(new ArrayBuffer(size));
   let o = 0;
 
@@ -165,6 +167,15 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint16(o, u16(bm.x2), true);
     o += 2;
     dv.setUint16(o, u16(bm.y2), true);
+    o += 2;
+  }
+
+  dv.setUint8(o++, s.events.length);
+  for (const e of s.events) {
+    dv.setUint8(o++, e.type);
+    dv.setUint8(o++, e.killer);
+    dv.setUint8(o++, e.victim);
+    dv.setInt16(o, Math.max(-32767, Math.min(32767, e.points)), true);
     o += 2;
   }
 
@@ -273,7 +284,18 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     beams.push({ x1, y1, x2, y2 });
   }
 
-  return { t: 0, tanks, bullets, powerups, blasts, beams };
+  const events = [];
+  const eventCount = dv.getUint8(o++);
+  for (let i = 0; i < eventCount; i++) {
+    const type = dv.getUint8(o++);
+    const killer = dv.getUint8(o++);
+    const victim = dv.getUint8(o++);
+    const points = dv.getInt16(o, true);
+    o += 2;
+    events.push({ type, killer, victim, points });
+  }
+
+  return { t: 0, tanks, bullets, powerups, blasts, beams, events };
 }
 
 /** Byte-equality check for snapshot change-gating. */
