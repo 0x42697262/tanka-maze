@@ -925,7 +925,7 @@ $("refresh").onclick = () => net.send({ type: "listLobbies" });
 $("create").onclick = () => {
   commitName();
   const name = ($("lobby-name") as HTMLInputElement).value.trim();
-  net.send({ type: "createLobby", name, maxPlayers: 4, config: DEFAULT_GAME_CONFIG });
+  net.send({ type: "createLobby", name, maxPlayers: 8, config: DEFAULT_GAME_CONFIG });
 };
 
 $("start").onclick = () => net.send({ type: "startGame" });

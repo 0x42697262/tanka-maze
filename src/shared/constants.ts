@@ -30,7 +30,7 @@ export const TANK_TURN_SPEED = 3.2; // radians / second (steering rate)
 // takes RELOAD_SECONDS, then instantly refills the whole magazine.
 export const MAX_AMMO = 5;
 export const RELOAD_SECONDS = 3;
-export const FIRE_COOLDOWN = 0.5; // min seconds between individual shots
+export const FIRE_COOLDOWN = 1.0; // min seconds between individual shots
 export const RESPAWN_TIME = 3; // default respawn delay (seconds)
 
 export const BULLET_RADIUS = 4;
@@ -50,7 +50,7 @@ export const SNIPER_WALL_PIERCE = 10; // walls a sniper round punches through
 export const EXPLOSION_RADIUS = 56; // area-damage radius for explosive rounds
 export const TRACKING_TURN_RATE = 4.5; // radians/sec a homing round can turn
 export const TRACKING_LIFETIME = 10; // seconds a tracking round lives (its range)
-export const TRACKING_BOUNCES = 10; // wall bounces a tracking round survives
+export const TRACKING_BOUNCES = 6; // wall bounces a tracking round survives
 export const MULTISHOT_COUNT = 3; // pellets released by a multishot pickup
 export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multishot
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
