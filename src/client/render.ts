@@ -177,7 +177,7 @@ export class Renderer {
 
     // Aiming guide (local player only) — drawn under the tanks would be hidden
     // by them, so draw it just before so the dotted line reads clearly.
-    this.drawScope(interp, localId);
+    this.drawScope(interp);
 
     for (const t of interp.tanks) {
       this.drawTank(t, t.id === localId, nowMs);
@@ -189,43 +189,46 @@ export class Renderer {
 
   /**
    * Line-of-sight scope: a dotted guide showing where a shot would travel from
-   * the local tank, accounting for the tank's velocity (inherited by the round)
-   * and wall bounces. Pure client-side UI — the server only flags `scoped`.
+   * a scoped tank, accounting for the tank's velocity (inherited by the round)
+   * and wall bounces. Drawn for EVERY scoped tank — others can see who has it —
+   * yet still computed purely client-side (the server only flags `scoped`), so
+   * it adds no simulation cost.
    */
-  private drawScope(interp: SnapshotDTO, localId: string): void {
-    const me = interp.tanks.find((t) => t.id === localId);
-    if (!me || !me.alive || !me.scoped || !this.maze) return;
-
+  private drawScope(interp: SnapshotDTO): void {
+    if (!this.maze) return;
     const { ctx } = this;
-    const paths = this.scopePaths(me, this.localVelocity(localId));
-    ctx.save();
-    ctx.setLineDash([5, 7]);
-    ctx.lineWidth = 2;
-    ctx.lineCap = "round";
-    ctx.strokeStyle = me.color;
-    ctx.globalAlpha = 0.85;
-    for (const path of paths) {
-      if (path.length < 2) continue;
-      ctx.beginPath();
-      ctx.moveTo(path[0].x, path[0].y);
-      for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
-      ctx.stroke();
+    for (const t of interp.tanks) {
+      if (!t.alive || !t.scoped) continue;
+      const paths = this.scopePaths(t, this.tankVelocity(t.id));
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.strokeStyle = t.color;
+      ctx.fillStyle = t.color;
+      ctx.globalAlpha = 0.85;
+      ctx.setLineDash([5, 7]);
+      ctx.lineWidth = 2;
+      for (const path of paths) {
+        if (path.length < 2) continue;
+        ctx.beginPath();
+        ctx.moveTo(path[0].x, path[0].y);
+        for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
+        ctx.stroke();
+      }
+      // Solid impact pip at the end of each guide.
+      ctx.setLineDash([]);
+      for (const path of paths) {
+        const end = path[path.length - 1];
+        if (!end) continue;
+        ctx.beginPath();
+        ctx.arc(end.x, end.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
     }
-    // Solid impact pip at the end of each guide.
-    ctx.setLineDash([]);
-    ctx.fillStyle = me.color;
-    for (const path of paths) {
-      const end = path[path.length - 1];
-      if (!end) continue;
-      ctx.beginPath();
-      ctx.arc(end.x, end.y, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    ctx.restore();
   }
 
-  /** One or more trajectory polylines for the local tank's current weapon. */
+  /** One or more trajectory polylines for a tank's current weapon. */
   private scopePaths(me: TankDTO, vel: { x: number; y: number }): Array<{ x: number; y: number }[]> {
     const a = me.turretAngle;
     const ca = Math.cos(a);
@@ -357,8 +360,8 @@ export class Renderer {
     return false;
   }
 
-  /** Estimate the local tank's current velocity (px/s) from the last two snapshots. */
-  private localVelocity(id: string): { x: number; y: number } {
+  /** Estimate a tank's current velocity (px/s) from the last two snapshots. */
+  private tankVelocity(id: string): { x: number; y: number } {
     if (this.buffer.length < 2) return { x: 0, y: 0 };
     const b = this.buffer[this.buffer.length - 1];
     const a = this.buffer[this.buffer.length - 2];
