@@ -734,6 +734,9 @@ kbd {
 .ammo .weapon.laser {
   color: #9b3fd6;
 }
+.ammo .weapon.scope {
+  color: #2f9bb8;
+}
 
 /* ---- Respawn overlay (over the arena) ---- */
 .respawn {

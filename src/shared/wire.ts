@@ -36,6 +36,7 @@ const PUP_CODES: PowerupType[] = [
   "laser",
   "tracking",
   "multishot",
+  "scope",
 ];
 
 const weaponCode = (w: PowerupType | null): number => {
@@ -134,6 +135,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     if (t.boosted) flags |= 2;
     if (t.shielded) flags |= 4;
     if (t.charging) flags |= 8;
+    if (t.scoped) flags |= 16;
     dv.setUint8(o++, flags);
     dv.setUint8(o++, Math.min(255, t.hp));
     dv.setUint8(o++, Math.min(255, t.ammo));
@@ -241,6 +243,7 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
       boosted: (flags & 2) !== 0,
       shielded: (flags & 4) !== 0,
       charging: (flags & 8) !== 0,
+      scoped: (flags & 16) !== 0,
       hp,
       ammo,
       score,

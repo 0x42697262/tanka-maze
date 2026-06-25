@@ -24,7 +24,7 @@ export const WALL_KEEP_DEADEND_RATIO = 0.1;
 export const TANK_RADIUS = 11;
 export const TANK_SPEED = 100; // px / second (forward, at 100% speed)
 export const TANK_REVERSE_SPEED = 60; // px / second (backward, at 100% speed)
-export const TANK_TURN_SPEED = 3.2; // radians / second (steering rate)
+export const TANK_TURN_SPEED = 4.3; // radians / second (steering rate)
 
 // Ammunition: a magazine of MAX_AMMO rounds. Emptying it forces a reload that
 // takes RELOAD_SECONDS, then instantly refills the whole magazine.
@@ -49,11 +49,13 @@ export const SNIPER_SPEED_MULT = 5; // very fast round
 export const SNIPER_WALL_PIERCE = 10; // walls a sniper round punches through
 export const EXPLOSION_RADIUS = 56; // area-damage radius for explosive rounds
 export const TRACKING_TURN_RATE = 4.5; // radians/sec a homing round can turn
-export const TRACKING_LIFETIME = 10; // seconds a tracking round lives (its range)
+export const TRACKING_LIFETIME = 6; // seconds a tracking round lives (its range)
 export const TRACKING_BOUNCES = 6; // wall bounces a tracking round survives
 export const MULTISHOT_COUNT = 3; // pellets released by a multishot pickup
 export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multishot
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
+export const SCOPE_SECONDS = 10; // duration of the line-of-sight scope buff
+export const SCOPE_RANGE = 15 * CELL; // guide length (matches the laser's reach)
 
 // Rounds: a match is best-of-N; the side with the most round wins takes it.
 export const ROUNDS_DEFAULT = 3;

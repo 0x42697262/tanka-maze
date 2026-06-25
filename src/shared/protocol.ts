@@ -15,6 +15,8 @@ import {
   MULTISHOT_COUNT,
   MULTISHOT_SPREAD_DEG,
   ROUNDS_DEFAULT,
+  SCOPE_RANGE,
+  SCOPE_SECONDS,
   RELOAD_SECONDS,
   SHIELD_SECONDS,
   SNIPER_SPEED_MULT,
@@ -52,6 +54,8 @@ export interface AdvancedConfig {
   sniperSpeedMult: number;
   sniperWallPierce: number; // walls a sniper round punches through (0 = none)
   explosionRadius: number;
+  scopeSeconds: number; // duration of the line-of-sight scope buff
+  scopeRange: number; // px length of the aiming guide
   trackingTurnRate: number; // rad/s
   trackingLifetime: number; // s a tracking round lives (governs its range)
   trackingBounces: number; // wall bounces a tracking round survives
@@ -79,6 +83,8 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
   sniperSpeedMult: SNIPER_SPEED_MULT,
   sniperWallPierce: SNIPER_WALL_PIERCE,
   explosionRadius: EXPLOSION_RADIUS,
+  scopeSeconds: SCOPE_SECONDS,
+  scopeRange: SCOPE_RANGE,
   trackingTurnRate: TRACKING_TURN_RATE,
   trackingLifetime: TRACKING_LIFETIME,
   trackingBounces: TRACKING_BOUNCES,
@@ -121,7 +127,8 @@ export type PowerupType =
   | "explosive"
   | "laser"
   | "tracking"
-  | "multishot";
+  | "multishot"
+  | "scope";
 export const POWERUP_TYPES: PowerupType[] = [
   "speed",
   "shield",
@@ -130,6 +137,7 @@ export const POWERUP_TYPES: PowerupType[] = [
   "laser",
   "tracking",
   "multishot",
+  "scope",
 ];
 /** What a fired round is. "normal" plus the offensive power-up kinds. */
 export type BulletKind = "normal" | "sniper" | "explosive" | "laser" | "tracking";
@@ -279,6 +287,8 @@ export interface TankDTO {
   shielded: boolean;
   /** Whether a laser is winding up to fire. */
   charging: boolean;
+  /** Whether the line-of-sight scope (aiming guide) is active. */
+  scoped: boolean;
   /** Team index (Team VS); 0 in other modes. */
   team: number;
 }

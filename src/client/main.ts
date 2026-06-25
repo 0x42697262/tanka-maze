@@ -427,6 +427,8 @@ function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Sniper ×", a.sniperSpeedMult],
       ["Sniper wall pierce", a.sniperWallPierce],
       ["Explosion radius", a.explosionRadius],
+      ["Scope duration", `${a.scopeSeconds}s`],
+      ["Scope range", a.scopeRange],
       ["Tracking turn", a.trackingTurnRate],
       ["Tracking life", `${a.trackingLifetime}s`],
       ["Tracking bounces", a.trackingBounces],
@@ -589,6 +591,14 @@ function startGame(maze: MazeDTO, round = 1, totalRounds = 1, standing: RoundSta
   renderer.setMaze(maze);
   const adv = currentLobby?.config.adv ?? DEFAULT_GAME_CONFIG.adv;
   renderer.setParams(adv.tankRadius, adv.bulletRadius);
+  renderer.setScope({
+    range: adv.scopeRange,
+    laserRange: adv.laserRange,
+    bulletSpeed: adv.bulletSpeed,
+    bounces: adv.bulletBounces,
+    multiCount: adv.multishotCount,
+    multiSpread: adv.multishotSpread,
+  });
   arena = { w: maze.width, h: maze.height };
   inGame = true;
   if (roundCountdown) {
@@ -867,6 +877,7 @@ function renderAmmo(
       boosted: boolean;
       shielded: boolean;
       charging: boolean;
+      scoped: boolean;
     }
     | undefined
 ): void {
@@ -886,6 +897,7 @@ function renderAmmo(
   }
   if (me.boosted) html += `<span class="weapon boost">» boost</span>`;
   if (me.shielded) html += `<span class="weapon shield">◈ shield</span>`;
+  if (me.scoped) html += `<span class="weapon scope">⌖ scope</span>`;
   el.innerHTML = html;
 }
 

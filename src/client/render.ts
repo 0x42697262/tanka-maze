@@ -31,6 +31,7 @@ const POWERUP_STYLE: Record<PowerupType, { c: string; g: string }> = {
   laser: { c: "#9b3fd6", g: "≡" },
   tracking: { c: "#3f9b46", g: "◎" },
   multishot: { c: "#d6822f", g: "⋔" },
+  scope: { c: "#5fcadf", g: "⌖" },
 };
 
 interface Buffered {
@@ -65,12 +66,33 @@ export class Renderer {
   // Per-game visual sizes (from the lobby's advanced config).
   private tankR = TANK_RADIUS;
   private bulletR = BULLET_RADIUS;
+  // Bullet-physics params for the local-only scope (aiming guide) simulation.
+  private scope = {
+    range: 1320,
+    laserRange: 1320,
+    bulletSpeed: 240,
+    bounces: 3,
+    multiCount: 3,
+    multiSpread: 30,
+  };
   // Last seen state per tank, to detect deaths and spawn explosions.
   private lastTankState = new Map<string, { x: number; y: number; alive: boolean; color: string }>();
 
   setParams(tankRadius: number, bulletRadius: number): void {
     this.tankR = tankRadius;
     this.bulletR = bulletRadius;
+  }
+
+  /** Bullet-physics params used to draw the local player's aiming guide. */
+  setScope(p: {
+    range: number;
+    laserRange: number;
+    bulletSpeed: number;
+    bounces: number;
+    multiCount: number;
+    multiSpread: number;
+  }): void {
+    this.scope = { ...p };
   }
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -164,12 +186,198 @@ export class Renderer {
       }
     }
 
+    // Aiming guide (local player only) — drawn under the tanks would be hidden
+    // by them, so draw it just before so the dotted line reads clearly.
+    this.drawScope(interp, localId);
+
     for (const t of interp.tanks) {
       this.drawTank(t, t.id === localId, nowMs);
     }
 
     this.drawBeams(nowMs);
     this.drawExplosions(nowMs);
+  }
+
+  /**
+   * Line-of-sight scope: a dotted guide showing where a shot would travel from
+   * the local tank, accounting for the tank's velocity (inherited by the round)
+   * and wall bounces. Pure client-side UI — the server only flags `scoped`.
+   */
+  private drawScope(interp: SnapshotDTO, localId: string): void {
+    const me = interp.tanks.find((t) => t.id === localId);
+    if (!me || !me.alive || !me.scoped || !this.maze) return;
+
+    const { ctx } = this;
+    const paths = this.scopePaths(me, this.localVelocity(localId));
+    ctx.save();
+    ctx.setLineDash([5, 7]);
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = me.color;
+    ctx.globalAlpha = 0.85;
+    for (const path of paths) {
+      if (path.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(path[0].x, path[0].y);
+      for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
+      ctx.stroke();
+    }
+    // Solid impact pip at the end of each guide.
+    ctx.setLineDash([]);
+    ctx.fillStyle = me.color;
+    for (const path of paths) {
+      const end = path[path.length - 1];
+      if (!end) continue;
+      ctx.beginPath();
+      ctx.arc(end.x, end.y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  /** One or more trajectory polylines for the local tank's current weapon. */
+  private scopePaths(me: TankDTO, vel: { x: number; y: number }): Array<{ x: number; y: number }[]> {
+    const a = me.turretAngle;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const sc = this.scope;
+
+    if (me.weapon === "laser") {
+      // Hitscan beam: from the muzzle along the turret, reflecting, no momentum.
+      const ox = me.x + ca * (this.tankR + 2);
+      const oy = me.y + sa * (this.tankR + 2);
+      return [this.walkPath(ox, oy, ca, sa, sc.laserRange, Infinity, false, false)];
+    }
+
+    const muzzle = this.tankR + this.bulletR + 2;
+    const ox = me.x + ca * muzzle;
+    const oy = me.y + sa * muzzle;
+
+    if (me.weapon === "sniper") {
+      // Flies straight & fast, no momentum, punches through walls.
+      return [this.walkPath(ox, oy, ca, sa, sc.range, 0, false, true)];
+    }
+
+    const speed = sc.bulletSpeed;
+    const stopOnWall = me.weapon === "explosive";
+    const bounces = stopOnWall ? 0 : sc.bounces;
+
+    if (me.weapon === "multishot") {
+      const n = Math.max(1, Math.round(sc.multiCount));
+      const fan = (sc.multiSpread * Math.PI) / 180;
+      const step = n > 1 ? fan / (n - 1) : 0;
+      const start = a - fan / 2;
+      const paths: Array<{ x: number; y: number }[]> = [];
+      for (let i = 0; i < n; i++) {
+        const ang = n > 1 ? start + step * i : a;
+        const mx = me.x + Math.cos(ang) * muzzle;
+        const my = me.y + Math.sin(ang) * muzzle;
+        paths.push(
+          this.walkPath(mx, my, Math.cos(ang) * speed + vel.x, Math.sin(ang) * speed + vel.y, sc.range, bounces, false, false)
+        );
+      }
+      return paths;
+    }
+
+    // normal / explosive / tracking: inherits the tank's velocity.
+    return [this.walkPath(ox, oy, ca * speed + vel.x, sa * speed + vel.y, sc.range, bounces, stopOnWall, false)];
+  }
+
+  /**
+   * March a virtual round through the maze, mirroring the server's stepBullets:
+   * reflect off walls (axis-wise), optionally stop on the first wall (explosive)
+   * or pass straight through (sniper). Returns polyline vertices (start, each
+   * bounce, end).
+   */
+  private walkPath(
+    ox: number,
+    oy: number,
+    vx: number,
+    vy: number,
+    range: number,
+    maxBounces: number,
+    stopOnWall: boolean,
+    pierce: boolean
+  ): Array<{ x: number; y: number }> {
+    const pts = [{ x: ox, y: oy }];
+    const maze = this.maze;
+    if (!maze) return pts;
+    const step = Math.max(2.5, this.bulletR * 0.8);
+    let x = ox;
+    let y = oy;
+    let bounces = 0;
+    let dist = 0;
+    let guard = 0;
+    while (dist < range && guard++ < 3000) {
+      const sp = Math.hypot(vx, vy) || 1;
+      const nx = x + (vx / sp) * step;
+      const ny = y + (vy / sp) * step;
+      if (nx < 0 || ny < 0 || nx > maze.width || ny > maze.height) {
+        pts.push({ x: Math.max(0, Math.min(maze.width, nx)), y: Math.max(0, Math.min(maze.height, ny)) });
+        return pts;
+      }
+      if (pierce) {
+        x = nx;
+        y = ny;
+        dist += step;
+        continue;
+      }
+      let bounced = false;
+      if (this.hitsWall(nx, y)) {
+        if (stopOnWall) {
+          pts.push({ x, y });
+          return pts;
+        }
+        vx = -vx;
+        bounces++;
+        bounced = true;
+      } else {
+        x = nx;
+      }
+      if (this.hitsWall(x, ny)) {
+        if (stopOnWall) {
+          pts.push({ x, y });
+          return pts;
+        }
+        vy = -vy;
+        bounces++;
+        bounced = true;
+      } else {
+        y = ny;
+      }
+      if (bounced) {
+        pts.push({ x, y });
+        if (bounces > maxBounces) return pts;
+      }
+      dist += step;
+    }
+    pts.push({ x, y });
+    return pts;
+  }
+
+  /** Same circle-vs-wall test the server uses, against the local maze segments. */
+  private hitsWall(x: number, y: number): boolean {
+    const maze = this.maze;
+    if (!maze) return false;
+    const reach = this.bulletR + maze.thickness / 2;
+    const r2 = reach * reach;
+    for (const w of maze.walls) {
+      if (pointSegDist2(x, y, w.x1, w.y1, w.x2, w.y2) <= r2) return true;
+    }
+    return false;
+  }
+
+  /** Estimate the local tank's current velocity (px/s) from the last two snapshots. */
+  private localVelocity(id: string): { x: number; y: number } {
+    if (this.buffer.length < 2) return { x: 0, y: 0 };
+    const b = this.buffer[this.buffer.length - 1];
+    const a = this.buffer[this.buffer.length - 2];
+    const tb = b.snap.tanks.find((t) => t.id === id);
+    const ta = a.snap.tanks.find((t) => t.id === id);
+    const dt = (b.recvAt - a.recvAt) / 1000;
+    if (!ta || !tb || dt <= 0) return { x: 0, y: 0 };
+    return { x: (tb.x - ta.x) / dt, y: (tb.y - ta.y) / dt };
   }
 
   private drawBeams(nowMs: number): void {
@@ -468,6 +676,18 @@ function angleLerp(a: number, b: number, f: number): number {
 }
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** Squared distance from point (px,py) to segment (ax,ay)-(bx,by). */
+function pointSegDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  return (px - cx) ** 2 + (py - cy) ** 2;
 }
 
 function roundRect(

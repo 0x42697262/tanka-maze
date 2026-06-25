@@ -65,6 +65,8 @@ interface Tank {
   boostTimer: number;
   /** Seconds of shield (invulnerability) remaining. */
   shieldTimer: number;
+  /** Seconds of line-of-sight scope (aiming guide) remaining. */
+  scopeTimer: number;
   /** Seconds left on a laser windup (0 = not charging). */
   laserCharge: number;
   team: number;
@@ -212,6 +214,7 @@ export class Game {
       weaponCharges: 0,
       boostTimer: 0,
       shieldTimer: SPAWN_SHIELD_SECONDS, // spawn protection
+      scopeTimer: 0,
       laserCharge: 0,
       team,
     });
@@ -289,6 +292,7 @@ export class Game {
       tank.fireCooldown = Math.max(0, tank.fireCooldown - dt);
       if (tank.boostTimer > 0) tank.boostTimer = Math.max(0, tank.boostTimer - dt);
       if (tank.shieldTimer > 0) tank.shieldTimer = Math.max(0, tank.shieldTimer - dt);
+      if (tank.scopeTimer > 0) tank.scopeTimer = Math.max(0, tank.scopeTimer - dt);
       // Laser windup: fire the beam once the charge completes.
       if (tank.laserCharge > 0) {
         tank.laserCharge -= dt;
@@ -834,6 +838,9 @@ export class Game {
       tank.boostTimer = this.adv.speedBoostSeconds;
     } else if (type === "shield") {
       tank.shieldTimer = this.adv.shieldSeconds;
+    } else if (type === "scope") {
+      // A buff (not a weapon): the aiming guide layers on top of any weapon.
+      tank.scopeTimer = this.adv.scopeSeconds;
     } else {
       tank.weapon = type;
       tank.weaponCharges = this.cfg.powerupCharges;
@@ -1006,6 +1013,7 @@ export class Game {
       t.weaponCharges = 0;
       t.boostTimer = 0;
       t.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection at round start
+      t.scopeTimer = 0;
       t.laserCharge = 0;
     }
   }
@@ -1064,6 +1072,7 @@ export class Game {
     tank.weaponCharges = 0;
     tank.boostTimer = 0;
     tank.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection on respawn
+    tank.scopeTimer = 0;
     tank.laserCharge = 0;
   }
 
@@ -1123,6 +1132,7 @@ export class Game {
           boosted: t.boostTimer > 0,
           shielded: t.shieldTimer > 0,
           charging: t.laserCharge > 0,
+          scoped: t.scopeTimer > 0,
           team: t.team,
         })),
       bullets: this.bullets.map((b) => ({

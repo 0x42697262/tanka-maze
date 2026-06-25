@@ -362,6 +362,8 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     sniperSpeedMult: f(c.sniperSpeedMult, 1, 30, d.sniperSpeedMult),
     sniperWallPierce: i(c.sniperWallPierce, 0, 20, d.sniperWallPierce),
     explosionRadius: f(c.explosionRadius, 10, 300, d.explosionRadius),
+    scopeSeconds: f(c.scopeSeconds, 1, 120, d.scopeSeconds),
+    scopeRange: f(c.scopeRange, 100, 5000, d.scopeRange),
     trackingTurnRate: f(c.trackingTurnRate, 0.5, 20, d.trackingTurnRate),
     trackingLifetime: f(c.trackingLifetime, 0.5, 30, d.trackingLifetime),
     trackingBounces: i(c.trackingBounces, 0, 50, d.trackingBounces),
