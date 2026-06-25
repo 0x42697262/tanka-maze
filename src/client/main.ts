@@ -7,7 +7,14 @@ import { DEFAULT_GAME_CONFIG, type ServerMessage } from "../shared/protocol.js";
 import { bytesEqual, decodeSnapshot, encodeInput } from "../shared/wire.js";
 import { $, show, toast } from "./dom.js";
 import { logKillEvent, renderAmmo, renderLeaderboard, updateRespawnOverlay } from "./hud.js";
-import { buildSwatches, commitColor, commitName, renderLobby, renderLobbyList } from "./lobby.js";
+import {
+  buildSwatches,
+  commitColor,
+  commitName,
+  refreshPings,
+  renderLobby,
+  renderLobbyList,
+} from "./lobby.js";
 import {
   closePause,
   endGame,
@@ -120,7 +127,9 @@ net.onMessage((msg: ServerMessage) => {
     case "latencies":
       for (const p of msg.pings) latencies.set(p.id, p.ms);
       if (state.scoreboardOpen) renderScoreboard();
-      if (!state.inGame && state.currentLobby) renderLobby(state.currentLobby, false);
+      // Update only the ping badges in the lobby — re-rendering the whole lobby
+      // here would wipe the team name/color inputs mid-edit.
+      if (!state.inGame && state.currentLobby) refreshPings();
       break;
     case "kicked":
       closeScoreboard();

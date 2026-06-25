@@ -152,6 +152,7 @@ function teamNameInput(team: number, name: string): HTMLInputElement {
 
 function playerRow(p: LobbyDTO["players"][number], hostId: string): HTMLLIElement {
   const li = document.createElement("li");
+  li.dataset.pid = p.id;
   if (!p.connected) li.className = "offline";
   const you = p.id === state.playerId ? " (you)" : "";
   const tag = p.connected ? you : " (reconnecting…)";
@@ -171,6 +172,18 @@ export function pingBadge(id: string): string {
   if (ms == null) return `<span class="ping">—</span>`;
   const cls = ms < 80 ? "good" : ms < 160 ? "ok" : "bad";
   return `<span class="ping ${cls}">${ms} ms</span>`;
+}
+
+/**
+ * Refresh only the latency badges in place. Used for periodic latency updates so
+ * we don't re-render the whole lobby — which would destroy the team name/color
+ * inputs (and the player color picker) while the captain is editing them.
+ */
+export function refreshPings(): void {
+  document.querySelectorAll<HTMLElement>("#lobby-players li[data-pid]").forEach((li) => {
+    const span = li.querySelector(".ping");
+    if (span) span.outerHTML = pingBadge(li.dataset.pid ?? "");
+  });
 }
 
 // ---- Player name + color controls ----
