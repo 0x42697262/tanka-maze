@@ -65,8 +65,10 @@ interface Tank {
   boostTimer: number;
   /** Seconds of shield (invulnerability) remaining. */
   shieldTimer: number;
-  /** Seconds of line-of-sight scope (aiming guide) remaining. */
+  /** Seconds of line-of-sight scope (aiming guide) remaining (time cap). */
   scopeTimer: number;
+  /** Scoped shots remaining — the guide is consumed one charge per shot. */
+  scopeShots: number;
   /** Seconds left on a laser windup (0 = not charging). */
   laserCharge: number;
   team: number;
@@ -215,6 +217,7 @@ export class Game {
       boostTimer: 0,
       shieldTimer: SPAWN_SHIELD_SECONDS, // spawn protection
       scopeTimer: 0,
+      scopeShots: 0,
       laserCharge: 0,
       team,
     });
@@ -404,6 +407,8 @@ export class Game {
       }
     }
     tank.fireCooldown = this.adv.fireCooldown;
+    // A committed shot consumes one scope charge (the aiming guide).
+    if (tank.scopeShots > 0) tank.scopeShots -= 1;
     const a = tank.turretAngle;
 
     if (weapon === "laser") {
@@ -839,12 +844,15 @@ export class Game {
     } else if (type === "shield") {
       tank.shieldTimer = this.adv.shieldSeconds;
     } else if (type === "scope") {
-      // A buff (not a weapon): the aiming guide layers on top of any weapon.
+      // A buff (not a weapon): the aiming guide layers on top of any weapon and
+      // is consumed one charge per shot (capped by scopeSeconds so it doesn't
+      // linger forever if unused).
       tank.scopeTimer = this.adv.scopeSeconds;
+      tank.scopeShots = this.cfg.powerupCharges;
     } else {
+      // Every weapon pickup grants the same configurable number of shots.
       tank.weapon = type;
-      // Multishot carries its own configurable number of volleys.
-      tank.weaponCharges = type === "multishot" ? this.adv.multishotMaxShots : this.cfg.powerupCharges;
+      tank.weaponCharges = this.cfg.powerupCharges;
     }
   }
 
@@ -1015,6 +1023,7 @@ export class Game {
       t.boostTimer = 0;
       t.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection at round start
       t.scopeTimer = 0;
+      t.scopeShots = 0;
       t.laserCharge = 0;
     }
   }
@@ -1074,6 +1083,7 @@ export class Game {
     tank.boostTimer = 0;
     tank.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection on respawn
     tank.scopeTimer = 0;
+    tank.scopeShots = 0;
     tank.laserCharge = 0;
   }
 
@@ -1133,7 +1143,7 @@ export class Game {
           boosted: t.boostTimer > 0,
           shielded: t.shieldTimer > 0,
           charging: t.laserCharge > 0,
-          scoped: t.scopeTimer > 0,
+          scoped: t.scopeTimer > 0 && t.scopeShots > 0,
           team: t.team,
         })),
       bullets: this.bullets.map((b) => ({

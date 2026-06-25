@@ -434,7 +434,6 @@ function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Tracking bounces", a.trackingBounces],
       ["Multishot pellets", a.multishotCount],
       ["Multishot spread", `${a.multishotSpread}°`],
-      ["Multishot shots", a.multishotMaxShots],
     ],
   });
 
@@ -996,7 +995,7 @@ function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
       powerupDespawnSeconds: num("pwr-despawn", 12),
-      powerupCharges: num("pwr-charges", 3),
+      powerupCharges: num("pwr-charges", 1),
     },
   };
 }

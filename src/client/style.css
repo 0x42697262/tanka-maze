@@ -856,7 +856,7 @@ kbd {
   transform: none;
 }
 .scoreboard-card {
-  width: 480px;
+  width: min(1000px, 94vw); /* landscape: room for the config to flow in columns */
 }
 .pause-card {
   width: 380px;
@@ -972,8 +972,8 @@ kbd {
 }
 .scoreboard-card .details-body {
   text-align: left;
-  columns: 2;
-  column-gap: 18px;
+  columns: 210px; /* as many landscape columns as the wide card fits */
+  column-gap: 20px;
 }
 .scoreboard-card .det-group {
   break-inside: avoid;
