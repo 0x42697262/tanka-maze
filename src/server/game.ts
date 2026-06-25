@@ -9,6 +9,8 @@ import {
 } from "../shared/constants.js";
 import {
   POWERUP_TYPES,
+  powerupDef,
+  WEAPON_POWERUPS,
   type AdvancedConfig,
   type BulletKind,
   type GameConfig,
@@ -29,6 +31,27 @@ const HOMING_DIRS: ReadonlyArray<readonly [number, number]> = [
   [0, 1],
   [-1, 0],
 ];
+
+/**
+ * Composable "apply" command per buff power-up. Weapons share one generic path
+ * (set the active weapon + charges); buffs each set their own timers/charges
+ * here, so adding a buff is a single entry alongside its registry definition.
+ */
+type BuffCommand = (tank: Tank, adv: AdvancedConfig, cfg: GameConfig) => void;
+const BUFF_COMMANDS: Partial<Record<PowerupType, BuffCommand>> = {
+  speed: (t, adv) => {
+    t.boostTimer = adv.speedBoostSeconds;
+  },
+  shield: (t, adv) => {
+    t.shieldTimer = adv.shieldSeconds;
+  },
+  scope: (t, adv, cfg) => {
+    // Aiming guide: layers on any weapon, consumed one charge per shot, capped
+    // by scopeSeconds so it doesn't linger forever if unused.
+    t.scopeTimer = adv.scopeSeconds;
+    t.scopeShots = cfg.powerupCharges;
+  },
+};
 
 interface Tank {
   id: string;
@@ -406,8 +429,7 @@ export class Game {
 
   private fire(tank: Tank): void {
     if (tank.laserCharge > 0) return; // can't fire while a laser is winding up
-    const offensive: PowerupType[] = ["sniper", "explosive", "laser", "tracking", "multishot"];
-    const weapon = tank.weapon && offensive.includes(tank.weapon) ? tank.weapon : null;
+    const weapon = tank.weapon && WEAPON_POWERUPS.includes(tank.weapon) ? tank.weapon : null;
     const usingWeapon = weapon !== null;
 
     // Power-up shots don't draw from the magazine — only normal shots do.
@@ -851,21 +873,14 @@ export class Game {
   }
 
   private applyPowerup(tank: Tank, type: PowerupType): void {
-    if (type === "speed") {
-      tank.boostTimer = this.adv.speedBoostSeconds;
-    } else if (type === "shield") {
-      tank.shieldTimer = this.adv.shieldSeconds;
-    } else if (type === "scope") {
-      // A buff (not a weapon): the aiming guide layers on top of any weapon and
-      // is consumed one charge per shot (capped by scopeSeconds so it doesn't
-      // linger forever if unused).
-      tank.scopeTimer = this.adv.scopeSeconds;
-      tank.scopeShots = this.cfg.powerupCharges;
-    } else {
+    if (powerupDef(type).kind === "weapon") {
       // Every weapon pickup grants the same configurable number of shots.
       tank.weapon = type;
       tank.weaponCharges = this.cfg.powerupCharges;
+      return;
     }
+    // Buffs run their own composable command (timers/charges).
+    BUFF_COMMANDS[type]?.(tank, this.adv, this.cfg);
   }
 
   private kill(victim: Tank, killerId: string): void {

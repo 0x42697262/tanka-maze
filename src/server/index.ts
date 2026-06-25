@@ -10,6 +10,7 @@ import {
   DEFAULT_ADVANCED,
   DEFAULT_GAME_CONFIG,
   encode,
+  POWERUP_DEFS,
   type AdvancedConfig,
   type ClientMessage,
   type GameConfig,
@@ -343,7 +344,11 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
   };
   const i = (v: unknown, lo: number, hi: number, dflt: number): number =>
     Math.round(f(v, lo, hi, dflt));
-  return {
+  // Non-power-up engine fields are clamped explicitly; power-up fields are
+  // clamped from the registry (each PowerupDef carries its own ranges), so a new
+  // power-up's tuning is validated automatically.
+  const adv: AdvancedConfig = {
+    ...d,
     tankRadius: f(c.tankRadius, 4, 40, d.tankRadius),
     tankTurnSpeed: f(c.tankTurnSpeed, 0.5, 12, d.tankTurnSpeed),
     fireCooldown: f(c.fireCooldown, 0.05, 5, d.fireCooldown),
@@ -355,22 +360,14 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     bulletLifetime: f(c.bulletLifetime, 0.5, 20, d.bulletLifetime),
     cellSize: i(c.cellSize, 40, 200, d.cellSize),
     wallThickness: f(c.wallThickness, 2, 30, d.wallThickness),
-    speedBoostMult: f(c.speedBoostMult, 1, 4, d.speedBoostMult),
-    speedBoostSeconds: f(c.speedBoostSeconds, 1, 60, d.speedBoostSeconds),
-    shieldSeconds: f(c.shieldSeconds, 1, 60, d.shieldSeconds),
-    laserDelay: f(c.laserDelay, 0, 5, d.laserDelay),
-    sniperSpeedMult: f(c.sniperSpeedMult, 1, 30, d.sniperSpeedMult),
-    sniperWallPierce: i(c.sniperWallPierce, 0, 20, d.sniperWallPierce),
-    explosionRadius: f(c.explosionRadius, 10, 300, d.explosionRadius),
-    scopeSeconds: f(c.scopeSeconds, 1, 120, d.scopeSeconds),
-    scopeRange: f(c.scopeRange, 100, 5000, d.scopeRange),
-    trackingTurnRate: f(c.trackingTurnRate, 0.5, 20, d.trackingTurnRate),
-    trackingLifetime: f(c.trackingLifetime, 0.5, 30, d.trackingLifetime),
-    trackingBounces: i(c.trackingBounces, 0, 50, d.trackingBounces),
-    multishotCount: i(c.multishotCount, 1, 24, d.multishotCount),
-    multishotSpread: f(c.multishotSpread, 0, 180, d.multishotSpread),
-    laserRange: f(c.laserRange, 100, 5000, d.laserRange),
   };
+  for (const def of POWERUP_DEFS) {
+    for (const field of def.config) {
+      const clamp = field.int ? i : f;
+      adv[field.key] = clamp(c[field.key], field.min, field.max, d[field.key]);
+    }
+  }
+  return adv;
 }
 
 /** Clamp/validate a client-supplied game config against the allowed ranges. */

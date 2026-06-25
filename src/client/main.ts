@@ -1,6 +1,8 @@
 import "./style.css";
 import {
   DEFAULT_GAME_CONFIG,
+  POWERUP_DEFS,
+  powerupDef,
   WALL_STYLES,
   type AdvancedConfig,
   type GameConfig,
@@ -9,6 +11,7 @@ import {
   type LobbySummaryDTO,
   type MapSize,
   type MazeDTO,
+  type PowerupType,
   type RosterEntry,
   type RoundStanding,
   type ScoreDTO,
@@ -418,26 +421,15 @@ function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Wall thickness", a.wallThickness],
     ],
   });
-  groups.push({
-    title: "Adv · Power-ups",
-    rows: [
-      ["Boost ×", a.speedBoostMult],
-      ["Boost duration", `${a.speedBoostSeconds}s`],
-      ["Shield duration", `${a.shieldSeconds}s`],
-      ["Laser windup", `${a.laserDelay}s`],
-      ["Laser range", a.laserRange],
-      ["Sniper ×", a.sniperSpeedMult],
-      ["Sniper wall pierce", a.sniperWallPierce],
-      ["Explosion radius", a.explosionRadius],
-      ["Scope duration", `${a.scopeSeconds}s`],
-      ["Scope range", a.scopeRange],
-      ["Tracking turn", a.trackingTurnRate],
-      ["Tracking life", `${a.trackingLifetime}s`],
-      ["Tracking bounces", a.trackingBounces],
-      ["Multishot pellets", a.multishotCount],
-      ["Multishot spread", `${a.multishotSpread}°`],
-    ],
-  });
+  // Power-up tuning — generated from the registry so every power-up's config
+  // shows up here automatically (one group per power-up).
+  for (const def of POWERUP_DEFS) {
+    if (def.config.length === 0) continue;
+    groups.push({
+      title: `Adv · ${def.label}`,
+      rows: def.config.map((field) => [field.label, a[field.key]] as Row),
+    });
+  }
 
   return groups
     .map(
@@ -860,14 +852,6 @@ function frame(): void {
   requestAnimationFrame(frame);
 }
 
-const WEAPON_LABEL: Record<string, string> = {
-  sniper: "Sniper",
-  explosive: "Explosive",
-  laser: "Laser",
-  tracking: "Tracking",
-  multishot: "Multishot",
-};
-
 function renderAmmo(
   me:
     | {
@@ -894,8 +878,8 @@ function renderAmmo(
   }
   if (me.reloadIn > 0) html += `<span class="reload">reloading ${Math.ceil(me.reloadIn)}s</span>`;
   if (me.charging) html += `<span class="weapon laser">charging…</span>`;
-  else if (me.weapon && WEAPON_LABEL[me.weapon]) {
-    html += `<span class="weapon">${WEAPON_LABEL[me.weapon]} ×${me.weaponCharges}</span>`;
+  else if (me.weapon) {
+    html += `<span class="weapon">${powerupDef(me.weapon as PowerupType).label} ×${me.weaponCharges}</span>`;
   }
   if (me.boosted) html += `<span class="weapon boost">» boost</span>`;
   if (me.shielded) html += `<span class="weapon shield">◈ shield</span>`;
@@ -961,6 +945,34 @@ $("start").onclick = () => net.send({ type: "startGame" });
 
 // ---- In-lobby game settings (host) ----
 const ADV_KEYS = Object.keys(DEFAULT_GAME_CONFIG.adv) as (keyof AdvancedConfig)[];
+
+/**
+ * Generate the per-power-up tuning inputs in the Advanced panel from the
+ * registry, so a new power-up's config appears automatically (ids are
+ * `adv-<key>`, matching ADV_KEYS / gatherAdvanced / applyConfigToControls).
+ */
+function buildPowerupAdvInputs(): void {
+  $("adv-powerups").innerHTML = POWERUP_DEFS.filter((d) => d.config.length > 0)
+    .map((def) => {
+      let rows = "";
+      for (let i = 0; i < def.config.length; i += 2) {
+        const pair = def.config.slice(i, i + 2);
+        rows +=
+          `<div class="row${pair.length === 2 ? " two" : ""}">` +
+          pair
+            .map(
+              (fld) =>
+                `<label for="adv-${fld.key}">${fld.label}</label>` +
+                `<input id="adv-${fld.key}" type="number" min="${fld.min}" max="${fld.max}" step="${fld.step}" />`
+            )
+            .join("") +
+          `</div>`;
+      }
+      return `<h4 class="adv-h">Power-ups · ${def.label}</h4>${rows}`;
+    })
+    .join("");
+}
+buildPowerupAdvInputs();
 
 function gatherAdvanced(): AdvancedConfig {
   const d = DEFAULT_GAME_CONFIG.adv;

@@ -214,67 +214,8 @@
               <input id="adv-wallThickness" type="number" min="2" max="30" step="1" />
             </div>
 
-            <h4 class="adv-h">Power-ups · buffs</h4>
-            <div class="row two">
-              <label for="adv-speedBoostMult">Boost ×</label>
-              <input id="adv-speedBoostMult" type="number" min="1" max="4" step="0.1" />
-              <label for="adv-speedBoostSeconds">Boost s</label>
-              <input id="adv-speedBoostSeconds" type="number" min="1" max="60" step="1" />
-            </div>
-            <div class="row">
-              <label for="adv-shieldSeconds">Shield s</label>
-              <input id="adv-shieldSeconds" type="number" min="1" max="60" step="1" />
-            </div>
-
-            <h4 class="adv-h">Power-ups · laser</h4>
-            <div class="row two">
-              <label for="adv-laserDelay">Laser windup</label>
-              <input id="adv-laserDelay" type="number" min="0" max="5" step="0.1" />
-              <label for="adv-laserRange">Laser range</label>
-              <input id="adv-laserRange" type="number" min="100" max="5000" step="50" />
-            </div>
-
-            <h4 class="adv-h">Power-ups · sniper</h4>
-            <div class="row two">
-              <label for="adv-sniperSpeedMult">Sniper ×</label>
-              <input id="adv-sniperSpeedMult" type="number" min="1" max="30" step="0.5" />
-              <label for="adv-sniperWallPierce">Sniper walls</label>
-              <input id="adv-sniperWallPierce" type="number" min="0" max="20" step="1" />
-            </div>
-
-            <h4 class="adv-h">Power-ups · explosive</h4>
-            <div class="row">
-              <label for="adv-explosionRadius">Blast radius</label>
-              <input id="adv-explosionRadius" type="number" min="10" max="300" step="2" />
-            </div>
-
-            <h4 class="adv-h">Power-ups · tracking</h4>
-            <div class="row two">
-              <label for="adv-trackingTurnRate">Track turn</label>
-              <input id="adv-trackingTurnRate" type="number" min="0.5" max="20" step="0.5" />
-              <label for="adv-trackingLifetime">Track life s</label>
-              <input id="adv-trackingLifetime" type="number" min="0.5" max="30" step="0.5" />
-            </div>
-            <div class="row">
-              <label for="adv-trackingBounces">Track bounces</label>
-              <input id="adv-trackingBounces" type="number" min="0" max="50" step="1" />
-            </div>
-
-            <h4 class="adv-h">Power-ups · multishot</h4>
-            <div class="row two">
-              <label for="adv-multishotCount">Pellets</label>
-              <input id="adv-multishotCount" type="number" min="1" max="24" step="1" />
-              <label for="adv-multishotSpread">Spread °</label>
-              <input id="adv-multishotSpread" type="number" min="0" max="180" step="5" />
-            </div>
-
-            <h4 class="adv-h">Power-ups · scope</h4>
-            <div class="row two">
-              <label for="adv-scopeSeconds">Scope s</label>
-              <input id="adv-scopeSeconds" type="number" min="1" max="120" step="1" />
-              <label for="adv-scopeRange">Scope range</label>
-              <input id="adv-scopeRange" type="number" min="100" max="5000" step="50" />
-            </div>
+            <!-- Per-power-up tuning is generated from the registry (see main.ts). -->
+            <div id="adv-powerups"></div>
           </div>
         </div>
 

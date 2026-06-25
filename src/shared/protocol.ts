@@ -129,16 +129,134 @@ export type PowerupType =
   | "tracking"
   | "multishot"
   | "scope";
-export const POWERUP_TYPES: PowerupType[] = [
-  "speed",
-  "shield",
-  "sniper",
-  "explosive",
-  "laser",
-  "tracking",
-  "multishot",
-  "scope",
+/** One tunable belonging to a power-up (an AdvancedConfig field + its UI range). */
+export interface PowerupConfigField {
+  key: keyof AdvancedConfig;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  int?: boolean; // clamp to a whole number
+}
+
+/**
+ * The single source of truth for every power-up. Adding one here wires it into
+ * the spawn pool, the binary protocol, the crate art, the HUD label, the lobby
+ * settings editor, and the read-only config panels — all derived from this list
+ * — so a new power-up can't silently go missing from the config or lobby info.
+ *
+ *  - `kind: "buff"` applies a timed/charged effect (see the server's buff
+ *    commands); `kind: "weapon"` becomes the tank's active weapon.
+ *  - `config` lists the AdvancedConfig fields this power-up owns; they're
+ *    generated into the editor and shown in the details/scoreboard panels.
+ */
+export interface PowerupDef {
+  id: PowerupType;
+  kind: "buff" | "weapon";
+  label: string; // HUD / config label
+  emblem: string; // glyph drawn on the crate
+  color: string; // emblem color
+  config: PowerupConfigField[];
+}
+
+export const POWERUP_DEFS: PowerupDef[] = [
+  {
+    id: "speed",
+    kind: "buff",
+    label: "Speed",
+    emblem: "»",
+    color: "#e6c23f",
+    config: [
+      { key: "speedBoostMult", label: "Boost ×", min: 1, max: 4, step: 0.1 },
+      { key: "speedBoostSeconds", label: "Boost s", min: 1, max: 60, step: 1 },
+    ],
+  },
+  {
+    id: "shield",
+    kind: "buff",
+    label: "Shield",
+    emblem: "◈",
+    color: "#4fd6a0",
+    config: [{ key: "shieldSeconds", label: "Shield s", min: 1, max: 60, step: 1 }],
+  },
+  {
+    id: "sniper",
+    kind: "weapon",
+    label: "Sniper",
+    emblem: "•",
+    color: "#2fb8d6",
+    config: [
+      { key: "sniperSpeedMult", label: "Sniper ×", min: 1, max: 30, step: 0.5 },
+      { key: "sniperWallPierce", label: "Sniper walls", min: 0, max: 20, step: 1, int: true },
+    ],
+  },
+  {
+    id: "explosive",
+    kind: "weapon",
+    label: "Explosive",
+    emblem: "✸",
+    color: "#b23b2e",
+    config: [{ key: "explosionRadius", label: "Blast radius", min: 10, max: 300, step: 2 }],
+  },
+  {
+    id: "laser",
+    kind: "weapon",
+    label: "Laser",
+    emblem: "≡",
+    color: "#9b3fd6",
+    config: [
+      { key: "laserDelay", label: "Laser windup", min: 0, max: 5, step: 0.1 },
+      { key: "laserRange", label: "Laser range", min: 100, max: 5000, step: 50 },
+    ],
+  },
+  {
+    id: "tracking",
+    kind: "weapon",
+    label: "Tracking",
+    emblem: "◎",
+    color: "#3f9b46",
+    config: [
+      { key: "trackingTurnRate", label: "Track turn", min: 0.5, max: 20, step: 0.5 },
+      { key: "trackingLifetime", label: "Track life s", min: 0.5, max: 30, step: 0.5 },
+      { key: "trackingBounces", label: "Track bounces", min: 0, max: 50, step: 1, int: true },
+    ],
+  },
+  {
+    id: "multishot",
+    kind: "weapon",
+    label: "Multishot",
+    emblem: "⋔",
+    color: "#d6822f",
+    config: [
+      { key: "multishotCount", label: "Pellets", min: 1, max: 24, step: 1, int: true },
+      { key: "multishotSpread", label: "Spread °", min: 0, max: 180, step: 5 },
+    ],
+  },
+  {
+    id: "scope",
+    kind: "buff",
+    label: "Scope",
+    emblem: "ⓘ",
+    color: "#5b8def",
+    config: [
+      { key: "scopeSeconds", label: "Scope s", min: 1, max: 120, step: 1 },
+      { key: "scopeRange", label: "Scope range", min: 100, max: 5000, step: 50 },
+    ],
+  },
 ];
+
+export const POWERUP_TYPES: PowerupType[] = POWERUP_DEFS.map((d) => d.id);
+const POWERUP_BY_ID: Record<string, PowerupDef> = Object.fromEntries(
+  POWERUP_DEFS.map((d) => [d.id, d])
+);
+/** Look up a power-up's definition. */
+export function powerupDef(id: PowerupType): PowerupDef {
+  return POWERUP_BY_ID[id];
+}
+/** Power-ups that become the active weapon (in registry order). */
+export const WEAPON_POWERUPS: PowerupType[] = POWERUP_DEFS.filter((d) => d.kind === "weapon").map(
+  (d) => d.id
+);
 /** What a fired round is. "normal" plus the offensive power-up kinds. */
 export type BulletKind = "normal" | "sniper" | "explosive" | "laser" | "tracking";
 

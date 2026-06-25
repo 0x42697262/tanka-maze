@@ -5,39 +5,27 @@
 // Frame discrimination: text frames are JSON; binary frames are these. The
 // first byte is a message tag.
 
-import type {
-  BulletKind,
-  InputState,
-  PowerupType,
-  RosterEntry,
-  SnapshotDTO,
-  TankDTO,
+import {
+  POWERUP_TYPES,
+  WEAPON_POWERUPS,
+  type BulletKind,
+  type InputState,
+  type PowerupType,
+  type RosterEntry,
+  type SnapshotDTO,
+  type TankDTO,
 } from "./protocol.js";
 
 export const MSG_INPUT = 1;
 export const MSG_SNAPSHOT = 2;
 
-// --- enum <-> code tables --------------------------------------------------
+// --- enum <-> code tables (derived from the power-up registry) -------------
 
-const WEAPON_CODES: (PowerupType | null)[] = [
-  null,
-  "sniper",
-  "explosive",
-  "laser",
-  "tracking",
-  "multishot",
-];
+// Active-weapon codes: 0 = none, then each weapon power-up in registry order.
+const WEAPON_CODES: (PowerupType | null)[] = [null, ...WEAPON_POWERUPS];
 const KIND_CODES: BulletKind[] = ["normal", "sniper", "explosive", "laser", "tracking"];
-const PUP_CODES: PowerupType[] = [
-  "speed",
-  "shield",
-  "sniper",
-  "explosive",
-  "laser",
-  "tracking",
-  "multishot",
-  "scope",
-];
+// Pickup codes: every power-up in registry order.
+const PUP_CODES: PowerupType[] = POWERUP_TYPES;
 
 const weaponCode = (w: PowerupType | null): number => {
   const i = WEAPON_CODES.indexOf(w);

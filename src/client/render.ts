@@ -1,11 +1,11 @@
 import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS } from "../shared/constants.js";
-import type {
-  BulletKind,
-  MazeDTO,
-  PowerupDTO,
-  PowerupType,
-  SnapshotDTO,
-  TankDTO,
+import {
+  powerupDef,
+  type BulletKind,
+  type MazeDTO,
+  type PowerupDTO,
+  type SnapshotDTO,
+  type TankDTO,
 } from "../shared/protocol.js";
 
 // Render this far in the past so we always have two snapshots to interpolate
@@ -21,17 +21,6 @@ const BULLET_STYLE: Record<BulletKind, { dr: number }> = {
   explosive: { dr: 2 },
   laser: { dr: -1 },
   tracking: { dr: 1 },
-};
-
-const POWERUP_STYLE: Record<PowerupType, { c: string; g: string }> = {
-  speed: { c: "#e6c23f", g: "»" },
-  shield: { c: "#4fd6a0", g: "◈" },
-  sniper: { c: "#2fb8d6", g: "•" },
-  explosive: { c: "#b23b2e", g: "✸" },
-  laser: { c: "#9b3fd6", g: "≡" },
-  tracking: { c: "#3f9b46", g: "◎" },
-  multishot: { c: "#d6822f", g: "⋔" },
-  scope: { c: "#5b8def", g: "ⓘ" },
 };
 
 interface Buffered {
@@ -415,7 +404,7 @@ export class Renderer {
     const { ctx } = this;
     const bob = Math.sin(nowMs / 300) * 1.5;
     for (const p of powerups) {
-      const style = POWERUP_STYLE[p.type];
+      const def = powerupDef(p.type);
       const s = POWERUP_RADIUS;
       ctx.save();
       ctx.translate(p.x, p.y + bob);
@@ -437,14 +426,14 @@ export class Renderer {
       ctx.stroke();
 
       // Power-up emblem.
-      ctx.fillStyle = style.c;
+      ctx.fillStyle = def.color;
       ctx.font = "bold 14px system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.strokeStyle = "rgba(27,22,16,0.85)";
       ctx.lineWidth = 3;
-      ctx.strokeText(style.g, 0, 1);
-      ctx.fillText(style.g, 0, 1);
+      ctx.strokeText(def.emblem, 0, 1);
+      ctx.fillText(def.emblem, 0, 1);
       ctx.restore();
     }
     ctx.textBaseline = "alphabetic";
