@@ -19,7 +19,14 @@ export const MSG_SNAPSHOT = 2;
 
 // --- enum <-> code tables --------------------------------------------------
 
-const WEAPON_CODES: (PowerupType | null)[] = [null, "sniper", "explosive", "laser", "tracking"];
+const WEAPON_CODES: (PowerupType | null)[] = [
+  null,
+  "sniper",
+  "explosive",
+  "laser",
+  "tracking",
+  "multishot",
+];
 const KIND_CODES: BulletKind[] = ["normal", "sniper", "explosive", "laser", "tracking"];
 const PUP_CODES: PowerupType[] = [
   "speed",
