@@ -434,6 +434,7 @@ function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Tracking bounces", a.trackingBounces],
       ["Multishot pellets", a.multishotCount],
       ["Multishot spread", `${a.multishotSpread}°`],
+      ["Multishot shots", a.multishotMaxShots],
     ],
   });
 
@@ -897,7 +898,7 @@ function renderAmmo(
   }
   if (me.boosted) html += `<span class="weapon boost">» boost</span>`;
   if (me.shielded) html += `<span class="weapon shield">◈ shield</span>`;
-  if (me.scoped) html += `<span class="weapon scope">⌖ scope</span>`;
+  if (me.scoped) html += `<span class="weapon scope">ⓘ scope</span>`;
   el.innerHTML = html;
 }
 

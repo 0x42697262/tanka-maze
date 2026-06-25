@@ -843,7 +843,8 @@ export class Game {
       tank.scopeTimer = this.adv.scopeSeconds;
     } else {
       tank.weapon = type;
-      tank.weaponCharges = this.cfg.powerupCharges;
+      // Multishot carries its own configurable number of volleys.
+      tank.weaponCharges = type === "multishot" ? this.adv.multishotMaxShots : this.cfg.powerupCharges;
     }
   }
 

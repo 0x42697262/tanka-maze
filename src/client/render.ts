@@ -31,7 +31,7 @@ const POWERUP_STYLE: Record<PowerupType, { c: string; g: string }> = {
   laser: { c: "#9b3fd6", g: "≡" },
   tracking: { c: "#3f9b46", g: "◎" },
   multishot: { c: "#d6822f", g: "⋔" },
-  scope: { c: "#5fcadf", g: "⌖" },
+  scope: { c: "#5b8def", g: "ⓘ" },
 };
 
 interface Buffered {

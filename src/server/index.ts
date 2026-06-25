@@ -369,6 +369,7 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     trackingBounces: i(c.trackingBounces, 0, 50, d.trackingBounces),
     multishotCount: i(c.multishotCount, 1, 24, d.multishotCount),
     multishotSpread: f(c.multishotSpread, 0, 180, d.multishotSpread),
+    multishotMaxShots: i(c.multishotMaxShots, 1, 50, d.multishotMaxShots),
     laserRange: f(c.laserRange, 100, 5000, d.laserRange),
   };
 }

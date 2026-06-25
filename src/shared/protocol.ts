@@ -13,6 +13,7 @@ import {
   LASER_RANGE,
   MAX_AMMO,
   MULTISHOT_COUNT,
+  MULTISHOT_MAX_SHOTS,
   MULTISHOT_SPREAD_DEG,
   ROUNDS_DEFAULT,
   SCOPE_RANGE,
@@ -61,6 +62,7 @@ export interface AdvancedConfig {
   trackingBounces: number; // wall bounces a tracking round survives
   multishotCount: number; // pellets released per multishot
   multishotSpread: number; // total fan angle (degrees) of a multishot
+  multishotMaxShots: number; // volleys (charges) a multishot pickup grants
   laserRange: number; // px total beam length
 }
 
@@ -90,6 +92,7 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
   trackingBounces: TRACKING_BOUNCES,
   multishotCount: MULTISHOT_COUNT,
   multishotSpread: MULTISHOT_SPREAD_DEG,
+  multishotMaxShots: MULTISHOT_MAX_SHOTS,
   laserRange: LASER_RANGE,
 };
 

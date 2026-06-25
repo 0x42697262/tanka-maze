@@ -53,6 +53,7 @@ export const TRACKING_LIFETIME = 6; // seconds a tracking round lives (its range
 export const TRACKING_BOUNCES = 6; // wall bounces a tracking round survives
 export const MULTISHOT_COUNT = 3; // pellets released by a multishot pickup
 export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multishot
+export const MULTISHOT_MAX_SHOTS = 3; // volleys a multishot pickup grants
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
 export const SCOPE_SECONDS = 10; // duration of the line-of-sight scope buff
 export const SCOPE_RANGE = 15 * CELL; // guide length (matches the laser's reach)
