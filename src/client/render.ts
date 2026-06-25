@@ -2,6 +2,7 @@ import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS } from "../shared/constants.
 import {
   powerupDef,
   type BulletKind,
+  type KillEvent,
   type MazeDTO,
   type PowerupDTO,
   type SnapshotDTO,
@@ -66,6 +67,14 @@ export class Renderer {
   };
   // Last seen state per tank, to detect deaths and spawn explosions.
   private lastTankState = new Map<string, { x: number; y: number; alive: boolean; color: string }>();
+  // Transient effects (explosions, beams, kill events) are applied on the same
+  // ~INTERP_DELAY-behind clock as the interpolated world, so a hit/death shows
+  // exactly when the (delayed) bullet reaches the tank — not when the snapshot
+  // arrives. `consumedUntil` is the recvAt of the last snapshot whose effects
+  // we've fired; `pendingEvents` queues kill-log events for the main loop.
+  private consumedUntil = 0;
+  private pendingEvents: KillEvent[] = [];
+  private displayedSnap: SnapshotDTO | null = null;
 
   setParams(tankRadius: number, bulletRadius: number): void {
     this.tankR = tankRadius;
@@ -98,19 +107,49 @@ export class Renderer {
     this.explosions = [];
     this.beams = [];
     this.lastTankState.clear();
+    this.consumedUntil = 0;
+    this.pendingEvents = [];
+    this.displayedSnap = null;
   }
 
+  /** Buffer a snapshot. Effects are NOT fired here — they're applied later, when
+   *  the interpolation clock reaches this snapshot (see consumeEffects). */
   push(snap: SnapshotDTO, nowMs: number): void {
-    this.detectDeaths(snap, nowMs);
-    // Transient effects emitted by the server this tick.
-    for (const b of snap.blasts) {
-      this.explosions.push({ x: b.x, y: b.y, color: "#e6863f", start: nowMs });
-    }
-    for (const bm of snap.beams) {
-      this.beams.push({ x1: bm.x1, y1: bm.y1, x2: bm.x2, y2: bm.y2, start: nowMs });
-    }
     this.buffer.push({ snap, recvAt: nowMs });
     if (this.buffer.length > 30) this.buffer.shift();
+  }
+
+  /**
+   * Fire the transient effects (explosions, beams, deaths, kill events) of any
+   * buffered snapshot the interpolation clock has now reached — i.e. delayed by
+   * the same INTERP_DELAY as the rendered world — so they line up on screen.
+   */
+  private consumeEffects(target: number, nowMs: number): void {
+    for (const { snap, recvAt } of this.buffer) {
+      if (recvAt <= this.consumedUntil || recvAt > target) continue;
+      this.detectDeaths(snap, nowMs);
+      for (const b of snap.blasts) {
+        this.explosions.push({ x: b.x, y: b.y, color: "#e6863f", start: nowMs });
+      }
+      for (const bm of snap.beams) {
+        this.beams.push({ x1: bm.x1, y1: bm.y1, x2: bm.x2, y2: bm.y2, start: nowMs });
+      }
+      if (snap.events.length) this.pendingEvents.push(...snap.events);
+      this.consumedUntil = recvAt;
+    }
+  }
+
+  /** Drain kill-log events that have reached the interpolation clock. */
+  takeEvents(): KillEvent[] {
+    if (this.pendingEvents.length === 0) return [];
+    const out = this.pendingEvents;
+    this.pendingEvents = [];
+    return out;
+  }
+
+  /** The interpolated snapshot drawn last frame (the on-screen world). */
+  displayed(): SnapshotDTO | null {
+    return this.displayedSnap;
   }
 
   /** Spawn an explosion wherever a tank went from alive to dead/gone. */
@@ -142,10 +181,15 @@ export class Renderer {
     const { ctx, maze } = this;
     if (!maze) return;
 
+    // Fire any effects the interpolation clock has now reached (delayed in lockstep
+    // with the world below), then draw the world ~INTERP_DELAY in the past.
+    this.consumeEffects(nowMs - INTERP_DELAY, nowMs);
+
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawMaze(maze);
 
     const interp = this.interpolated(nowMs);
+    this.displayedSnap = interp;
     if (!interp) return;
 
     // Power-up pickups (stationary — drawn from the latest snapshot, no interp).

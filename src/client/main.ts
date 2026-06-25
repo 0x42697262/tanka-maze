@@ -137,12 +137,12 @@ net.onMessage((msg: ServerMessage) => {
   }
 });
 
-// Snapshots arrive as binary frames; decode against the current roster.
+// Snapshots arrive as binary frames; decode against the current roster. Effects
+// (kill log, explosions, deaths) are applied later by the renderer on the
+// interpolation clock, so they line up with the delayed on-screen world.
 net.onBinary((buf) => {
   if (!state.inGame) return;
-  const snap = decodeSnapshot(buf, state.roster);
-  for (const e of snap.events) logKillEvent(e);
-  renderer.push(snap, performance.now());
+  renderer.push(decodeSnapshot(buf, state.roster), performance.now());
 });
 
 // ---------------------------------------------------------------------------
@@ -164,8 +164,13 @@ function frame(): void {
       }
     }
     renderer.render(state.playerId, now);
+    // Kill log fires on the interpolation clock (in sync with the explosion).
+    for (const e of renderer.takeEvents()) logKillEvent(e);
     renderLeaderboard();
-    updateRespawnOverlay(me);
+    // The death overlay follows the *displayed* (interpolated) world so it pops
+    // with the on-screen explosion, not the instant the server signalled it.
+    const shownMe = renderer.displayed()?.tanks.find((t) => t.id === state.playerId);
+    updateRespawnOverlay(shownMe ?? me);
     renderAmmo(me);
     if (snap) {
       const alive = snap.tanks.filter((t) => t.alive).length;
