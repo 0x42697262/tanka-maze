@@ -72,6 +72,7 @@ let scoreboardTimer: ReturnType<typeof setInterval> | null = null;
 const IS_TOUCH =
   typeof window !== "undefined" &&
   (window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window);
+if (IS_TOUCH) document.body.classList.add("touch");
 
 const IDLE_INPUT = {
   forward: false,
@@ -81,6 +82,7 @@ const IDLE_INPUT = {
   fire: false,
   aim: 0,
   eightDir: false,
+  joystick: false,
 };
 
 const STORAGE_KEY = "tanka-maze-name";
@@ -621,7 +623,7 @@ function startGame(maze: MazeDTO, round = 1, totalRounds = 1, standing: RoundSta
   input = new Input(canvas);
   input.eightDir = moveMode === "eight";
   if (IS_TOUCH) {
-    input.enableTouch($("stick-move"), $("stick-aim"));
+    input.enableTouch($("stick-move"), $("touch-fire"));
     $("touch-controls").classList.remove("hidden");
   }
   killLog.length = 0;
@@ -709,15 +711,15 @@ function showRoundOver(
  */
 function fitCanvas(): void {
   if (!arena) return;
-  // On compact/touch screens the leaderboard sidebar and hint line are hidden,
-  // so the arena gets the full viewport (minus a small margin + header).
-  const compact = window.innerWidth <= 760;
+  // On compact/touch screens the header, sidebar and hint are hidden, so the
+  // arena fills the viewport (controls overlay it). Otherwise reserve the chrome.
+  const compact = window.innerWidth <= 760 || IS_TOUCH;
   const hintEl = document.querySelector("#game .hint") as HTMLElement;
   const hint = compact ? 0 : hintEl?.offsetHeight ?? 24;
   const header = (document.querySelector("#game .game-header") as HTMLElement)?.offsetHeight ?? 0;
-  const reservedV = header + hint + (compact ? 20 : 72);
+  const reservedV = header + hint + (compact ? 8 : 72);
   const sidebar = compact ? 0 : 214; // leaderboard column (200 + gap)
-  const pad = compact ? 16 : 48;
+  const pad = compact ? 6 : 48;
   const availW = window.innerWidth - pad - sidebar;
   const availH = window.innerHeight - reservedV;
   const scale = Math.max(0.1, Math.min(availW / arena.w, availH / arena.h));
@@ -1200,9 +1202,13 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// Touch equivalents of Esc (menu) and Tab (scoreboard).
-$("touch-pause").onclick = () => (paused ? closePause() : openPause());
-$("touch-score").onclick = () => (scoreboardOpen ? closeScoreboard() : openScoreboard());
+// Touch: one menu button (Esc). The scoreboard (Tab) opens from inside it.
+$("touch-menu").onclick = () => (paused ? closePause() : openPause());
+$("pause-config").onclick = () => {
+  closePause();
+  openScoreboard();
+};
+$("sb-close").onclick = closeScoreboard;
 
 $("back-to-lobby").onclick = () => {
   $("gameover").classList.add("hidden");

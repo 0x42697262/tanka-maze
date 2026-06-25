@@ -1235,22 +1235,79 @@ canvas {
 .touch-btn {
   position: absolute;
   top: 12px;
+  right: 12px;
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: var(--paper-2);
-  border: 1.5px solid var(--rule);
+  background: rgba(231, 218, 188, 0.7);
+  border: 1.5px solid rgba(120, 100, 70, 0.6);
   color: var(--ink);
   font-size: 18px;
   line-height: 1;
   pointer-events: auto;
   box-shadow: 1px 2px 0 rgba(70, 55, 30, 0.18);
 }
-#touch-pause {
-  right: 12px;
+/* Big translucent fire button (bottom-right thumb). */
+.fire-btn {
+  position: absolute;
+  right: 26px;
+  bottom: 30px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: rgba(178, 59, 46, 0.32);
+  border: 2.5px solid rgba(178, 59, 46, 0.75);
+  color: rgba(47, 42, 34, 0.85);
+  font-family: var(--font-hand);
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
 }
-#touch-score {
-  right: 64px;
+.fire-btn:active {
+  background: rgba(178, 59, 46, 0.5);
+}
+
+/* Touch-only controls/affordances (shown only on touch devices). */
+.touch-only {
+  display: none;
+}
+body.touch .touch-only {
+  display: inline-block;
+}
+/* No movement setting on touch — the joystick is the only scheme. */
+body.touch #settings-gear,
+body.touch #settings-panel {
+  display: none;
+}
+/* No Tab on touch — the scoreboard is reached via the menu + closed via button. */
+body.touch .sb-hint {
+  display: none;
+}
+
+/* Fullscreen arena on touch: hide the chrome, let controls overlay the maze. */
+body.touch #app {
+  padding: 0;
+  align-items: stretch;
+}
+body.touch #game.screen {
+  max-width: 100%;
+  width: 100vw;
+}
+body.touch #game .game-header,
+body.touch #game .hint,
+body.touch #game .leaderboard {
+  display: none;
+}
+body.touch .game-layout {
+  justify-content: center;
+  gap: 0;
+}
+/* Magazine HUD moves to the top so it clears the thumbs. */
+body.touch .ammo {
+  top: 8px;
+  bottom: auto;
 }
 
 /* Compact / mobile layout: arena gets the screen; sidebar + hint stand down. */

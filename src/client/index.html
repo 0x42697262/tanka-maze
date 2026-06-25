@@ -354,6 +354,7 @@
           </div>
 
           <button id="resume" class="primary">Resume</button>
+          <button id="pause-config" class="ghost touch-only">Lobby config</button>
           <button id="leave-game" class="ghost">Leave Game</button>
         </div>
       </div>
@@ -365,7 +366,8 @@
           <div id="sb-table-wrap" class="sb-table-wrap"></div>
           <h3 class="sb-cfg-h">Game Configuration</h3>
           <div id="sb-details" class="details-body"></div>
-          <p class="status">Press <kbd>Tab</kbd> to close</p>
+          <button id="sb-close" class="primary">Close</button>
+          <p class="status sb-hint">Press <kbd>Tab</kbd> to close</p>
         </div>
       </div>
 
@@ -394,16 +396,12 @@
 
       <!-- On-screen touch controls (mobile). Twin-stick: drive left, aim/fire right. -->
       <div id="touch-controls" class="touch-controls hidden">
-        <button id="touch-score" class="touch-btn" aria-label="Scoreboard">≡</button>
-        <button id="touch-pause" class="touch-btn" aria-label="Menu">⏸</button>
+        <button id="touch-menu" class="touch-btn" aria-label="Menu">⏸</button>
         <div id="stick-move" class="stick">
           <span class="stick-cap">move</span>
           <div class="stick-knob"></div>
         </div>
-        <div id="stick-aim" class="stick stick-aim">
-          <span class="stick-cap">aim · fire</span>
-          <div class="stick-knob"></div>
-        </div>
+        <button id="touch-fire" class="fire-btn" aria-label="Fire">FIRE</button>
       </div>
 
       <div id="toast" class="toast hidden"></div>

@@ -43,6 +43,7 @@ const IDLE_INPUT: InputState = {
   fire: false,
   aim: 0,
   eightDir: false,
+  joystick: false,
 };
 
 /**

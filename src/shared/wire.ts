@@ -78,6 +78,7 @@ export function encodeInput(i: InputState): Uint8Array {
   if (i.turnRight) bits |= 8;
   if (i.fire) bits |= 16;
   if (i.eightDir) bits |= 32;
+  if (i.joystick) bits |= 64;
   dv.setUint8(1, bits);
   dv.setInt16(2, encAngle(i.aim), true);
   return new Uint8Array(buf);
@@ -93,6 +94,7 @@ export function decodeInput(buf: ArrayBuffer): InputState {
     turnRight: (bits & 8) !== 0,
     fire: (bits & 16) !== 0,
     eightDir: (bits & 32) !== 0,
+    joystick: (bits & 64) !== 0,
     aim: decAngle(dv.getInt16(2, true)),
   };
 }

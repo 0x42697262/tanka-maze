@@ -211,6 +211,7 @@ export class Game {
         fire: false,
         aim: 0,
         eightDir: false,
+        joystick: false,
       },
       weapon: null,
       weaponCharges: 0,
@@ -342,7 +343,18 @@ export class Game {
       const oldY = tank.y;
       const boost = tank.boostTimer > 0 ? this.adv.speedBoostMult : 1;
 
-      if (tank.input.eightDir) {
+      if (tank.input.joystick) {
+        // Mobile joystick: face and drive the full 360° toward the aim angle.
+        // The turret already tracks `aim` (set above), so heading == aim == shot.
+        tank.bodyAngle = tank.input.aim;
+        if (tank.input.forward) {
+          const step = this.forwardSpeed * boost * dt;
+          const nx = tank.x + Math.cos(tank.input.aim) * step;
+          if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
+          const ny = tank.y + Math.sin(tank.input.aim) * step;
+          if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+        }
+      } else if (tank.input.eightDir) {
         // 8-directional world movement (MMORPG-style): WASD = up/left/down/right,
         // the body faces the direction of travel. Turret still tracks the cursor.
         let mx = 0;

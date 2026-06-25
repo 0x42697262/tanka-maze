@@ -378,6 +378,10 @@ export interface InputState {
   /** Per-player control scheme: true = 8-direction world movement (WASD =
    *  up/left/down/right), false = tank-relative (A/D rotate, W/S drive). */
   eightDir: boolean;
+  /** Mobile joystick: move (and face) the full 360° toward `aim` while
+   *  `forward` is held; the turret/heading both follow `aim`. Overrides the
+   *  other movement schemes when set. */
+  joystick: boolean;
 }
 
 export type ClientMessage =
