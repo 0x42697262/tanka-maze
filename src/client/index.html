@@ -375,14 +375,27 @@
       <button id="settings-gear" class="settings-gear" title="Settings" aria-label="Settings">⚙</button>
       <div id="settings-panel" class="settings-panel hidden">
         <h3>Settings</h3>
-        <div class="row">
-          <label for="move-mode">Movement</label>
-          <select id="move-mode">
-            <option value="relative">Tank — rotate &amp; drive</option>
-            <option value="eight">8-direction — strafe</option>
-          </select>
-        </div>
+        <label class="settings-label">Movement</label>
+        <select id="move-mode" class="walls-select" aria-label="Movement scheme">
+          <option value="relative">Tank — rotate &amp; drive</option>
+          <option value="eight">8-direction — strafe</option>
+        </select>
+        <div id="move-picker" class="move-picker"></div>
         <p class="settings-hint" id="move-hint"></p>
+      </div>
+
+      <!-- On-screen touch controls (mobile). Twin-stick: drive left, aim/fire right. -->
+      <div id="touch-controls" class="touch-controls hidden">
+        <button id="touch-score" class="touch-btn" aria-label="Scoreboard">≡</button>
+        <button id="touch-pause" class="touch-btn" aria-label="Menu">⏸</button>
+        <div id="stick-move" class="stick">
+          <span class="stick-cap">move</span>
+          <div class="stick-knob"></div>
+        </div>
+        <div id="stick-aim" class="stick stick-aim">
+          <span class="stick-cap">aim · fire</span>
+          <div class="stick-knob"></div>
+        </div>
       </div>
 
       <div id="toast" class="toast hidden"></div>

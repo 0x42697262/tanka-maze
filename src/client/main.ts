@@ -69,6 +69,9 @@ let roundCountdown: ReturnType<typeof setInterval> | null = null;
 const latencies = new Map<string, number>(); // player id -> round-trip ms
 let scoreboardOpen = false;
 let scoreboardTimer: ReturnType<typeof setInterval> | null = null;
+const IS_TOUCH =
+  typeof window !== "undefined" &&
+  (window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window);
 
 const IDLE_INPUT = {
   forward: false,
@@ -568,6 +571,7 @@ function closeScoreboard(): void {
 function leaveToMenu(): void {
   inGame = false;
   closeScoreboard();
+  $("touch-controls").classList.add("hidden");
   if (roundCountdown) {
     clearInterval(roundCountdown);
     roundCountdown = null;
@@ -606,6 +610,10 @@ function startGame(maze: MazeDTO, round = 1, totalRounds = 1, standing: RoundSta
   input?.dispose();
   input = new Input(canvas);
   input.eightDir = moveMode === "eight";
+  if (IS_TOUCH) {
+    input.enableTouch($("stick-move"), $("stick-aim"));
+    $("touch-controls").classList.remove("hidden");
+  }
   killLog.length = 0;
   $("killlog").innerHTML = "";
   show("game");
@@ -691,12 +699,16 @@ function showRoundOver(
  */
 function fitCanvas(): void {
   if (!arena) return;
-  const hint = (document.querySelector("#game .hint") as HTMLElement)?.offsetHeight ?? 24;
+  // On compact/touch screens the leaderboard sidebar and hint line are hidden,
+  // so the arena gets the full viewport (minus a small margin + header).
+  const compact = window.innerWidth <= 760;
+  const hintEl = document.querySelector("#game .hint") as HTMLElement;
+  const hint = compact ? 0 : hintEl?.offsetHeight ?? 24;
   const header = (document.querySelector("#game .game-header") as HTMLElement)?.offsetHeight ?? 0;
-  // Reserve room for the header, hint line, flex gaps, and page padding.
-  const reservedV = header + hint + 72;
-  // Reserve the leaderboard side column (200px + 14px gap) plus page padding.
-  const availW = window.innerWidth - 48 - 214;
+  const reservedV = header + hint + (compact ? 20 : 72);
+  const sidebar = compact ? 0 : 214; // leaderboard column (200 + gap)
+  const pad = compact ? 16 : 48;
+  const availW = window.innerWidth - pad - sidebar;
   const availH = window.innerHeight - reservedV;
   const scale = Math.max(0.1, Math.min(availW / arena.w, availH / arena.h));
   canvas.style.width = `${Math.floor(arena.w * scale)}px`;
@@ -711,6 +723,8 @@ function endGame(
 ): void {
   inGame = false;
   closePause();
+  closeScoreboard();
+  $("touch-controls").classList.add("hidden");
   if (roundCountdown) {
     clearInterval(roundCountdown);
     roundCountdown = null;
@@ -1027,9 +1041,73 @@ function applyMoveSetting(): void {
   ($("move-mode") as HTMLSelectElement).value = moveMode;
   $("move-hint").textContent =
     moveMode === "eight"
-      ? "WASD moves up/left/down/right (world). Cannon aims at the cursor."
-      : "W/S drive, A/D rotate the tank. Cannon aims at the cursor.";
+      ? "Move any direction; the cannon aims separately."
+      : "Drive forward/back and rotate; the cannon aims separately.";
   if (input) input.eightDir = moveMode === "eight";
+  renderMovePicker();
+}
+
+// Two control schemes, picked from icons (no dropdown).
+const MOVE_OPTS: Array<{ id: "relative" | "eight"; name: string; sub: string; icon: string }> = [
+  {
+    id: "relative",
+    name: "Rotate & drive",
+    sub: "Tank-style steering",
+    icon:
+      `<rect class="mv-body" x="42" y="30" width="16" height="15" rx="2" />` +
+      `<line x1="50" y1="31" x2="50" y2="18" />` +
+      `<path d="M72 28 A 24 24 0 0 1 72 52" />` +
+      `<polygon points="72,53 65,48 76,45" />`,
+  },
+  {
+    id: "eight",
+    name: "8-direction",
+    sub: "Strafe any way",
+    icon: moveEightArrows(),
+  },
+];
+
+/** SVG inner content: eight short arrows radiating from the centre. */
+function moveEightArrows(): string {
+  const cx = 50;
+  const cy = 35;
+  let s = "";
+  for (let k = 0; k < 8; k++) {
+    const a = (k * Math.PI) / 4;
+    const ux = Math.cos(a);
+    const uy = Math.sin(a);
+    const x1 = cx + ux * 9;
+    const y1 = cy + uy * 9;
+    const x2 = cx + ux * 23;
+    const y2 = cy + uy * 23;
+    const h = 6;
+    const ax = x2 + Math.cos(a + Math.PI * 0.82) * h;
+    const ay = y2 + Math.sin(a + Math.PI * 0.82) * h;
+    const bx = x2 + Math.cos(a - Math.PI * 0.82) * h;
+    const by = y2 + Math.sin(a - Math.PI * 0.82) * h;
+    s +=
+      `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" />` +
+      `<polygon points="${x2.toFixed(1)},${y2.toFixed(1)} ${ax.toFixed(1)},${ay.toFixed(1)} ${bx.toFixed(1)},${by.toFixed(1)}" />`;
+  }
+  return s;
+}
+
+/** Build the movement scheme picker (icons, syncing the hidden select). */
+function renderMovePicker(): void {
+  const picker = $("move-picker");
+  picker.innerHTML = MOVE_OPTS.map(
+    (o) =>
+      `<button type="button" class="move-opt${o.id === moveMode ? " selected" : ""}" data-move="${o.id}">` +
+      `<svg class="move-ic" viewBox="0 0 100 70" aria-hidden="true">${o.icon}</svg>` +
+      `<span><b>${o.name}</b><small>${o.sub}</small></span></button>`
+  ).join("");
+  picker.querySelectorAll<HTMLButtonElement>(".move-opt").forEach((b) => {
+    b.onclick = () => {
+      const sel = $("move-mode") as HTMLSelectElement;
+      sel.value = b.dataset.move ?? "relative";
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+  });
 }
 $("settings-gear").onclick = () => $("settings-panel").classList.toggle("hidden");
 $("move-mode").addEventListener("change", () => {
@@ -1109,6 +1187,10 @@ window.addEventListener("keydown", (e) => {
     scoreboardOpen ? closeScoreboard() : openScoreboard();
   }
 });
+
+// Touch equivalents of Esc (menu) and Tab (scoreboard).
+$("touch-pause").onclick = () => (paused ? closePause() : openPause());
+$("touch-score").onclick = () => (scoreboardOpen ? closeScoreboard() : openScoreboard());
 
 $("back-to-lobby").onclick = () => {
   $("gameover").classList.add("hidden");

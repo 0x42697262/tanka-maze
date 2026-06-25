@@ -199,6 +199,7 @@ h2 {
 
 input {
   flex: 1;
+  min-width: 0; /* allow shrink inside flex rows */
   background: #fbf6e9;
   border: 1.5px solid var(--rule);
   border-radius: 2px;
@@ -224,6 +225,7 @@ input[type="color"] {
 }
 select {
   flex: 1;
+  min-width: 0; /* let it shrink inside flex rows instead of overflowing */
   background: #fbf6e9;
   border: 1.5px solid var(--rule);
   border-radius: 2px;
@@ -1090,11 +1092,72 @@ kbd {
 .settings-panel .row label {
   width: 84px;
 }
+.settings-label {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
 .settings-hint {
   font-size: 12px;
   color: var(--ink-soft);
   font-style: italic;
   margin: 10px 0 0;
+}
+
+/* ---- Movement image picker (settings) ---- */
+.move-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.move-opt {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink-soft);
+  font-family: inherit;
+}
+.move-opt:hover {
+  border-color: var(--ink-soft);
+}
+.move-opt.selected {
+  border-color: var(--stamp);
+  background: rgba(178, 59, 46, 0.08);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--stamp);
+}
+.move-opt .move-ic {
+  flex: 0 0 auto;
+  width: 50px;
+  height: 35px;
+}
+.move-opt .move-ic line,
+.move-opt .move-ic path {
+  stroke: currentColor;
+  stroke-width: 5;
+  stroke-linecap: round;
+  fill: none;
+}
+.move-opt .move-ic polygon,
+.move-opt .move-ic .mv-body {
+  fill: currentColor;
+}
+.move-opt b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.move-opt small {
+  font-size: 11.5px;
+  color: var(--ink-soft);
 }
 
 .toast {
@@ -1110,4 +1173,113 @@ kbd {
   font-size: 16px;
   z-index: 60;
   box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.2);
+}
+
+/* ---- Touch controls + mobile (twin-stick: drive left, aim/fire right) ---- */
+canvas {
+  touch-action: none;
+}
+.touch-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none; /* only the sticks/buttons capture touches */
+}
+.touch-controls.hidden {
+  display: none;
+}
+.stick {
+  position: absolute;
+  bottom: 24px;
+  left: 22px;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: rgba(221, 204, 166, 0.32);
+  border: 2px solid rgba(111, 96, 72, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+.stick-aim {
+  left: auto;
+  right: 22px;
+}
+.stick-knob {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: rgba(47, 42, 34, 0.5);
+  border: 2px solid rgba(239, 230, 208, 0.6);
+  pointer-events: none;
+  transition: transform 0.04s linear;
+}
+.stick-aim .stick-knob {
+  background: rgba(178, 59, 46, 0.62);
+}
+.stick-cap {
+  position: absolute;
+  top: 9px;
+  font-family: var(--font-hand);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  pointer-events: none;
+}
+.touch-btn {
+  position: absolute;
+  top: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--paper-2);
+  border: 1.5px solid var(--rule);
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1;
+  pointer-events: auto;
+  box-shadow: 1px 2px 0 rgba(70, 55, 30, 0.18);
+}
+#touch-pause {
+  right: 12px;
+}
+#touch-score {
+  right: 64px;
+}
+
+/* Compact / mobile layout: arena gets the screen; sidebar + hint stand down. */
+@media (max-width: 760px) {
+  #app {
+    padding: 8px;
+    align-items: flex-start;
+  }
+  #game.screen {
+    max-width: 100%;
+  }
+  #game .leaderboard {
+    display: none;
+  }
+  #game .hint {
+    display: none;
+  }
+  .game-header {
+    font-size: 13px;
+  }
+  .gh-title {
+    font-size: 18px;
+  }
+  h1 {
+    font-size: 44px;
+  }
+  /* Overlays (pause/scoreboard) fit small screens. */
+  .card {
+    width: auto;
+    max-width: 94vw;
+  }
+  .scoreboard-card .details-body {
+    columns: 1;
+  }
 }
