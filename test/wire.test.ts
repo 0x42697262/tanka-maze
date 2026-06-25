@@ -45,6 +45,7 @@ function tank(over: Partial<TankDTO> = {}): TankDTO {
     reloadIn: 0,
     weapon: null,
     weaponCharges: 0,
+    livesLeft: 0,
     boosted: false,
     shielded: false,
     charging: false,
@@ -91,8 +92,8 @@ describe("wire: input", () => {
 });
 
 describe("wire: snapshot", () => {
-  it("round-trips tank pose + status flags", () => {
-    const t = tank({ x: 123, y: 456, hp: 3, maxHp: 3, score: 60, scoped: true, boosted: true });
+  it("round-trips tank pose + status flags + lives", () => {
+    const t = tank({ x: 123, y: 456, hp: 3, maxHp: 3, score: 60, scoped: true, boosted: true, livesLeft: 2 });
     const out = decodeSnapshot(toAB(encodeSnapshot(emptySnap({ tanks: [t] }))), roster());
     const o = out.tanks[0];
     assert.equal(Math.round(o.x), 123);
@@ -101,6 +102,7 @@ describe("wire: snapshot", () => {
     assert.equal(o.scoped, true);
     assert.equal(o.boosted, true);
     assert.equal(o.shielded, false);
+    assert.equal(o.livesLeft, 2);
   });
 
   it("round-trips every weapon code (incl. null) — derived from the registry", () => {

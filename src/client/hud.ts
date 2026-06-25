@@ -122,18 +122,25 @@ export function renderLeaderboard(): void {
     return;
   }
 
-  [...snap.tanks]
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
-    .forEach((t, i) => {
-      const li = document.createElement("li");
-      li.className = `${t.id === state.playerId ? "me " : ""}${t.alive ? "" : "dead"}`.trim();
-      li.innerHTML =
-        `<span class="rank">${i + 1}</span>` +
-        `<span class="swatch" style="background:${t.color}"></span>` +
-        `<span class="nm">${escapeHtml(t.name)}</span>` +
-        `<span class="pts">${t.score}</span>`;
-      ol.appendChild(li);
-    });
+  // Last Man Standing is about survival, not points — rank by lives remaining
+  // (most lives, then who's still alive).
+  const lms = state.currentLobby?.config.mode === "lms";
+  const ranked = [...snap.tanks].sort((a, b) =>
+    lms
+      ? b.livesLeft - a.livesLeft || Number(b.alive) - Number(a.alive) || a.name.localeCompare(b.name)
+      : b.score - a.score || a.name.localeCompare(b.name)
+  );
+  ranked.forEach((t, i) => {
+    const li = document.createElement("li");
+    li.className = `${t.id === state.playerId ? "me " : ""}${t.alive ? "" : "dead"}`.trim();
+    const metric = lms ? `♥ ${t.livesLeft}` : `${t.score}`;
+    li.innerHTML =
+      `<span class="rank">${i + 1}</span>` +
+      `<span class="swatch" style="background:${t.color}"></span>` +
+      `<span class="nm">${escapeHtml(t.name)}</span>` +
+      `<span class="pts">${metric}</span>`;
+    ol.appendChild(li);
+  });
 }
 
 export function updateRespawnOverlay(me: { alive: boolean; respawnIn: number } | undefined): void {

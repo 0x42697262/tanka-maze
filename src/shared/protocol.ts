@@ -399,6 +399,8 @@ export interface TankDTO {
   weapon: PowerupType | null;
   /** Charges left on the active weapon (0 for none / speed buff). */
   weaponCharges: number;
+  /** Lives remaining (finite-lives modes, e.g. LMS); 0 when lives are infinite. */
+  livesLeft: number;
   /** Whether a speed boost is currently active. */
   boosted: boolean;
   /** Whether a shield is currently active (invulnerable). */

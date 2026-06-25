@@ -1167,6 +1167,7 @@ export class Game {
           reloadIn: round(t.reloadTimer, 2),
           weapon: t.weapon,
           weaponCharges: t.weaponCharges,
+          livesLeft: this.cfg.lives > 0 ? Math.max(0, this.cfg.lives - t.deaths) : 0,
           boosted: t.boostTimer > 0,
           shielded: t.shieldTimer > 0,
           charging: t.laserCharge > 0,

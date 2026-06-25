@@ -197,6 +197,22 @@ describe("elimination ending (lives > 0)", () => {
   });
 });
 
+describe("snapshot: livesLeft", () => {
+  it("reports lives remaining (lives - deaths) for finite-lives modes", () => {
+    const g = makeGame({ cfg: { mode: "lms", lives: 3, respawnSeconds: 1 } });
+    assert.equal(scoredTank(g, "a").livesLeft, 3);
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    (g as any).kill(a, "b"); // one death
+    assert.equal(scoredTank(g, "a").livesLeft, 2);
+  });
+
+  it("is 0 for infinite-lives modes (unused outside LMS)", () => {
+    const g = makeGame({ cfg: { mode: "ffa", lives: 0 } });
+    assert.equal(scoredTank(g, "a").livesLeft, 0);
+  });
+});
+
 describe("spawn shields", () => {
   it("are granted on initial spawn, respawn, and at round start", () => {
     const g = makeGame({ adv: { fireCooldown: 0 }, cfg: { lives: 0, respawnSeconds: 1, rounds: 3 } });

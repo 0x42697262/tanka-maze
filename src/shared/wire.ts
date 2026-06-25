@@ -89,7 +89,7 @@ export function decodeInput(buf: ArrayBuffer): InputState {
 
 // --- snapshot --------------------------------------------------------------
 
-const TANK_BYTES = 18;
+const TANK_BYTES = 19;
 
 export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
   const size =
@@ -135,6 +135,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint8(o++, ds(t.reloadIn));
     dv.setUint8(o++, weaponCode(t.weapon));
     dv.setUint8(o++, Math.min(255, t.weaponCharges));
+    dv.setUint8(o++, Math.min(255, t.livesLeft));
   }
 
   dv.setUint8(o++, s.bullets.length);
@@ -216,6 +217,7 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     const reloadIn = decDs(dv.getUint8(o++));
     const weapon = WEAPON_CODES[dv.getUint8(o++)] ?? null;
     const weaponCharges = dv.getUint8(o++);
+    const livesLeft = dv.getUint8(o++);
     const r = roster.get(index);
     tanks.push({
       index,
@@ -241,6 +243,7 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
       reloadIn,
       weapon,
       weaponCharges,
+      livesLeft,
     });
   }
 

@@ -9,13 +9,15 @@ export function renderScoreboard(): void {
   if (!state.currentLobby) return;
   const lobby = state.currentLobby;
   const teams = lobby.config.mode === "teams";
+  const lms = lobby.config.mode === "lms"; // rank by survival (lives), not points
   const isHost = lobby.hostId === state.playerId;
   const snap = renderer.latest();
-  const scoreById = new Map<string, number>();
-  if (snap) for (const t of snap.tanks) scoreById.set(t.id, t.score);
+  // Metric column: lives remaining in Last Man Standing, score otherwise.
+  const metricById = new Map<string, number>();
+  if (snap) for (const t of snap.tanks) metricById.set(t.id, lms ? t.livesLeft : t.score);
 
   const rows = [...lobby.players].sort(
-    (a, b) => (scoreById.get(b.id) ?? 0) - (scoreById.get(a.id) ?? 0)
+    (a, b) => (metricById.get(b.id) ?? 0) - (metricById.get(a.id) ?? 0)
   );
   const teamHead = teams ? "<th>Team</th>" : "";
   const body = rows
@@ -33,7 +35,7 @@ export function renderScoreboard(): void {
         `<tr class="${p.connected ? "" : "sb-off"}">` +
         `<td><span class="swatch" style="background:${p.color}"></span>${escapeHtml(p.name)}${tag}${host}</td>` +
         teamCell +
-        `<td class="sb-score">${scoreById.get(p.id) ?? 0}</td>` +
+        `<td class="sb-score">${metricById.get(p.id) ?? 0}</td>` +
         `<td>${pingBadge(p.id)}</td>` +
         `<td class="sb-act">${kick}</td>` +
         `</tr>`
@@ -43,7 +45,7 @@ export function renderScoreboard(): void {
 
   $("sb-table-wrap").innerHTML =
     `<table class="sb-table"><thead><tr>` +
-    `<th>Player</th>${teamHead}<th>Score</th><th>Ping</th><th></th>` +
+    `<th>Player</th>${teamHead}<th>${lms ? "Lives" : "Score"}</th><th>Ping</th><th></th>` +
     `</tr></thead><tbody>${body}</tbody></table>`;
 
   $("sb-table-wrap")
