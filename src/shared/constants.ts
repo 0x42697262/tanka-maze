@@ -55,7 +55,6 @@ export const MULTISHOT_COUNT = 3; // pellets released by a multishot pickup
 export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multishot
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
 export const SCOPE_SECONDS = 10; // duration of the line-of-sight scope buff
-export const SCOPE_RANGE = 15 * CELL; // guide length (matches the laser's reach)
 
 // Rounds: a match is best-of-N; the side with the most round wins takes it.
 export const ROUNDS_DEFAULT = 3;

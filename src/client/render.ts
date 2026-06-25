@@ -56,12 +56,18 @@ export class Renderer {
   // Per-game visual sizes (from the lobby's advanced config).
   private tankR = TANK_RADIUS;
   private bulletR = BULLET_RADIUS;
-  // Bullet-physics params for the local-only scope (aiming guide) simulation.
+  // Bullet-physics params for the local-only scope (aiming guide). Each weapon's
+  // guide reach + behavior is derived from these (real max travel = speed × life).
   private scope = {
-    range: 1320,
-    laserRange: 1320,
     bulletSpeed: 240,
-    bounces: 3,
+    bulletLifetime: 5,
+    bulletBounces: 3,
+    sniperSpeedMult: 5,
+    sniperWallPierce: 10,
+    trackingLifetime: 6,
+    trackingBounces: 6,
+    laserRange: 1320,
+    explosionRadius: 56,
     multiCount: 3,
     multiSpread: 30,
   };
@@ -81,12 +87,17 @@ export class Renderer {
     this.bulletR = bulletRadius;
   }
 
-  /** Bullet-physics params used to draw the local player's aiming guide. */
+  /** Bullet-physics params used to draw the aiming guide. */
   setScope(p: {
-    range: number;
-    laserRange: number;
     bulletSpeed: number;
-    bounces: number;
+    bulletLifetime: number;
+    bulletBounces: number;
+    sniperSpeedMult: number;
+    sniperWallPierce: number;
+    trackingLifetime: number;
+    trackingBounces: number;
+    laserRange: number;
+    explosionRadius: number;
     multiCount: number;
     multiSpread: number;
   }): void {
@@ -267,75 +278,120 @@ export class Renderer {
         ctx.arc(end.x, end.y, 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
+      // Explosive: show the blast radius at the detonation point.
+      const end = paths[0]?.[paths[0].length - 1];
+      if (t.weapon === "explosive" && end) {
+        ctx.globalAlpha = 0.16;
+        ctx.beginPath();
+        ctx.arc(end.x, end.y, this.scope.explosionRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.6;
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
       ctx.globalAlpha = 1;
       ctx.restore();
     }
   }
 
-  /** One or more trajectory polylines for a tank's current weapon. */
+  /**
+   * One or more trajectory polylines for a tank's current weapon — each sized to
+   * that weapon's real reach: normal/multishot fly speed×lifetime and bounce;
+   * the sniper flies fast & straight, punching through walls; explosive stops
+   * where it detonates; tracking uses its longer lifetime; laser is hitscan.
+   */
   private scopePaths(me: TankDTO, vel: { x: number; y: number }): Array<{ x: number; y: number }[]> {
     const a = me.turretAngle;
     const ca = Math.cos(a);
     const sa = Math.sin(a);
     const sc = this.scope;
-
-    if (me.weapon === "laser") {
-      // Hitscan beam: from the muzzle along the turret, reflecting, no momentum.
-      const ox = me.x + ca * (this.tankR + 2);
-      const oy = me.y + sa * (this.tankR + 2);
-      return [this.walkPath(ox, oy, ca, sa, sc.laserRange, Infinity, false, false)];
-    }
-
     const muzzle = this.tankR + this.bulletR + 2;
     const ox = me.x + ca * muzzle;
     const oy = me.y + sa * muzzle;
 
-    if (me.weapon === "sniper") {
-      // Flies straight & fast, no momentum, punches through walls.
-      return [this.walkPath(ox, oy, ca, sa, sc.range, 0, false, true)];
+    if (me.weapon === "laser") {
+      // Hitscan beam: reflects, no momentum, from just outside the hull.
+      const lx = me.x + ca * (this.tankR + 2);
+      const ly = me.y + sa * (this.tankR + 2);
+      return [this.walkPath(lx, ly, ca, sa, { range: sc.laserRange, bounces: Infinity })];
     }
 
-    const speed = sc.bulletSpeed;
-    const stopOnWall = me.weapon === "explosive";
-    const bounces = stopOnWall ? 0 : sc.bounces;
+    if (me.weapon === "sniper") {
+      // Fast & straight, no momentum, punches through up to N walls.
+      const speed = sc.bulletSpeed * sc.sniperSpeedMult;
+      return [
+        this.walkPath(ox, oy, ca, sa, {
+          range: speed * sc.bulletLifetime,
+          straight: true,
+          pierce: sc.sniperWallPierce,
+        }),
+      ];
+    }
 
     if (me.weapon === "multishot") {
       const n = Math.max(1, Math.round(sc.multiCount));
       const fan = (sc.multiSpread * Math.PI) / 180;
-      const step = n > 1 ? fan / (n - 1) : 0;
+      const stepA = n > 1 ? fan / (n - 1) : 0;
       const start = a - fan / 2;
+      const range = sc.bulletSpeed * sc.bulletLifetime;
       const paths: Array<{ x: number; y: number }[]> = [];
       for (let i = 0; i < n; i++) {
-        const ang = n > 1 ? start + step * i : a;
+        const ang = n > 1 ? start + stepA * i : a;
         const mx = me.x + Math.cos(ang) * muzzle;
         const my = me.y + Math.sin(ang) * muzzle;
         paths.push(
-          this.walkPath(mx, my, Math.cos(ang) * speed + vel.x, Math.sin(ang) * speed + vel.y, sc.range, bounces, false, false)
+          this.walkPath(mx, my, Math.cos(ang) * sc.bulletSpeed + vel.x, Math.sin(ang) * sc.bulletSpeed + vel.y, {
+            range,
+            bounces: sc.bulletBounces,
+          })
         );
       }
       return paths;
     }
 
-    // normal / explosive / tracking: inherits the tank's velocity.
-    return [this.walkPath(ox, oy, ca * speed + vel.x, sa * speed + vel.y, sc.range, bounces, stopOnWall, false)];
+    if (me.weapon === "explosive") {
+      // Detonates at the first wall (or where its lifetime runs out).
+      return [
+        this.walkPath(ox, oy, ca * sc.bulletSpeed + vel.x, sa * sc.bulletSpeed + vel.y, {
+          range: sc.bulletSpeed * sc.bulletLifetime,
+          stopOnWall: true,
+        }),
+      ];
+    }
+
+    if (me.weapon === "tracking") {
+      return [
+        this.walkPath(ox, oy, ca * sc.bulletSpeed + vel.x, sa * sc.bulletSpeed + vel.y, {
+          range: sc.bulletSpeed * sc.trackingLifetime,
+          bounces: sc.trackingBounces,
+        }),
+      ];
+    }
+
+    // Plain cannon.
+    return [
+      this.walkPath(ox, oy, ca * sc.bulletSpeed + vel.x, sa * sc.bulletSpeed + vel.y, {
+        range: sc.bulletSpeed * sc.bulletLifetime,
+        bounces: sc.bulletBounces,
+      }),
+    ];
   }
 
   /**
-   * March a virtual round through the maze, mirroring the server's stepBullets:
-   * reflect off walls (axis-wise), optionally stop on the first wall (explosive)
-   * or pass straight through (sniper). Returns polyline vertices (start, each
-   * bounce, end).
+   * March a virtual round through the maze, mirroring the server's stepBullets.
+   * `straight` (sniper) flies in a line, passing through up to `pierce` walls
+   * before stopping; otherwise it reflects off walls up to `bounces` times, or
+   * `stopOnWall` halts at the first wall (explosive). Returns polyline vertices.
    */
   private walkPath(
     ox: number,
     oy: number,
     vx: number,
     vy: number,
-    range: number,
-    maxBounces: number,
-    stopOnWall: boolean,
-    pierce: boolean
+    opts: { range: number; bounces?: number; stopOnWall?: boolean; straight?: boolean; pierce?: number }
   ): Array<{ x: number; y: number }> {
+    const { range, bounces: maxBounces = 0, stopOnWall = false, straight = false, pierce = 0 } = opts;
     const pts = [{ x: ox, y: oy }];
     const maze = this.maze;
     if (!maze) return pts;
@@ -343,9 +399,11 @@ export class Renderer {
     let x = ox;
     let y = oy;
     let bounces = 0;
+    let pierced = 0;
     let dist = 0;
     let guard = 0;
-    while (dist < range && guard++ < 3000) {
+    let wasInWall = false;
+    while (dist < range && guard++ < 4000) {
       const sp = Math.hypot(vx, vy) || 1;
       const nx = x + (vx / sp) * step;
       const ny = y + (vy / sp) * step;
@@ -353,7 +411,16 @@ export class Renderer {
         pts.push({ x: Math.max(0, Math.min(maze.width, nx)), y: Math.max(0, Math.min(maze.height, ny)) });
         return pts;
       }
-      if (pierce) {
+      if (straight) {
+        const inWall = this.hitsWall(nx, ny);
+        if (inWall && !wasInWall) {
+          if (pierced >= pierce) {
+            pts.push({ x, y });
+            return pts;
+          }
+          pierced++;
+        }
+        wasInWall = inWall;
         x = nx;
         y = ny;
         dist += step;

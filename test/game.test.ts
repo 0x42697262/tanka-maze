@@ -107,6 +107,30 @@ describe("multishot", () => {
   });
 });
 
+describe("explosive", () => {
+  it("detonates when its lifetime expires in open space, not only on a wall", () => {
+    const g = makeGame({
+      adv: { bulletLifetime: 0.2, fireCooldown: 0 },
+      maze: new Maze(12, 9, "open"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.x = 500;
+    a.y = 400;
+    a.turretAngle = 0; // fires into open space; lifetime ends before any wall
+    a.weapon = "explosive";
+    a.weaponCharges = 1;
+    fire(g, a);
+    let blasts = 0;
+    for (let i = 0; i < 12; i++) {
+      g.step(1 / 30);
+      blasts += g.snapshot(0).blasts.length;
+    }
+    assert.ok(blasts >= 1, "explosive should detonate on despawn");
+    assert.equal(bullets(g).length, 0, "bullet removed after detonating");
+  });
+});
+
 describe("scoring / kills", () => {
   it("an enemy kill awards killPoints; a kill never leaves you below 1", () => {
     const g = makeGame({ cfg: { killPoints: 60 } });

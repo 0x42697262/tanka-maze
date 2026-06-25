@@ -15,7 +15,6 @@ import {
   MULTISHOT_COUNT,
   MULTISHOT_SPREAD_DEG,
   ROUNDS_DEFAULT,
-  SCOPE_RANGE,
   SCOPE_SECONDS,
   RELOAD_SECONDS,
   SHIELD_SECONDS,
@@ -55,7 +54,6 @@ export interface AdvancedConfig {
   sniperWallPierce: number; // walls a sniper round punches through (0 = none)
   explosionRadius: number;
   scopeSeconds: number; // duration of the line-of-sight scope buff
-  scopeRange: number; // px length of the aiming guide
   trackingTurnRate: number; // rad/s
   trackingLifetime: number; // s a tracking round lives (governs its range)
   trackingBounces: number; // wall bounces a tracking round survives
@@ -84,7 +82,6 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
   sniperWallPierce: SNIPER_WALL_PIERCE,
   explosionRadius: EXPLOSION_RADIUS,
   scopeSeconds: SCOPE_SECONDS,
-  scopeRange: SCOPE_RANGE,
   trackingTurnRate: TRACKING_TURN_RATE,
   trackingLifetime: TRACKING_LIFETIME,
   trackingBounces: TRACKING_BOUNCES,
@@ -238,10 +235,7 @@ export const POWERUP_DEFS: PowerupDef[] = [
     label: "Scope",
     emblem: "ⓘ",
     color: "#5b8def",
-    config: [
-      { key: "scopeSeconds", label: "Scope s", min: 1, max: 120, step: 1 },
-      { key: "scopeRange", label: "Scope range", min: 100, max: 5000, step: 50 },
-    ],
+    config: [{ key: "scopeSeconds", label: "Scope s", min: 1, max: 120, step: 1 }],
   },
 ];
 

@@ -593,7 +593,11 @@ export class Game {
     const survivors: Bullet[] = [];
     for (const b of this.bullets) {
       b.life -= dt;
-      if (b.life <= 0) continue;
+      if (b.life <= 0) {
+        // An explosive round detonates wherever it expires, not just on a wall.
+        if (b.kind === "explosive") this.explode(b.x, b.y, b.ownerId);
+        continue;
+      }
 
       if (b.kind === "tracking") this.steerHoming(b, dt);
 

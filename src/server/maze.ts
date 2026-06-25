@@ -116,7 +116,65 @@ export class Maze {
         this.braid();
         this.ensureCoverage();
     }
+    this.ensureConnected(); // no tank can ever spawn in a walled-off pocket
     this.walls = this.buildSegments();
+  }
+
+  /**
+   * Guarantee the whole arena is reachable: flood-fill from a corner and, if any
+   * cell is unreachable, knock down a wall bridging it to the reached region,
+   * then repeat. Connected layouts (open/cross/box/…) leave it untouched; it only
+   * repairs the rare disconnected pocket a randomized carve+coverage can leave.
+   */
+  private ensureConnected(): void {
+    const total = this.cols * this.rows;
+    const dirs = [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ] as const;
+    for (let guard = 0; guard < total; guard++) {
+      const reached = new Uint8Array(total);
+      const stack = [0];
+      reached[0] = 1;
+      let count = 1;
+      while (stack.length) {
+        const cur = stack.pop() as number;
+        const cx = cur % this.cols;
+        const cy = (cur - cx) / this.cols;
+        for (const [dx, dy] of dirs) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
+          const ni = ny * this.cols + nx;
+          if (!reached[ni] && this.passable(cx, cy, nx, ny)) {
+            reached[ni] = 1;
+            count++;
+            stack.push(ni);
+          }
+        }
+      }
+      if (count === total) return;
+      // Open one wall from the reached region to an unreached neighbour.
+      let opened = false;
+      for (let i = 0; i < total && !opened; i++) {
+        if (!reached[i]) continue;
+        const cx = i % this.cols;
+        const cy = (i - cx) / this.cols;
+        for (const [dx, dy] of dirs) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
+          if (!reached[ny * this.cols + nx] && !this.passable(cx, cy, nx, ny)) {
+            this.removeWallBetween(cx, cy, nx, ny);
+            opened = true;
+            break;
+          }
+        }
+      }
+      if (!opened) return; // nothing to open (shouldn't happen) — avoid looping
+    }
   }
 
   // --- Fixed, hand-designed layouts (start from an open field) -------------

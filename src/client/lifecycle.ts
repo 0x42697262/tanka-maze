@@ -22,10 +22,15 @@ export function startGame(maze: MazeDTO, round = 1, totalRounds = 1, standing: R
   const adv = state.currentLobby?.config.adv ?? DEFAULT_GAME_CONFIG.adv;
   renderer.setParams(adv.tankRadius, adv.bulletRadius);
   renderer.setScope({
-    range: adv.scopeRange,
-    laserRange: adv.laserRange,
     bulletSpeed: adv.bulletSpeed,
-    bounces: adv.bulletBounces,
+    bulletLifetime: adv.bulletLifetime,
+    bulletBounces: adv.bulletBounces,
+    sniperSpeedMult: adv.sniperSpeedMult,
+    sniperWallPierce: adv.sniperWallPierce,
+    trackingLifetime: adv.trackingLifetime,
+    trackingBounces: adv.trackingBounces,
+    laserRange: adv.laserRange,
+    explosionRadius: adv.explosionRadius,
     multiCount: adv.multishotCount,
     multiSpread: adv.multishotSpread,
   });
