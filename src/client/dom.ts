@@ -4,17 +4,12 @@
 export const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
 
-const screens = {
-  menu: $("menu"),
-  lobby: $("lobby"),
-  game: $("game"),
-};
+export type Screen = "menu" | "lobby" | "game";
+const SCREENS: Screen[] = ["menu", "lobby", "game"];
 
 /** Show one top-level screen (menu / lobby / game), hiding the others. */
-export function show(name: keyof typeof screens): void {
-  for (const [key, el] of Object.entries(screens)) {
-    el.classList.toggle("hidden", key !== name);
-  }
+export function show(name: Screen): void {
+  for (const id of SCREENS) $(id).classList.toggle("hidden", id !== name);
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
