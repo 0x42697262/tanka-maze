@@ -78,6 +78,8 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       teamKillPenalty: Number(($("team-kill") as HTMLInputElement).value) || 0,
       teamSpawnZones: sel("team-spawn-zones") === "on",
       maxFlags: num("max-flags", 3),
+      flagTeamCarry: sel("flag-team-carry") === "on",
+      flagStealOnContact: sel("flag-steal") === "on",
       adv: gatherAdvanced(),
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
@@ -107,6 +109,8 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("team-kill", c.teamKillPenalty);
   set("team-spawn-zones", c.teamSpawnZones ? "on" : "off");
   set("max-flags", c.maxFlags);
+  set("flag-team-carry", c.flagTeamCarry ? "on" : "off");
+  set("flag-steal", c.flagStealOnContact ? "on" : "off");
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
   set("pwr-charges", c.powerupCharges);

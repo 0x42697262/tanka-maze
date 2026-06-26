@@ -130,6 +130,20 @@
             <label for="max-flags">Flags to win</label>
             <input id="max-flags" type="number" min="1" max="20" value="3" />
           </div>
+          <div class="row cfg-ctf">
+            <label for="flag-team-carry">Team carries flag</label>
+            <select id="flag-team-carry">
+              <option value="on">On (carry back)</option>
+              <option value="off">Off (instant return)</option>
+            </select>
+          </div>
+          <div class="row cfg-ctf">
+            <label for="flag-steal">Steal flag on touch</label>
+            <select id="flag-steal">
+              <option value="on">On (touch steals)</option>
+              <option value="off">Off (kill to drop)</option>
+            </select>
+          </div>
           <div class="row two">
             <label for="tank-speed">Tank speed %</label>
             <input id="tank-speed" type="number" min="50" max="200" step="10" value="100" />

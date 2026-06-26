@@ -410,6 +410,9 @@ function sanitizeConfig(raw: unknown): GameConfig {
     teamKillPenalty: clampInt(c.teamKillPenalty, 0, 500, d.teamKillPenalty),
     teamSpawnZones: ctf ? true : typeof c.teamSpawnZones === "boolean" ? c.teamSpawnZones : d.teamSpawnZones,
     maxFlags: clampInt(c.maxFlags, 1, 20, d.maxFlags),
+    flagTeamCarry: typeof c.flagTeamCarry === "boolean" ? c.flagTeamCarry : d.flagTeamCarry,
+    flagStealOnContact:
+      typeof c.flagStealOnContact === "boolean" ? c.flagStealOnContact : d.flagStealOnContact,
     adv: sanitizeAdvanced(c.adv),
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),

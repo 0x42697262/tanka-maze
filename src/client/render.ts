@@ -781,7 +781,10 @@ export class Renderer {
     ctx.textAlign = "center";
     if (t.alive) {
       ctx.fillStyle = "rgba(13,17,23,0.9)";
-      ctx.fillText(t.name, t.x, t.y - this.tankR - (t.maxHp > 1 ? 13 : 8));
+      // Normally above the tank; flip below when it'd clip off the canvas top.
+      const above = t.y - this.tankR - (t.maxHp > 1 ? 13 : 8);
+      const labelY = above < 10 ? t.y + this.tankR + 14 : above;
+      ctx.fillText(t.name, t.x, labelY);
     } else {
       ctx.fillStyle = "rgba(13,17,23,0.65)";
       ctx.fillText(`${Math.ceil(t.respawnIn)}`, t.x, t.y + 4);

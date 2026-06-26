@@ -166,7 +166,7 @@ describe("capture the flag", () => {
     // Walk A onto the enemy flag, then step the flag logic.
     a.x = enemyFlag.x;
     a.y = enemyFlag.y;
-    (g as any).stepFlags();
+    (g as any).stepFlags(0.1);
     assert.equal(enemyFlag.state, "carried");
     assert.equal(enemyFlag.carrierId, "a");
 
@@ -176,7 +176,7 @@ describe("capture the flag", () => {
     a.y = base.y + base.height / 2;
     enemyFlag.x = a.x;
     enemyFlag.y = a.y;
-    (g as any).stepFlags();
+    (g as any).stepFlags(0.1);
     assert.equal(a.captures, 1);
     assert.equal((g as any).roundWins.get("t0"), 1);
     assert.equal(g.isRoundOver, true);
@@ -188,7 +188,7 @@ describe("capture the flag", () => {
     const enemyFlag = flagOf(g, 1);
     a.x = enemyFlag.x;
     a.y = enemyFlag.y;
-    (g as any).stepFlags();
+    (g as any).stepFlags(0.1);
     assert.equal(enemyFlag.state, "carried");
 
     a.x = 400;
@@ -201,40 +201,120 @@ describe("capture the flag", () => {
     assert.equal(enemyFlag.x, 400); // stays where it fell
   });
 
-  it("a teammate touching their dropped flag returns it home", () => {
-    const g = makeCtf();
+  it("default: a team carries its dropped flag back, returning it from base", () => {
+    const g = makeCtf(); // flagTeamCarry on (default)
     const a = tank(g, "a"); // team 0 — steals team 1's flag
     const b = tank(g, "b"); // team 1 — owner of that flag
-    const enemyFlag = flagOf(g, 1);
-    const home = { x: enemyFlag.homeX, y: enemyFlag.homeY };
+    const flag = flagOf(g, 1);
+    const home = { x: flag.homeX, y: flag.homeY };
 
-    a.x = enemyFlag.x;
-    a.y = enemyFlag.y;
-    (g as any).stepFlags();
+    a.x = flag.x;
+    a.y = flag.y;
+    (g as any).stepFlags(0.1);
     a.x = 400;
     a.y = 300;
-    enemyFlag.x = a.x;
-    enemyFlag.y = a.y;
+    flag.x = a.x;
+    flag.y = a.y;
     (g as any).kill(a, "b"); // dropped at (400, 300)
-    assert.equal(enemyFlag.state, "dropped");
+    assert.equal(flag.state, "dropped");
 
-    // B (the flag's team) walks over the dropped flag → it teleports back to base.
-    b.x = enemyFlag.x;
-    b.y = enemyFlag.y;
-    (g as any).stepFlags();
-    assert.equal(enemyFlag.state, "home");
-    assert.equal(enemyFlag.x, home.x);
-    assert.equal(enemyFlag.y, home.y);
-    assert.equal(enemyFlag.carrierId, null);
+    // B (the flag's team) touches the dropped flag → carries it (no teleport).
+    b.x = flag.x;
+    b.y = flag.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(flag.state, "carried");
+    assert.equal(flag.carrierId, "b");
+
+    // B brings it back into their own base → it returns home.
+    const base = zoneOf(g, 1);
+    b.x = base.x + base.width / 2;
+    b.y = base.y + base.height / 2;
+    (g as any).stepFlags(0.1);
+    assert.equal(flag.state, "home");
+    assert.equal(flag.x, home.x);
+    assert.equal(flag.y, home.y);
+    assert.equal(flag.carrierId, null);
   });
 
-  it("a team can't pick up its own flag", () => {
+  it("legacy: with team-carry off, touching your dropped flag teleports it home", () => {
+    const g = makeCtf({ flagTeamCarry: false });
+    const a = tank(g, "a");
+    const b = tank(g, "b");
+    const flag = flagOf(g, 1);
+    const home = { x: flag.homeX, y: flag.homeY };
+
+    a.x = flag.x;
+    a.y = flag.y;
+    (g as any).stepFlags(0.1);
+    a.x = 400;
+    a.y = 300;
+    flag.x = a.x;
+    flag.y = a.y;
+    (g as any).kill(a, "b");
+    assert.equal(flag.state, "dropped");
+
+    b.x = flag.x;
+    b.y = flag.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(flag.state, "home");
+    assert.equal(flag.x, home.x);
+    assert.equal(flag.y, home.y);
+  });
+
+  it("default: touching a flag carrier steals/relays it on contact", () => {
+    const g = makeCtf(); // flagStealOnContact on (default)
+    const a = tank(g, "a"); // team 0
+    const b = tank(g, "b"); // team 1
+    const flag = flagOf(g, 1); // team 1's flag
+
+    a.x = flag.x;
+    a.y = flag.y;
+    (g as any).stepFlags(0.1); // A carries team 1's flag
+    assert.equal(flag.carrierId, "a");
+
+    // Move the carrier to neutral ground (not on a base), flag rides along.
+    a.x = 400;
+    a.y = 300;
+    flag.x = a.x;
+    flag.y = a.y;
+    // B touches carrier A (cooldown elapsed) → B takes the flag without a kill.
+    flag.stealCooldown = 0;
+    b.x = a.x;
+    b.y = a.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(flag.state, "carried");
+    assert.equal(flag.carrierId, "b");
+  });
+
+  it("with steal off, touching a carrier doesn't take the flag (kill to drop)", () => {
+    const g = makeCtf({ flagStealOnContact: false });
+    const a = tank(g, "a");
+    const b = tank(g, "b");
+    const flag = flagOf(g, 1);
+
+    a.x = flag.x;
+    a.y = flag.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(flag.carrierId, "a");
+
+    a.x = 400;
+    a.y = 300;
+    flag.x = a.x;
+    flag.y = a.y;
+    flag.stealCooldown = 0;
+    b.x = a.x;
+    b.y = a.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(flag.carrierId, "a"); // unchanged — B must kill A to get it
+  });
+
+  it("a team can't pick up its own home flag", () => {
     const g = makeCtf();
     const a = tank(g, "a"); // team 0
     const ownFlag = flagOf(g, 0);
     a.x = ownFlag.x;
     a.y = ownFlag.y;
-    (g as any).stepFlags();
+    (g as any).stepFlags(0.1);
     assert.equal(ownFlag.state, "home");
     assert.equal(ownFlag.carrierId, null);
   });

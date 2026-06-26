@@ -1,6 +1,7 @@
 import {
   MAX_POWERUPS_ON_MAP,
   POWERUP_RADIUS,
+  FLAG_STEAL_COOLDOWN,
   SPAWN_SHIELD_SECONDS,
   TANK_COLORS,
   TANK_REVERSE_SPEED,
@@ -36,6 +37,8 @@ interface Flag {
   y: number;
   state: FlagState;
   carrierId: string | null;
+  /** Seconds before this flag can change hands again (anti ping-pong). */
+  stealCooldown: number;
 }
 
 /** A team's designated spawn area: a cell-aligned rectangle and its cell centers. */
@@ -469,7 +472,7 @@ export class Game {
     }
 
     this.stepBullets(dt);
-    this.stepFlags();
+    this.stepFlags(dt);
   }
 
   private fire(tank: Tank): void {
@@ -1253,21 +1256,29 @@ export class Game {
     for (const z of this.spawnZones) {
       const hx = z.x + z.width / 2;
       const hy = z.y + z.height / 2;
-      this.flags.push({ team: z.team, homeX: hx, homeY: hy, x: hx, y: hy, state: "home", carrierId: null });
+      this.flags.push({ team: z.team, homeX: hx, homeY: hy, x: hx, y: hy, state: "home", carrierId: null, stealCooldown: 0 });
     }
   }
 
   /**
-   * Capture the Flag step: a flag follows its carrier; an idle (home/dropped)
-   * enemy flag is picked up on contact; carrying the enemy flag into your own
-   * base scores a capture, which ends the round.
+   * Capture the Flag step. A flag rides its carrier. With flagStealOnContact
+   * (default), touching a carrier takes the flag (enemies steal, teammates relay);
+   * otherwise the flag only drops when the carrier is killed. An idle enemy flag
+   * is picked up on contact. A dropped own flag is either carried back by your
+   * team (flagTeamCarry, default) or instantly teleported home on touch. Bringing
+   * an enemy flag into your base scores a capture; bringing your own flag back
+   * into your base returns it home.
    */
-  private stepFlags(): void {
+  private stepFlags(dt: number): void {
     if (!this.ctf || this.roundOver) return;
     const pickupR = this.adv.tankRadius + POWERUP_RADIUS;
     const pickupR2 = pickupR * pickupR;
+    const steal = this.cfg.flagStealOnContact;
+    const teamCarry = this.cfg.flagTeamCarry;
 
     for (const flag of this.flags) {
+      if (flag.stealCooldown > 0) flag.stealCooldown = Math.max(0, flag.stealCooldown - dt);
+
       // Carried flag: ride the carrier, or drop if the carrier is gone/dead.
       if (flag.state === "carried") {
         const carrier = flag.carrierId ? this.tanks.get(flag.carrierId) : undefined;
@@ -1275,24 +1286,45 @@ export class Game {
           flag.state = "dropped";
           flag.carrierId = null;
         } else {
-          flag.x = carrier.x;
-          flag.y = carrier.y;
+          // Steal/transfer on contact: another tank touching the carrier takes it.
+          if (steal && flag.stealCooldown === 0) {
+            for (const t of this.tanks.values()) {
+              if (!t.alive || t.id === carrier.id) continue;
+              if ((t.x - carrier.x) ** 2 + (t.y - carrier.y) ** 2 > pickupR2) continue;
+              flag.carrierId = t.id;
+              flag.stealCooldown = FLAG_STEAL_COOLDOWN;
+              break;
+            }
+          }
+          const holder = flag.carrierId ? this.tanks.get(flag.carrierId) : null;
+          if (holder) {
+            flag.x = holder.x;
+            flag.y = holder.y;
+          }
           continue;
         }
       }
 
       // Idle flag (home or dropped): the first tank to touch it acts.
-      //  - an enemy steals it (starts carrying);
-      //  - a teammate of a *dropped* flag returns it instantly to their base.
       for (const t of this.tanks.values()) {
         if (!t.alive) continue;
         if ((t.x - flag.x) ** 2 + (t.y - flag.y) ** 2 > pickupR2) continue;
         if (t.team === flag.team) {
           if (flag.state === "dropped") {
-            flag.state = "home";
-            flag.x = flag.homeX;
-            flag.y = flag.homeY;
-            flag.carrierId = null;
+            if (teamCarry) {
+              // Recover the flag by carrying it (it returns home from your base).
+              flag.state = "carried";
+              flag.carrierId = t.id;
+              flag.x = t.x;
+              flag.y = t.y;
+              flag.stealCooldown = FLAG_STEAL_COOLDOWN;
+            } else {
+              // Legacy: touching your dropped flag teleports it home instantly.
+              flag.state = "home";
+              flag.x = flag.homeX;
+              flag.y = flag.homeY;
+              flag.carrierId = null;
+            }
             break;
           }
           continue; // own flag sitting at home — nothing to do
@@ -1301,17 +1333,25 @@ export class Game {
         flag.carrierId = t.id;
         flag.x = t.x;
         flag.y = t.y;
+        flag.stealCooldown = FLAG_STEAL_COOLDOWN;
         break;
       }
     }
 
-    // Capture: a carrier standing in its own base with the enemy flag scores.
+    // A carrier inside its own base scores with an enemy flag, or returns its own.
     for (const flag of this.flags) {
       if (flag.state !== "carried" || !flag.carrierId) continue;
       const carrier = this.tanks.get(flag.carrierId);
       if (!carrier) continue;
       const base = this.spawnZones.find((z) => z.team === carrier.team);
-      if (base && this.inRect(carrier.x, carrier.y, base)) {
+      if (!base || !this.inRect(carrier.x, carrier.y, base)) continue;
+      if (flag.team === carrier.team) {
+        // Brought your own flag home → it returns to base, ready to grab again.
+        flag.state = "home";
+        flag.x = flag.homeX;
+        flag.y = flag.homeY;
+        flag.carrierId = null;
+      } else {
         carrier.captures += 1;
         this.endRound(`t${carrier.team}`, this.teamNames[carrier.team] ?? `Team ${carrier.team + 1}`);
         return;

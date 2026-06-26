@@ -60,6 +60,9 @@ export const SCOPE_SECONDS = 10; // duration of the line-of-sight scope buff
 export const ROUNDS_DEFAULT = 3;
 export const ROUND_INTERMISSION_SECONDS = 5; // break between rounds
 export const SPAWN_SHIELD_SECONDS = 2; // spawn protection whenever a tank (re)spawns
+// CTF: grace after a flag changes hands before it can be taken again, so two
+// adjacent tanks don't ping-pong the flag every tick.
+export const FLAG_STEAL_COOLDOWN = 0.6;
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;

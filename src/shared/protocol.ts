@@ -272,6 +272,12 @@ export interface GameConfig {
   teamKillPenalty: number; // points lost for killing a teammate (Team VS)
   teamSpawnZones: boolean; // Team VS: spawn each team in its own corner zone (off = randomized)
   maxFlags: number; // Capture the Flag: captures needed to win the match
+  // CTF: your team carries a dropped flag back instead of it teleporting home on
+  // touch; it only returns to base once a carrier brings it inside the base.
+  flagTeamCarry: boolean;
+  // CTF: touching a flag carrier takes the flag (enemies steal, teammates relay);
+  // off = the flag only drops when the carrier is killed.
+  flagStealOnContact: boolean;
   adv: AdvancedConfig; // advanced engine tuning
   // Power-ups
   powerups: boolean; // spawn pickups on the map
@@ -298,6 +304,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   teamKillPenalty: 60,
   teamSpawnZones: true,
   maxFlags: 3,
+  flagTeamCarry: true,
+  flagStealOnContact: true,
   adv: DEFAULT_ADVANCED,
   powerups: true,
   powerupEverySeconds: 8,
