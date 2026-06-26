@@ -216,11 +216,6 @@ $("lobby-config").addEventListener("change", () => {
   const { maxPlayers, config } = gatherConfig();
   net.send({ type: "updateConfig", maxPlayers, config });
 });
-// Picking Capture the Flag seeds its sturdier default HP (still editable after).
-// Runs in the target phase, before the bubbling #lobby-config handler gathers config.
-$("mode").addEventListener("change", () => {
-  if (($("mode") as HTMLSelectElement).value === "ctf") ($("hp") as HTMLInputElement).value = "3";
-});
 $("adv-toggle").onclick = () => $("adv-panel").classList.toggle("hidden");
 
 // Per-player settings (gear).

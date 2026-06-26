@@ -201,6 +201,33 @@ describe("capture the flag", () => {
     assert.equal(enemyFlag.x, 400); // stays where it fell
   });
 
+  it("a teammate touching their dropped flag returns it home", () => {
+    const g = makeCtf();
+    const a = tank(g, "a"); // team 0 — steals team 1's flag
+    const b = tank(g, "b"); // team 1 — owner of that flag
+    const enemyFlag = flagOf(g, 1);
+    const home = { x: enemyFlag.homeX, y: enemyFlag.homeY };
+
+    a.x = enemyFlag.x;
+    a.y = enemyFlag.y;
+    (g as any).stepFlags();
+    a.x = 400;
+    a.y = 300;
+    enemyFlag.x = a.x;
+    enemyFlag.y = a.y;
+    (g as any).kill(a, "b"); // dropped at (400, 300)
+    assert.equal(enemyFlag.state, "dropped");
+
+    // B (the flag's team) walks over the dropped flag → it teleports back to base.
+    b.x = enemyFlag.x;
+    b.y = enemyFlag.y;
+    (g as any).stepFlags();
+    assert.equal(enemyFlag.state, "home");
+    assert.equal(enemyFlag.x, home.x);
+    assert.equal(enemyFlag.y, home.y);
+    assert.equal(enemyFlag.carrierId, null);
+  });
+
   it("a team can't pick up its own flag", () => {
     const g = makeCtf();
     const a = tank(g, "a"); // team 0

@@ -1282,16 +1282,27 @@ export class Game {
         }
       }
 
-      // Idle enemy flag (home or dropped): the first enemy tank to touch it carries it.
+      // Idle flag (home or dropped): the first tank to touch it acts.
+      //  - an enemy steals it (starts carrying);
+      //  - a teammate of a *dropped* flag returns it instantly to their base.
       for (const t of this.tanks.values()) {
-        if (!t.alive || t.team === flag.team) continue; // only the enemy steals it
-        if ((t.x - flag.x) ** 2 + (t.y - flag.y) ** 2 <= pickupR2) {
-          flag.state = "carried";
-          flag.carrierId = t.id;
-          flag.x = t.x;
-          flag.y = t.y;
-          break;
+        if (!t.alive) continue;
+        if ((t.x - flag.x) ** 2 + (t.y - flag.y) ** 2 > pickupR2) continue;
+        if (t.team === flag.team) {
+          if (flag.state === "dropped") {
+            flag.state = "home";
+            flag.x = flag.homeX;
+            flag.y = flag.homeY;
+            flag.carrierId = null;
+            break;
+          }
+          continue; // own flag sitting at home — nothing to do
         }
+        flag.state = "carried";
+        flag.carrierId = t.id;
+        flag.x = t.x;
+        flag.y = t.y;
+        break;
       }
     }
 

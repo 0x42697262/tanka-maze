@@ -294,7 +294,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   deathPenaltyPct: 25,
   winScore: 300,
   teamCount: 2,
-  friendlyFire: true,
+  friendlyFire: false,
   teamKillPenalty: 60,
   teamSpawnZones: true,
   maxFlags: 3,
