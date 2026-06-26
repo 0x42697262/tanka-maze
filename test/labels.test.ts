@@ -59,12 +59,15 @@ describe("buildConfigDetailsHtml", () => {
     assert.match(html, /Scope s/); // scope
   });
 
-  it("shows team rows only in Team VS", () => {
+  it("shows friendly fire in every mode, team-only rows only in Team VS", () => {
     const ffa = buildConfigDetailsHtml(lobby());
-    assert.doesNotMatch(ffa, /Friendly fire/);
+    // Friendly fire governs self-damage in all modes, so it's always shown.
+    assert.match(ffa, /Friendly fire/);
+    assert.doesNotMatch(ffa, /Team-kill penalty/);
     const teamCfg = structuredClone(DEFAULT_GAME_CONFIG);
     teamCfg.mode = "teams";
     const teams = buildConfigDetailsHtml(lobby({ config: teamCfg }));
     assert.match(teams, /Friendly fire/);
+    assert.match(teams, /Team-kill penalty/);
   });
 });

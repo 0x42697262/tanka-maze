@@ -268,7 +268,7 @@ export interface GameConfig {
   deathPenaltyPct: number; // 0..90 (% of score lost on death)
   winScore: number; // points to win (FFA / total per team in Team VS)
   teamCount: number; // 2..4 (Team VS only)
-  friendlyFire: boolean; // Team VS: allow damaging teammates
+  friendlyFire: boolean; // allow damaging yourself (any mode) and teammates (Team VS)
   teamKillPenalty: number; // points lost for killing a teammate (Team VS)
   adv: AdvancedConfig; // advanced engine tuning
   // Power-ups

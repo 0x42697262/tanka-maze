@@ -131,6 +131,51 @@ describe("explosive", () => {
   });
 });
 
+describe("friendly fire", () => {
+  const friendly = (g: Game, ownerId: string, targetId: string): boolean =>
+    (g as any).isFriendly(ownerId, tank(g, targetId));
+
+  it("off: a tank can't damage itself in any mode", () => {
+    for (const mode of ["ffa", "teams", "lms"] as const) {
+      const g = makeGame({
+        cfg: { mode, friendlyFire: false },
+        players: [
+          { id: "a", name: "A", team: 0 },
+          { id: "b", name: "B", team: 1 },
+        ],
+      });
+      assert.equal(friendly(g, "a", "a"), true, `self protected in ${mode}`);
+    }
+  });
+
+  it("off: teammates are protected but enemies are not (team mode)", () => {
+    const g = makeGame({
+      cfg: { mode: "teams", friendlyFire: false },
+      players: [
+        { id: "a", name: "A", team: 0 },
+        { id: "b", name: "B", team: 0 },
+        { id: "c", name: "C", team: 1 },
+      ],
+    });
+    assert.equal(friendly(g, "a", "b"), true, "teammate protected");
+    assert.equal(friendly(g, "a", "c"), false, "enemy hittable");
+  });
+
+  it("on: nobody is protected — self and teammates are fair game", () => {
+    const g = makeGame({
+      cfg: { mode: "teams", friendlyFire: true },
+      players: [
+        { id: "a", name: "A", team: 0 },
+        { id: "b", name: "B", team: 0 },
+        { id: "c", name: "C", team: 1 },
+      ],
+    });
+    assert.equal(friendly(g, "a", "a"), false, "self hittable");
+    assert.equal(friendly(g, "a", "b"), false, "teammate hittable");
+    assert.equal(friendly(g, "a", "c"), false, "enemy hittable");
+  });
+});
+
 describe("scoring / kills", () => {
   it("an enemy kill awards killPoints; a kill never leaves you below 1", () => {
     const g = makeGame({ cfg: { killPoints: 60 } });

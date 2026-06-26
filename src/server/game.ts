@@ -582,11 +582,17 @@ export class Game {
     }
   }
 
-  /** True if owner and tank are teammates and friendly fire is off. */
+  /**
+   * True if `ownerId` is barred from damaging `tank` by the friendly-fire rule.
+   * FF on  → nobody is protected (you can hurt yourself and teammates).
+   * FF off → you can't hurt yourself (any mode) or your teammates (team mode).
+   */
   private isFriendly(ownerId: string, tank: Tank): boolean {
-    if (this.cfg.mode !== "teams" || this.cfg.friendlyFire) return false;
+    if (this.cfg.friendlyFire) return false;
+    if (ownerId === tank.id) return true; // can't self-damage when FF is off
+    if (this.cfg.mode !== "teams") return false;
     const o = this.tanks.get(ownerId);
-    return !!o && o.id !== tank.id && o.team === tank.team;
+    return !!o && o.team === tank.team;
   }
 
   private stepBullets(dt: number): void {
