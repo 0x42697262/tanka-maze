@@ -70,7 +70,10 @@ export class Maze {
     rows: number,
     wallStyle: WallStyle = "maze",
     cellSize: number = CELL,
-    thickness: number = WALL_THICKNESS
+    thickness: number = WALL_THICKNESS,
+    // Minimum edge-disjoint routes to guarantee between opposite corners (CTF
+    // bases). 1 = leave the layout as generated; 2 = ensure a second route.
+    minCornerPaths: number = 1
   ) {
     this.cols = cols;
     this.rows = rows;
@@ -117,7 +120,84 @@ export class Maze {
         this.ensureCoverage();
     }
     this.ensureConnected(); // no tank can ever spawn in a walled-off pocket
+    if (minCornerPaths >= 2) this.ensureCornerPaths(minCornerPaths);
     this.walls = this.buildSegments();
+  }
+
+  /**
+   * Guarantee at least `minPaths` edge-disjoint routes between the two opposite
+   * corners (the CTF bases), so no single corridor can be the sole link between
+   * them. Solved as a max-flow: each grid adjacency is a unit-capacity edge, we
+   * push `minPaths` units of flow from corner to corner (the residual back-edges
+   * let earlier routes re-route, which a greedy pass can't), then carve any wall
+   * that ends up carrying flow. Existing openings are reused, so carving is
+   * limited to the few walls those routes must cross.
+   */
+  private ensureCornerPaths(minPaths: number): void {
+    if (minPaths < 2 || this.cols < 2 || this.rows < 2) return;
+    const N = this.cols * this.rows;
+    const target = N - 1;
+    const dirs = [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ] as const;
+    const arc = (u: number, v: number) => u * N + v;
+    // Residual capacity 1 on every directed grid adjacency (walls included —
+    // they're carvable). Anti-parallel arcs model an undirected unit edge.
+    const rcap = new Map<number, number>();
+    for (let y = 0; y < this.rows; y++) {
+      for (let x = 0; x < this.cols; x++) {
+        const u = y * this.cols + x;
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
+          rcap.set(arc(u, ny * this.cols + nx), 1);
+        }
+      }
+    }
+    // Augment up to `minPaths` units of flow with BFS (Edmonds–Karp).
+    for (let f = 0; f < minPaths; f++) {
+      const prev = new Int32Array(N).fill(-1);
+      prev[0] = 0;
+      const q = [0];
+      for (let h = 0; h < q.length && prev[target] === -1; h++) {
+        const u = q[h];
+        const ux = u % this.cols;
+        const uy = (u - ux) / this.cols;
+        for (const [dx, dy] of dirs) {
+          const nx = ux + dx;
+          const ny = uy + dy;
+          if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
+          const v = ny * this.cols + nx;
+          if (prev[v] !== -1 || (rcap.get(arc(u, v)) ?? 0) <= 0) continue;
+          prev[v] = u;
+          q.push(v);
+        }
+      }
+      if (prev[target] === -1) break; // can't happen on a >=2x2 grid
+      for (let v = target; v !== 0; v = prev[v]) {
+        const u = prev[v];
+        rcap.set(arc(u, v), (rcap.get(arc(u, v)) as number) - 1);
+        rcap.set(arc(v, u), (rcap.get(arc(v, u)) ?? 0) + 1);
+      }
+    }
+    // Carve every wall carrying net flow (residual differs from the initial 1).
+    for (let y = 0; y < this.rows; y++) {
+      for (let x = 0; x < this.cols; x++) {
+        const u = y * this.cols + x;
+        for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= this.cols || ny >= this.rows) continue;
+          if ((rcap.get(arc(u, ny * this.cols + nx)) ?? 1) !== 1 && !this.passable(x, y, nx, ny)) {
+            this.removeWallBetween(x, y, nx, ny);
+          }
+        }
+      }
+    }
   }
 
   /**

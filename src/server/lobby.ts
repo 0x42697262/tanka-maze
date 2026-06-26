@@ -267,12 +267,17 @@ export class Lobby {
   /** A fresh maze sized for the configured map size + wall style. */
   private buildMaze(): Maze {
     const { cols, rows } = mazeDimensions(this.config.mapSize);
+    // CTF wants at least two routes between bases so one corridor can't be
+    // bottled up — except on small maps, which stay single-path.
+    const minCornerPaths =
+      this.config.mode === "ctf" && this.config.mapSize !== "small" ? 2 : 1;
     return new Maze(
       cols,
       rows,
       this.config.wallStyle,
       this.config.adv.cellSize,
-      this.config.adv.wallThickness
+      this.config.adv.wallThickness,
+      minCornerPaths
     );
   }
 
