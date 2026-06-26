@@ -1,5 +1,6 @@
 import {
   CELL,
+  CTF_DEADEND_KEEP,
   MAZE_COLS,
   MAZE_ROWS,
   WALL_KEEP_DEADEND_RATIO,
@@ -107,6 +108,20 @@ export class MazeGrid {
     else if (nx === cx - 1) this.vWalls[cx][cy] = false;
     else if (ny === cy + 1) this.hWalls[cx][cy + 1] = false;
     else if (ny === cy - 1) this.hWalls[cx][cy] = false;
+  }
+
+  /**
+   * Number of walls meeting at a lattice vertex (border walls included). An
+   * interior vertex with 0 means the four cells around it form a 2×2 open area;
+   * keeping every interior vertex ≥1 is exactly "no 2×2 empty area".
+   */
+  wallDegree(vx: number, vy: number): number {
+    let d = 0;
+    if (vy > 0 && this.vWalls[vx][vy - 1]) d++;
+    if (vy < this.rows && this.vWalls[vx][vy]) d++;
+    if (vx > 0 && this.hWalls[vx - 1][vy]) d++;
+    if (vx < this.cols && this.hWalls[vx][vy]) d++;
+    return d;
   }
 
   /** Number of open sides (0-4) a cell currently has. */
@@ -303,7 +318,9 @@ export class EnsureConnectedCommand implements MazeCommand {
  * a 2×2 block has four.
  */
 export class EnsureCornerPathsCommand implements MazeCommand {
-  constructor(private readonly minPaths: number) {}
+  // `fill2x2` fills any 2×2 open area the routing opens (a true maze wants none);
+  // the open-arena styles leave it off so their layout is untouched.
+  constructor(private readonly minPaths: number, private readonly fill2x2 = false) {}
 
   run(g: MazeGrid): void {
     const minPaths = this.minPaths;
@@ -399,44 +416,85 @@ export class EnsureCornerPathsCommand implements MazeCommand {
 
     // Carve every wall carrying net flow: exactly one of its two real arcs spent
     // its unit of capacity (both spent ⇒ the routes cancelled ⇒ nothing to do).
+    // Remember which cell-pairs a route runs through, so the 2×2 cleanup below
+    // never walls one off (which would cut a guaranteed route).
+    const onRoute = new Set<number>();
+    const key = (a: number, b: number) => (a < b ? a * V + b : b * V + a);
     for (const e of edges) {
       const used1 = cap[e.a1] === 0;
       const used2 = cap[e.a2] === 0;
-      if (used1 !== used2 && !g.passable(e.x, e.y, e.nx, e.ny)) {
-        g.removeWallBetween(e.x, e.y, e.nx, e.ny);
+      if (used1 !== used2) {
+        onRoute.add(key(e.y * g.cols + e.x, e.ny * g.cols + e.nx));
+        if (!g.passable(e.x, e.y, e.nx, e.ny)) g.removeWallBetween(e.x, e.y, e.nx, e.ny);
+      }
+    }
+
+    // Routing can leave a 2×2 open area where routes ran side by side. Fill each
+    // by restoring one of the block's interior walls — preferring a wall no route
+    // uses (so routes stay intact) and that doesn't strand a dead end. Restoring
+    // a single edge of the block's loop keeps every cell connected. Only a true
+    // maze wants this; the open-arena styles keep their layout as carved.
+    if (!this.fill2x2) return;
+    let guard = g.cols * g.rows;
+    let changed = true;
+    while (changed && guard-- > 0) {
+      changed = false;
+      for (let x = 0; x + 1 < g.cols; x++) {
+        for (let y = 0; y + 1 < g.rows; y++) {
+          if (g.vWalls[x + 1][y] || g.vWalls[x + 1][y + 1] || g.hWalls[x][y + 1] || g.hWalls[x + 1][y + 1]) {
+            continue;
+          }
+          const opts = [
+            { set: () => (g.vWalls[x + 1][y] = true), c1: [x, y], c2: [x + 1, y] },
+            { set: () => (g.vWalls[x + 1][y + 1] = true), c1: [x, y + 1], c2: [x + 1, y + 1] },
+            { set: () => (g.hWalls[x][y + 1] = true), c1: [x, y], c2: [x, y + 1] },
+            { set: () => (g.hWalls[x + 1][y + 1] = true), c1: [x + 1, y], c2: [x + 1, y + 1] },
+          ] as const;
+          const k = (o: (typeof opts)[number]) => key(o.c1[1] * g.cols + o.c1[0], o.c2[1] * g.cols + o.c2[0]);
+          const offRoute = opts.filter((o) => !onRoute.has(k(o)));
+          const cands = offRoute.length ? offRoute : opts;
+          const pick =
+            cands.find((o) => g.cellOpenings(o.c1[0], o.c1[1]) >= 3 && g.cellOpenings(o.c2[0], o.c2[1]) >= 3) ??
+            cands[0];
+          pick.set();
+          changed = true;
+        }
       }
     }
   }
 }
 
 /**
- * Drop only wall segments that touch nothing else — a one-cell dash whose both
- * lattice endpoints are free (no border, no perpendicular wall). These are the
- * "broken walls that aren't connected at all"; coherent internal wall runs
- * (which legitimately float a maze's structure inward) are left intact, so this
- * never thins a maze out the way removing whole detached branches would.
+ * Braid a true maze: give most dead ends one extra opening so they connect
+ * through (often looping back), leaving a flowing maze instead of a thicket of
+ * stubs. A wall is only removed when both its lattice endpoints keep a wall
+ * afterwards, so braiding never opens a 2×2 area; a fraction of dead ends (and
+ * any whose every opening would make a 2×2) are kept for character. Only opens
+ * walls, so the arena stays connected.
  */
-export class PruneIsolatedWallsCommand implements MazeCommand {
+export class BraidDeadEndsCommand implements MazeCommand {
+  constructor(private readonly keepRatio: number) {}
+
   run(g: MazeGrid): void {
     const { cols, rows } = g;
-    // Walls incident to lattice vertex (x, y): up/down verticals, left/right
-    // horizontals. A vertex with exactly one is the loose tip of a dash.
-    const degree = (x: number, y: number): number => {
-      let d = 0;
-      if (y > 0 && g.vWalls[x][y - 1]) d++;
-      if (y < rows && g.vWalls[x][y]) d++;
-      if (x > 0 && g.hWalls[x - 1][y]) d++;
-      if (x < cols && g.hWalls[x][y]) d++;
-      return d;
-    };
-    // Internal verticals: endpoints (x, y) and (x, y + 1).
-    for (let x = 1; x < cols; x++)
-      for (let y = 0; y < rows; y++)
-        if (g.vWalls[x][y] && degree(x, y) === 1 && degree(x, y + 1) === 1) g.vWalls[x][y] = false;
-    // Internal horizontals: endpoints (x, y) and (x + 1, y).
-    for (let x = 0; x < cols; x++)
-      for (let y = 1; y < rows; y++)
-        if (g.hWalls[x][y] && degree(x, y) === 1 && degree(x + 1, y) === 1) g.hWalls[x][y] = false;
+    for (let x = 0; x < cols; x++) {
+      for (let y = 0; y < rows; y++) {
+        if (g.cellOpenings(x, y) > 1) continue; // not a dead end
+        if (Math.random() < this.keepRatio) continue; // keep some dead ends
+        const cands: Array<{ remove: () => void; ax: number; ay: number; bx: number; by: number }> = [];
+        if (x > 0 && g.vWalls[x][y])
+          cands.push({ remove: () => (g.vWalls[x][y] = false), ax: x, ay: y, bx: x, by: y + 1 });
+        if (x < cols - 1 && g.vWalls[x + 1][y])
+          cands.push({ remove: () => (g.vWalls[x + 1][y] = false), ax: x + 1, ay: y, bx: x + 1, by: y + 1 });
+        if (y > 0 && g.hWalls[x][y])
+          cands.push({ remove: () => (g.hWalls[x][y] = false), ax: x, ay: y, bx: x + 1, by: y });
+        if (y < rows - 1 && g.hWalls[x][y + 1])
+          cands.push({ remove: () => (g.hWalls[x][y + 1] = false), ax: x, ay: y + 1, bx: x + 1, by: y + 1 });
+        // Keep ≥1 wall at each endpoint (degree ≥2 before ⇒ ≥1 after): no 2×2.
+        const safe = cands.filter((c) => g.wallDegree(c.ax, c.ay) >= 2 && g.wallDegree(c.bx, c.by) >= 2);
+        if (safe.length) safe[Math.floor(Math.random() * safe.length)].remove();
+      }
+    }
   }
 }
 
@@ -549,9 +607,9 @@ export class ClearInternalCommand implements MazeCommand {
 /**
  * Assemble the ordered generation pipeline for a layout. The arena always ends
  * connected (no walled-off pockets) and, when asked, carries the guaranteed
- * base routes. CTF (`perfectMaze`) keeps the carved single-path maze — dead
- * ends and all — instead of braiding it open, and tidies any stray dash; other
- * modes braid the carved maze into an open arena with scattered cover.
+ * base routes. CTF (`perfectMaze`) carves a true maze, fills any 2×2 the routing
+ * opened, then braids most dead ends into flowing loops (never opening a 2×2);
+ * other modes braid the carved maze into an open arena with scattered cover.
  */
 export function buildPipeline(
   wallStyle: WallStyle,
@@ -586,12 +644,90 @@ export function buildPipeline(
       if (!perfectMaze) cmds.push(new BraidCommand(), new EnsureCoverageCommand());
   }
   cmds.push(new EnsureConnectedCommand()); // no tank ever spawns in a walled-off pocket
-  if (minCornerPaths >= 2) cmds.push(new EnsureCornerPathsCommand(minCornerPaths));
-  // A true maze keeps every wall joined to its neighbours; drop any loose dash a
-  // carved route may have stranded (only the carved style — fixed layouts float
-  // walls by design).
-  if (perfectMaze && wallStyle === "maze") cmds.push(new PruneIsolatedWallsCommand());
+  if (minCornerPaths >= 2) cmds.push(new EnsureCornerPathsCommand(minCornerPaths, perfectMaze));
+  // A true maze: braid most dead ends into flowing loops. The braid never opens
+  // a 2×2 area, and routing already filled any 2×2 it created, so the result has
+  // none. Only the carved style.
+  if (perfectMaze && wallStyle === "maze") {
+    cmds.push(new BraidDeadEndsCommand(CTF_DEADEND_KEEP));
+  }
   return cmds;
+}
+
+/**
+ * Edge-disjoint routes between the two diagonal base blocks in the finished grid,
+ * capped at `limit` (unit-capacity max flow with a super-source/sink over the
+ * blocks). Used to confirm a generated maze actually meets its route guarantee —
+ * filling a 2×2 can, on rare layouts, sever a route, so generation is retried.
+ */
+function countBlockRoutes(g: MazeGrid, limit: number): number {
+  const N = g.cols * g.rows;
+  const S = N;
+  const T = N + 1;
+  const V = N + 2;
+  const side = Math.max(1, Math.min(g.baseSize, Math.floor(g.cols / 2), Math.floor(g.rows / 2)));
+  const cap = new Map<number, number>();
+  const add = (u: number, v: number, c: number) => cap.set(u * V + v, (cap.get(u * V + v) ?? 0) + c);
+  for (let y = 0; y < g.rows; y++) {
+    for (let x = 0; x < g.cols; x++) {
+      const u = y * g.cols + x;
+      for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx >= g.cols || ny >= g.rows || !g.passable(x, y, nx, ny)) continue;
+        const v = ny * g.cols + nx;
+        add(u, v, 1);
+        add(v, u, 1);
+      }
+    }
+  }
+  for (let dy = 0; dy < side; dy++) {
+    for (let dx = 0; dx < side; dx++) {
+      add(S, dy * g.cols + dx, limit);
+      add((g.rows - 1 - dy) * g.cols + (g.cols - 1 - dx), T, limit);
+    }
+  }
+  const neighbors = (u: number): number[] => {
+    if (u === S || u === T) {
+      const out: number[] = [];
+      for (let dy = 0; dy < side; dy++)
+        for (let dx = 0; dx < side; dx++)
+          out.push(u === S ? dy * g.cols + dx : (g.rows - 1 - dy) * g.cols + (g.cols - 1 - dx));
+      return out;
+    }
+    const ux = u % g.cols;
+    const uy = (u - ux) / g.cols;
+    const out: number[] = [];
+    for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
+      const nx = ux + dx;
+      const ny = uy + dy;
+      if (nx >= 0 && ny >= 0 && nx < g.cols && ny < g.rows) out.push(ny * g.cols + nx);
+    }
+    out.push(S, T);
+    return out;
+  };
+  let flow = 0;
+  while (flow < limit) {
+    const prev = new Int32Array(V).fill(-1);
+    prev[S] = S;
+    const q = [S];
+    for (let h = 0; h < q.length && prev[T] === -1; h++) {
+      const u = q[h];
+      for (const v of neighbors(u)) {
+        if (prev[v] !== -1 || (cap.get(u * V + v) ?? 0) <= 0) continue;
+        prev[v] = u;
+        q.push(v);
+      }
+    }
+    if (prev[T] === -1) break;
+    for (let v = T; v !== S; v = prev[v]) {
+      const u = prev[v];
+      cap.set(u * V + v, (cap.get(u * V + v) as number) - 1);
+      cap.set(v * V + u, (cap.get(v * V + u) ?? 0) + 1);
+    }
+    flow++;
+  }
+  return flow;
 }
 
 /**
@@ -642,10 +778,18 @@ export class Maze {
     // Clamp so the two corner blocks can never overlap on a small grid.
     this.baseSize = Math.max(1, Math.min(baseSize, Math.floor(cols / 2), Math.floor(rows / 2)));
 
-    this.grid = new MazeGrid(cols, rows, this.baseSize);
-    for (const cmd of buildPipeline(wallStyle, minCornerPaths, perfectMaze)) {
-      cmd.run(this.grid);
+    // Generate the layout. Filling a 2×2 the routing opened can, on rare carves,
+    // sever a guaranteed route; since carving is randomized, just regenerate when
+    // the finished maze falls short (it succeeds the vast majority of the time).
+    const wantRoutes = perfectMaze && wallStyle === "maze" ? minCornerPaths : 0;
+    const pipeline = () => buildPipeline(wallStyle, minCornerPaths, perfectMaze);
+    let grid = new MazeGrid(cols, rows, this.baseSize);
+    for (const cmd of pipeline()) cmd.run(grid);
+    for (let attempt = 0; wantRoutes >= 2 && countBlockRoutes(grid, wantRoutes) < wantRoutes && attempt < 20; attempt++) {
+      grid = new MazeGrid(cols, rows, this.baseSize);
+      for (const cmd of pipeline()) cmd.run(grid);
     }
+    this.grid = grid;
     this.walls = this.buildSegments();
   }
 

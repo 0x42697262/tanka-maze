@@ -192,11 +192,37 @@ function wallLattice(m: Maze): {
   return { edges, degree, vid };
 }
 
-/** Wall dashes that touch nothing else (both endpoints loose) — "broken" walls. */
-function isolatedDashCount(m: Maze): number {
-  const { edges, degree } = wallLattice(m);
+/** Count 2×2 blocks of cells with no walls between any of them (open rooms). */
+function open2x2Count(m: Maze): number {
   let n = 0;
-  for (const [a, b] of edges) if (degree[a] === 1 && degree[b] === 1) n++;
+  for (let x = 0; x + 1 < m.cols; x++) {
+    for (let y = 0; y + 1 < m.rows; y++) {
+      if (
+        m.passable(x, y, x + 1, y) &&
+        m.passable(x, y, x, y + 1) &&
+        m.passable(x + 1, y, x + 1, y + 1) &&
+        m.passable(x, y + 1, x + 1, y + 1)
+      ) {
+        n++;
+      }
+    }
+  }
+  return n;
+}
+
+/** Cells with one or zero open sides — dead ends. */
+function deadEndCount(m: Maze): number {
+  let n = 0;
+  for (let x = 0; x < m.cols; x++) {
+    for (let y = 0; y < m.rows; y++) {
+      let deg = 0;
+      if (x > 0 && m.passable(x, y, x - 1, y)) deg++;
+      if (x < m.cols - 1 && m.passable(x, y, x + 1, y)) deg++;
+      if (y > 0 && m.passable(x, y, x, y - 1)) deg++;
+      if (y < m.rows - 1 && m.passable(x, y, x, y + 1)) deg++;
+      if (deg <= 1) n++;
+    }
+  }
   return n;
 }
 
@@ -225,16 +251,31 @@ describe("maze: CTF true maze", () => {
     assert.equal(ctfPathCount(14, 10), 3); // ~large
   });
 
-  it("is connected, spawn-safe, and never leaves isolated wall dashes", () => {
+  it("is connected, spawn-safe, and never leaves a 2x2 open area", () => {
     for (const [cols, rows] of SIZES) {
       for (const paths of [1, 2, 3]) {
         const m = new Maze(cols, rows, "maze", undefined, undefined, paths, true);
         assert.ok(fullyConnected(m), `${cols}x${rows} p${paths}: not connected`);
-        assert.equal(isolatedDashCount(m), 0, `${cols}x${rows} p${paths}: isolated dash`);
+        assert.equal(open2x2Count(m), 0, `${cols}x${rows} p${paths}: has a 2x2 open area`);
         for (const c of m.openCellCenters()) {
           assert.ok(!m.hitsCircle(c.x, c.y, 11), `${cols}x${rows} p${paths}: spawn clips a wall`);
         }
       }
+    }
+  });
+
+  it("braids most dead ends away (a flowing maze, not a thicket of stubs)", () => {
+    // Braiding opens the bulk of dead ends; only a few remain (kept for character
+    // or because opening them would make a 2x2). The un-braided true maze leaves
+    // roughly 10% of cells as dead ends, so well under 6% confirms braiding ran.
+    for (const [cols, rows] of [[14, 11], [20, 14]] as const) {
+      const paths = ctfPathCount(cols, rows);
+      let total = 0;
+      const N = 6;
+      for (let k = 0; k < N; k++) {
+        total += deadEndCount(new Maze(cols, rows, "maze", undefined, undefined, paths, true));
+      }
+      assert.ok(total / N < cols * rows * 0.06, `${cols}x${rows}: ${total / N} dead ends still`);
     }
   });
 

@@ -20,6 +20,13 @@ export const WALL_THICKNESS = 6; // rendered/collision thickness of a wall line
  * just controls how loopy vs. winding it feels. 0 = remove every dead end.
  */
 export const WALL_KEEP_DEADEND_RATIO = 0.1;
+/**
+ * Fraction of dead ends a true (CTF) maze keeps when braiding them open. The
+ * rest each get one extra opening so they connect through (often forming loops),
+ * leaving a less stubby, more flowing maze. Some dead ends also stay because
+ * opening them would create a 2×2 open area, which braiding never does.
+ */
+export const CTF_DEADEND_KEEP = 0.12;
 
 export const TANK_RADIUS = 11;
 export const TANK_SPEED = 100; // px / second (forward, at 100% speed)
