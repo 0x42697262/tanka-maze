@@ -8,13 +8,24 @@ import { net, renderer, state } from "./state.js";
 export function renderScoreboard(): void {
   if (!state.currentLobby) return;
   const lobby = state.currentLobby;
-  const teams = lobby.config.mode === "teams";
+  const ctf = lobby.config.mode === "ctf";
+  const teams = lobby.config.mode === "teams" || ctf;
   const lms = lobby.config.mode === "lms"; // rank by survival (lives), not points
   const isHost = lobby.hostId === state.playerId;
   const snap = renderer.latest();
-  // Metric column: lives remaining in Last Man Standing, score otherwise.
+  // Metric column: flags-captured per team in CTF, lives in LMS, score otherwise.
+  const capByTeam = new Map<number, number>();
+  if (ctf) {
+    for (const s of state.roundStanding ?? []) {
+      if (s.key.startsWith("t")) capByTeam.set(Number(s.key.slice(1)), s.wins);
+    }
+  }
   const metricById = new Map<string, number>();
-  if (snap) for (const t of snap.tanks) metricById.set(t.id, lms ? t.livesLeft : t.score);
+  if (snap) {
+    for (const t of snap.tanks) {
+      metricById.set(t.id, ctf ? capByTeam.get(t.team) ?? 0 : lms ? t.livesLeft : t.score);
+    }
+  }
 
   const rows = [...lobby.players].sort(
     (a, b) => (metricById.get(b.id) ?? 0) - (metricById.get(a.id) ?? 0)
@@ -45,7 +56,7 @@ export function renderScoreboard(): void {
 
   $("sb-table-wrap").innerHTML =
     `<table class="sb-table"><thead><tr>` +
-    `<th>Player</th>${teamHead}<th>${lms ? "Lives" : "Score"}</th><th>Ping</th><th></th>` +
+    `<th>Player</th>${teamHead}<th>${ctf ? "Flags" : lms ? "Lives" : "Score"}</th><th>Ping</th><th></th>` +
     `</tr></thead><tbody>${body}</tbody></table>`;
 
   $("sb-table-wrap")

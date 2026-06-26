@@ -22,8 +22,21 @@ import {
   type ScoreDTO,
   type SnapshotDTO,
   type SpawnZoneDTO,
+  type FlagDTO,
+  type FlagState,
 } from "../shared/protocol.js";
 import { Maze } from "./maze.js";
+
+/** A team's flag in Capture the Flag. Home position is its base (spawn-zone) center. */
+interface Flag {
+  team: number;
+  homeX: number;
+  homeY: number;
+  x: number;
+  y: number;
+  state: FlagState;
+  carrierId: string | null;
+}
 
 /** A team's designated spawn area: a cell-aligned rectangle and its cell centers. */
 interface SpawnZone {
@@ -106,6 +119,8 @@ interface Tank {
   /** Seconds left on a laser windup (0 = not charging). */
   laserCharge: number;
   team: number;
+  /** Flags this tank has personally captured (Capture the Flag scoreboard stat). */
+  captures: number;
 }
 
 interface Bullet {
@@ -156,8 +171,10 @@ export class Game {
   private nextBulletId = 1;
   private nextIndex = 0;
   private spawns: Array<{ x: number; y: number }>;
-  // Team VS: per-team designated spawn areas (empty when disabled / not Team VS).
+  // Team VS / CTF: per-team designated spawn areas (empty when disabled).
   private spawnZones: SpawnZone[] = [];
+  // Capture the Flag: one flag per team (empty in other modes).
+  private flags: Flag[] = [];
   private finished = false; // the whole match is decided
   private winnerName = ""; // match champion (set once finished)
   // Round series state.
@@ -194,13 +211,19 @@ export class Game {
     this.maze = maze;
     this.cfg = config;
     this.adv = config.adv;
-    this.totalRounds = Math.max(1, config.rounds);
+    // CTF is "first to maxFlags captures" — modeled as a best-of-(2N-1) series so
+    // the existing clinch logic resolves the match exactly when a team hits N.
+    this.totalRounds =
+      config.mode === "ctf"
+        ? Math.max(1, config.maxFlags * 2 - 1)
+        : Math.max(1, config.rounds);
     this.teamNames = teamNames;
     this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
     this.powerupTimer = config.powerupEverySeconds;
     this.spawns = shuffle(maze.openCellCenters());
     this.buildSpawnZones(players.map((p) => p.team ?? 0));
+    this.buildFlags();
 
     // Initial players take sequential spawn points around the arena.
     for (const p of players) this.addPlayer(p, false);
@@ -260,6 +283,7 @@ export class Game {
       scopeShots: 0,
       laserCharge: 0,
       team,
+      captures: 0,
     });
     if (this.tanks.size > 1) this.everMultiple = true;
   }
@@ -298,7 +322,11 @@ export class Game {
     this.adv = config.adv;
     this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
-    this.totalRounds = Math.max(1, config.rounds);
+    // Mode is structural (applies on restart), so the series length follows the
+    // mode this match was built with — recompute the same way the constructor does.
+    this.totalRounds = this.ctf
+      ? Math.max(1, config.maxFlags * 2 - 1)
+      : Math.max(1, config.rounds);
   }
 
   setInput(playerId: string, input: InputState): void {
@@ -441,6 +469,7 @@ export class Game {
     }
 
     this.stepBullets(dt);
+    this.stepFlags();
   }
 
   private fire(tank: Tank): void {
@@ -601,12 +630,12 @@ export class Game {
   /**
    * True if `ownerId` is barred from damaging `tank` by the friendly-fire rule.
    * FF on  → nobody is protected (you can hurt yourself and teammates).
-   * FF off → you can't hurt yourself (any mode) or your teammates (team mode).
+   * FF off → you can't hurt yourself (any mode) or your teammates (Team VS / CTF).
    */
   private isFriendly(ownerId: string, tank: Tank): boolean {
     if (this.cfg.friendlyFire) return false;
     if (ownerId === tank.id) return true; // can't self-damage when FF is off
-    if (this.cfg.mode !== "teams") return false;
+    if (this.cfg.mode !== "teams" && !this.ctf) return false;
     const o = this.tanks.get(ownerId);
     return !!o && o.team === tank.team;
   }
@@ -793,7 +822,8 @@ export class Game {
         bestAnyD = d;
         bestAny = t;
       }
-      const enemy = t.id !== ownerId && !(owner && this.cfg.mode === "teams" && owner.team === t.team);
+      const teammate = !!owner && (this.cfg.mode === "teams" || this.ctf) && owner.team === t.team;
+      const enemy = t.id !== ownerId && !teammate;
       if (enemy && d < bestEnemyD) {
         bestEnemyD = d;
         bestEnemy = t;
@@ -913,8 +943,12 @@ export class Game {
     victim.alive = false;
     victim.deaths += 1;
 
+    // CTF: a carried flag drops where the carrier fell, free to be picked up again.
+    if (this.ctf) this.dropFlagOf(victim.id);
+
     // Death penalty: lose a configurable fraction of points (integer, ≥ 0).
-    const loss = Math.floor((victim.score * this.cfg.deathPenaltyPct) / 100);
+    // CTF has no point scoring (the match is decided by flag captures).
+    const loss = this.ctf ? 0 : Math.floor((victim.score * this.cfg.deathPenaltyPct) / 100);
     victim.score = Math.max(0, victim.score - loss);
 
     // Eliminated if lives are limited and exhausted; otherwise respawns.
@@ -926,11 +960,11 @@ export class Game {
 
     const killer = this.tanks.get(killerId);
     if (killer && killer.id !== victim.id) {
-      const teamKill = this.cfg.mode === "teams" && killer.team === victim.team;
+      const teamKill = (this.cfg.mode === "teams" || this.ctf) && killer.team === victim.team;
       if (teamKill) {
-        // Team-killing is penalized, not rewarded.
+        // Team-killing is penalized, not rewarded (no points in CTF).
         const before = killer.score;
-        killer.score = Math.max(0, killer.score - this.cfg.teamKillPenalty);
+        if (!this.ctf) killer.score = Math.max(0, killer.score - this.cfg.teamKillPenalty);
         this.pendingEvents.push({
           type: 2,
           killer: killer.index,
@@ -938,13 +972,15 @@ export class Game {
           points: killer.score - before,
         });
       } else {
-        killer.score += this.cfg.killPoints;
-        if (killer.score < 1) killer.score = 1; // a kill always leaves you ≥ 1
+        if (!this.ctf) {
+          killer.score += this.cfg.killPoints;
+          if (killer.score < 1) killer.score = 1; // a kill always leaves you ≥ 1
+        }
         this.pendingEvents.push({
           type: 0,
           killer: killer.index,
           victim: victim.index,
-          points: this.cfg.killPoints,
+          points: this.ctf ? 0 : this.cfg.killPoints,
         });
         if (this.cfg.mode === "ffa" && killer.score >= this.cfg.winScore) {
           this.endRound(killer.id, killer.name);
@@ -966,6 +1002,7 @@ export class Game {
    */
   private checkElimination(): void {
     if (this.finished || this.roundOver || !this.everMultiple) return;
+    if (this.ctf) return; // CTF rounds end on a capture, never on elimination
     if (this.cfg.mode !== "lms" && this.cfg.lives <= 0) return;
 
     if (this.cfg.mode === "teams") {
@@ -1041,6 +1078,7 @@ export class Game {
     this.spawns = shuffle(maze.openCellCenters());
     this.spawnIndex = 0;
     this.buildSpawnZones([...this.tanks.values()].map((t) => t.team));
+    this.buildFlags();
     this.round += 1;
     this.roundOver = false;
     this.roundWinnerName = "";
@@ -1089,7 +1127,7 @@ export class Game {
   roundStandings(): RoundStanding[] {
     type Row = RoundStanding & { score: number };
     const rows: Row[] = [];
-    if (this.cfg.mode === "teams") {
+    if (this.cfg.mode === "teams" || this.ctf) {
       for (let team = 0; team < this.cfg.teamCount; team++) {
         const members = [...this.tanks.values()].filter((t) => t.team === team);
         rows.push({
@@ -1141,9 +1179,10 @@ export class Game {
     tank.laserCharge = 0;
   }
 
-  /** True when team spawn zones are active for this match. */
+  /** True when team spawn zones are active for this match (Team VS option, or CTF bases). */
   private get zonesActive(): boolean {
-    return this.cfg.mode === "teams" && this.cfg.teamSpawnZones && this.spawnZones.length > 0;
+    if (this.spawnZones.length === 0) return false;
+    return this.ctf || (this.cfg.mode === "teams" && this.cfg.teamSpawnZones);
   }
 
   /** Candidate spawn cells: a team's zone when zones are active, else the whole arena. */
@@ -1163,7 +1202,10 @@ export class Game {
    */
   private buildSpawnZones(teams: number[]): void {
     this.spawnZones = [];
-    if (this.cfg.mode !== "teams" || !this.cfg.teamSpawnZones) return;
+    // Team VS uses zones when enabled; CTF always uses them (they're the bases).
+    const wantZones =
+      this.cfg.mode === "ctf" || (this.cfg.mode === "teams" && this.cfg.teamSpawnZones);
+    if (!wantZones) return;
 
     const { cols, rows, cell } = this.maze;
     const counts = new Array<number>(this.cfg.teamCount).fill(0);
@@ -1198,6 +1240,92 @@ export class Game {
         cells,
       });
     }
+  }
+
+  /** True when this is a Capture the Flag match. */
+  private get ctf(): boolean {
+    return this.cfg.mode === "ctf";
+  }
+
+  /** Place one flag at each team's base (spawn-zone) center. CTF only. */
+  private buildFlags(): void {
+    this.flags = [];
+    if (!this.ctf) return;
+    for (const z of this.spawnZones) {
+      const hx = z.x + z.width / 2;
+      const hy = z.y + z.height / 2;
+      this.flags.push({ team: z.team, homeX: hx, homeY: hy, x: hx, y: hy, state: "home", carrierId: null });
+    }
+  }
+
+  /**
+   * Capture the Flag step: a flag follows its carrier; an idle (home/dropped)
+   * enemy flag is picked up on contact; carrying the enemy flag into your own
+   * base scores a capture, which ends the round.
+   */
+  private stepFlags(): void {
+    if (!this.ctf || this.roundOver) return;
+    const pickupR = this.adv.tankRadius + POWERUP_RADIUS;
+    const pickupR2 = pickupR * pickupR;
+
+    for (const flag of this.flags) {
+      // Carried flag: ride the carrier, or drop if the carrier is gone/dead.
+      if (flag.state === "carried") {
+        const carrier = flag.carrierId ? this.tanks.get(flag.carrierId) : undefined;
+        if (!carrier || !carrier.alive) {
+          flag.state = "dropped";
+          flag.carrierId = null;
+        } else {
+          flag.x = carrier.x;
+          flag.y = carrier.y;
+          continue;
+        }
+      }
+
+      // Idle enemy flag (home or dropped): the first enemy tank to touch it carries it.
+      for (const t of this.tanks.values()) {
+        if (!t.alive || t.team === flag.team) continue; // only the enemy steals it
+        if ((t.x - flag.x) ** 2 + (t.y - flag.y) ** 2 <= pickupR2) {
+          flag.state = "carried";
+          flag.carrierId = t.id;
+          flag.x = t.x;
+          flag.y = t.y;
+          break;
+        }
+      }
+    }
+
+    // Capture: a carrier standing in its own base with the enemy flag scores.
+    for (const flag of this.flags) {
+      if (flag.state !== "carried" || !flag.carrierId) continue;
+      const carrier = this.tanks.get(flag.carrierId);
+      if (!carrier) continue;
+      const base = this.spawnZones.find((z) => z.team === carrier.team);
+      if (base && this.inRect(carrier.x, carrier.y, base)) {
+        carrier.captures += 1;
+        this.endRound(`t${carrier.team}`, this.teamNames[carrier.team] ?? `Team ${carrier.team + 1}`);
+        return;
+      }
+    }
+  }
+
+  /** A carried flag drops where its carrier fell (called from kill). */
+  private dropFlagOf(tankId: string): void {
+    for (const flag of this.flags) {
+      if (flag.carrierId === tankId) {
+        flag.state = "dropped";
+        flag.carrierId = null;
+      }
+    }
+  }
+
+  private inRect(x: number, y: number, r: { x: number; y: number; width: number; height: number }): boolean {
+    return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+  }
+
+  /** Flags for the snapshot (CTF only; empty otherwise). */
+  flagDTOs(): FlagDTO[] {
+    return this.flags.map((f) => ({ team: f.team, x: round(f.x), y: round(f.y), state: f.state }));
   }
 
   /** Spawn areas for the client to render (team color resolved from live tanks). */
@@ -1291,6 +1419,7 @@ export class Game {
         x: round(p.x),
         y: round(p.y),
       })),
+      flags: this.flagDTOs(),
       blasts: this.pendingBlasts.map((b) => ({ x: round(b.x), y: round(b.y) })),
       beams: this.pendingBeams.map((b) => ({
         x1: round(b.x1),

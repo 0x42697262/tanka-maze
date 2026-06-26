@@ -131,6 +131,100 @@ describe("explosive", () => {
   });
 });
 
+describe("capture the flag", () => {
+  const ctfPlayers = [
+    { id: "a", name: "A", color: "#ff0000", team: 0 },
+    { id: "b", name: "B", color: "#0000ff", team: 1 },
+  ];
+  const makeCtf = (over: Partial<typeof DEFAULT_GAME_CONFIG> = {}) =>
+    makeGame({
+      cfg: { mode: "ctf", maxFlags: 3, hp: 3, ...over },
+      players: ctfPlayers,
+      maze: new Maze(10, 8, "open"),
+    });
+  const flags = (g: Game): any[] => (g as any).flags;
+  const flagOf = (g: Game, team: number) => flags(g).find((f) => f.team === team);
+  const zoneOf = (g: Game, team: number) =>
+    (g as any).spawnZones.find((z: any) => z.team === team);
+
+  it("places one flag at each team's base center", () => {
+    const g = makeCtf();
+    assert.equal(flags(g).length, 2);
+    for (const team of [0, 1]) {
+      const z = zoneOf(g, team);
+      const f = flagOf(g, team);
+      assert.equal(f.x, z.x + z.width / 2);
+      assert.equal(f.y, z.y + z.height / 2);
+      assert.equal(f.state, "home");
+    }
+  });
+
+  it("an enemy tank picks up the flag on contact; bringing it home captures", () => {
+    const g = makeCtf({ maxFlags: 2 });
+    const a = tank(g, "a"); // team 0
+    const enemyFlag = flagOf(g, 1);
+    // Walk A onto the enemy flag, then step the flag logic.
+    a.x = enemyFlag.x;
+    a.y = enemyFlag.y;
+    (g as any).stepFlags();
+    assert.equal(enemyFlag.state, "carried");
+    assert.equal(enemyFlag.carrierId, "a");
+
+    // Carry it into A's own base → capture (ends the round, +1 to team 0).
+    const base = zoneOf(g, 0);
+    a.x = base.x + base.width / 2;
+    a.y = base.y + base.height / 2;
+    enemyFlag.x = a.x;
+    enemyFlag.y = a.y;
+    (g as any).stepFlags();
+    assert.equal(a.captures, 1);
+    assert.equal((g as any).roundWins.get("t0"), 1);
+    assert.equal(g.isRoundOver, true);
+  });
+
+  it("a carried flag drops where the carrier dies and can be re-picked", () => {
+    const g = makeCtf();
+    const a = tank(g, "a");
+    const enemyFlag = flagOf(g, 1);
+    a.x = enemyFlag.x;
+    a.y = enemyFlag.y;
+    (g as any).stepFlags();
+    assert.equal(enemyFlag.state, "carried");
+
+    a.x = 400;
+    a.y = 300;
+    enemyFlag.x = a.x;
+    enemyFlag.y = a.y;
+    (g as any).kill(a, "b"); // A dies mid-carry
+    assert.equal(enemyFlag.state, "dropped");
+    assert.equal(enemyFlag.carrierId, null);
+    assert.equal(enemyFlag.x, 400); // stays where it fell
+  });
+
+  it("a team can't pick up its own flag", () => {
+    const g = makeCtf();
+    const a = tank(g, "a"); // team 0
+    const ownFlag = flagOf(g, 0);
+    a.x = ownFlag.x;
+    a.y = ownFlag.y;
+    (g as any).stepFlags();
+    assert.equal(ownFlag.state, "home");
+    assert.equal(ownFlag.carrierId, null);
+  });
+
+  it("kills award no points in CTF (won by captures, not score)", () => {
+    const g = makeCtf();
+    (g as any).kill(tank(g, "b"), "a");
+    assert.equal(tank(g, "a").score, 0);
+  });
+
+  it("forces 2 teams and spawn-zone bases", () => {
+    const g = makeCtf();
+    assert.equal((g as any).spawnZones.length, 2);
+    assert.equal(g.spawnZoneDTOs().length, 2);
+  });
+});
+
 describe("team spawn zones", () => {
   const teamPlayers = [
     { id: "a", name: "A", color: "#ff0000", team: 0 },

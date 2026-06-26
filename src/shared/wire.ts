@@ -9,6 +9,7 @@ import {
   POWERUP_TYPES,
   WEAPON_POWERUPS,
   type BulletKind,
+  type FlagState,
   type InputState,
   type PowerupType,
   type RosterEntry,
@@ -26,6 +27,9 @@ const WEAPON_CODES: (PowerupType | null)[] = [null, ...WEAPON_POWERUPS];
 const KIND_CODES: BulletKind[] = ["normal", "sniper", "explosive", "laser", "tracking"];
 // Pickup codes: every power-up in registry order.
 const PUP_CODES: PowerupType[] = POWERUP_TYPES;
+// Flag-state codes.
+const FLAG_STATES: FlagState[] = ["home", "carried", "dropped"];
+const flagStateCode = (s: FlagState): number => Math.max(0, FLAG_STATES.indexOf(s));
 
 const weaponCode = (w: PowerupType | null): number => {
   const i = WEAPON_CODES.indexOf(w);
@@ -100,6 +104,8 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     1 +
     s.powerups.length * 5 +
     1 +
+    s.flags.length * 6 +
+    1 +
     s.blasts.length * 4 +
     1 +
     s.beams.length * 8 +
@@ -159,6 +165,16 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint16(o, u16(p.x), true);
     o += 2;
     dv.setUint16(o, u16(p.y), true);
+    o += 2;
+  }
+
+  dv.setUint8(o++, s.flags.length);
+  for (const f of s.flags) {
+    dv.setUint8(o++, f.team);
+    dv.setUint8(o++, flagStateCode(f.state));
+    dv.setUint16(o, u16(f.x), true);
+    o += 2;
+    dv.setUint16(o, u16(f.y), true);
     o += 2;
   }
 
@@ -277,6 +293,18 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     powerups.push({ id: i, type, x, y });
   }
 
+  const flags = [];
+  const flagCount = dv.getUint8(o++);
+  for (let i = 0; i < flagCount; i++) {
+    const team = dv.getUint8(o++);
+    const state = FLAG_STATES[dv.getUint8(o++)] ?? "home";
+    const x = dv.getUint16(o, true);
+    o += 2;
+    const y = dv.getUint16(o, true);
+    o += 2;
+    flags.push({ team, state, x, y });
+  }
+
   const blasts = [];
   const blastCount = dv.getUint8(o++);
   for (let i = 0; i < blastCount; i++) {
@@ -312,7 +340,7 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     events.push({ type, killer, victim, points });
   }
 
-  return { t: 0, tanks, bullets, powerups, blasts, beams, events };
+  return { t: 0, tanks, bullets, powerups, flags, blasts, beams, events };
 }
 
 /** Byte-equality check for snapshot change-gating. */

@@ -33,6 +33,12 @@ export function clearKillLog(): void {
 /** "Round 2 / 3" pill in the game header (hidden for single-round matches). */
 export function renderRoundBadge(): void {
   const el = $("gh-round");
+  // CTF isn't a round series to the player — it's a race to N flag captures.
+  if (state.currentLobby?.config.mode === "ctf") {
+    el.textContent = `First to ${state.currentLobby.config.maxFlags} ⚑`;
+    el.classList.remove("hidden");
+    return;
+  }
   if (state.roundInfo.total > 1) {
     el.textContent = `Round ${state.roundInfo.round} / ${state.roundInfo.total}`;
     el.classList.remove("hidden");
@@ -93,6 +99,35 @@ export function renderLeaderboard(): void {
   if (!snap) return;
   const ol = $("leaderboard-rows");
   ol.innerHTML = "";
+
+  // Capture the Flag: rank the two teams by flags captured (from the series tally).
+  if (state.currentLobby?.config.mode === "ctf") {
+    const names = state.currentLobby?.teamNames ?? [];
+    const colors = state.currentLobby?.teamColors ?? [];
+    const myTeam = snap.tanks.find((t) => t.id === state.playerId)?.team;
+    const capByTeam = new Map<number, number>();
+    for (const s of state.roundStanding ?? []) {
+      if (s.key.startsWith("t")) capByTeam.set(Number(s.key.slice(1)), s.wins);
+    }
+    const memberN = new Map<number, number>();
+    for (const t of snap.tanks) memberN.set(t.team, (memberN.get(t.team) ?? 0) + 1);
+    [0, 1]
+      .map((team) => ({ team, caps: capByTeam.get(team) ?? 0 }))
+      .sort((a, b) => b.caps - a.caps || a.team - b.team)
+      .forEach(({ team, caps }, i) => {
+        const li = document.createElement("li");
+        if (team === myTeam) li.className = "me";
+        const tint = colors[team] ?? TEAM_TINT[team % TEAM_TINT.length];
+        const tname = names[team] ?? `Team ${team + 1}`;
+        li.innerHTML =
+          `<span class="rank">${i + 1}</span>` +
+          `<span class="swatch" style="background:${tint}"></span>` +
+          `<span class="nm">${escapeHtml(tname)} (${memberN.get(team) ?? 0})</span>` +
+          `<span class="pts">⚑ ${caps}</span>`;
+        ol.appendChild(li);
+      });
+    return;
+  }
 
   if (state.currentLobby?.config.mode === "teams") {
     const totals = new Map<number, { score: number; n: number }>();

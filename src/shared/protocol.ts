@@ -94,7 +94,7 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
 // Game configuration (set by the host when creating a lobby)
 // ---------------------------------------------------------------------------
 
-export type GameMode = "ffa" | "lms" | "teams";
+export type GameMode = "ffa" | "lms" | "teams" | "ctf";
 export type WallStyle =
   | "maze"
   | "sparse"
@@ -271,6 +271,7 @@ export interface GameConfig {
   friendlyFire: boolean; // allow damaging yourself (any mode) and teammates (Team VS)
   teamKillPenalty: number; // points lost for killing a teammate (Team VS)
   teamSpawnZones: boolean; // Team VS: spawn each team in its own corner zone (off = randomized)
+  maxFlags: number; // Capture the Flag: captures needed to win the match
   adv: AdvancedConfig; // advanced engine tuning
   // Power-ups
   powerups: boolean; // spawn pickups on the map
@@ -296,6 +297,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   friendlyFire: true,
   teamKillPenalty: 60,
   teamSpawnZones: true,
+  maxFlags: 3,
   adv: DEFAULT_ADVANCED,
   powerups: true,
   powerupEverySeconds: 8,
@@ -456,11 +458,23 @@ export interface BeamDTO {
   y2: number;
 }
 
+export type FlagState = "home" | "carried" | "dropped";
+
+/** A team's flag in Capture the Flag: its team (home base) + live position. */
+export interface FlagDTO {
+  team: number;
+  x: number;
+  y: number;
+  state: FlagState;
+}
+
 export interface SnapshotDTO {
   t: number; // server timestamp (ms)
   tanks: TankDTO[];
   bullets: BulletDTO[];
   powerups: PowerupDTO[];
+  /** Capture-the-Flag flags (one per team); empty in other modes. */
+  flags: FlagDTO[];
   /** Explosion centers that occurred this tick (transient). */
   blasts: { x: number; y: number }[];
   /** Laser beams fired this tick (transient). */

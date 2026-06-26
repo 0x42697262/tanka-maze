@@ -380,10 +380,13 @@ function sanitizeConfig(raw: unknown): GameConfig {
     const n = Math.floor(Number(v));
     return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
   };
-  const mode = oneOf(c.mode, ["ffa", "lms", "teams"] as const, d.mode);
+  const mode = oneOf(c.mode, ["ffa", "lms", "teams", "ctf"] as const, d.mode);
+  const ctf = mode === "ctf";
   let lives = clampInt(c.lives, 0, 99, d.lives);
   // Last Man Standing needs finite lives, or it could never end.
   if (mode === "lms" && lives < 1) lives = 3;
+  // CTF: respawn-at-base means nobody is ever eliminated, so lives are infinite.
+  if (ctf) lives = 0;
   return {
     mode,
     wallStyle: oneOf(
@@ -401,10 +404,12 @@ function sanitizeConfig(raw: unknown): GameConfig {
     killPoints: clampInt(c.killPoints, 1, 500, d.killPoints),
     deathPenaltyPct: clampInt(c.deathPenaltyPct, 0, 90, d.deathPenaltyPct),
     winScore: clampInt(c.winScore, 60, 6000, d.winScore),
-    teamCount: clampInt(c.teamCount, 2, 4, d.teamCount),
+    // CTF is always 2 teams, played out of corner bases (spawn zones forced on).
+    teamCount: ctf ? 2 : clampInt(c.teamCount, 2, 4, d.teamCount),
     friendlyFire: typeof c.friendlyFire === "boolean" ? c.friendlyFire : d.friendlyFire,
     teamKillPenalty: clampInt(c.teamKillPenalty, 0, 500, d.teamKillPenalty),
-    teamSpawnZones: typeof c.teamSpawnZones === "boolean" ? c.teamSpawnZones : d.teamSpawnZones,
+    teamSpawnZones: ctf ? true : typeof c.teamSpawnZones === "boolean" ? c.teamSpawnZones : d.teamSpawnZones,
+    maxFlags: clampInt(c.maxFlags, 1, 20, d.maxFlags),
     adv: sanitizeAdvanced(c.adv),
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),

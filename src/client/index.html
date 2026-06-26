@@ -70,6 +70,7 @@
               <option value="ffa">Free-for-all</option>
               <option value="lms">Last Man Standing</option>
               <option value="teams">Team VS</option>
+              <option value="ctf">Capture the Flag</option>
             </select>
           </div>
           <div class="row cfg-teams">
@@ -122,8 +123,12 @@
           <div class="row two">
             <label for="max-players">Max players</label>
             <input id="max-players" type="number" min="2" max="32" value="4" />
-            <label for="rounds">Rounds (best of)</label>
-            <input id="rounds" type="number" min="1" max="15" value="3" />
+            <label for="rounds" class="cfg-nctf">Rounds (best of)</label>
+            <input id="rounds" type="number" min="1" max="15" value="3" class="cfg-nctf" />
+          </div>
+          <div class="row cfg-ctf">
+            <label for="max-flags">Flags to win</label>
+            <input id="max-flags" type="number" min="1" max="20" value="3" />
           </div>
           <div class="row two">
             <label for="tank-speed">Tank speed %</label>
@@ -145,14 +150,14 @@
             </select>
           </div>
 
-          <h3 class="cfg-h">Scoring</h3>
-          <div class="row two">
+          <h3 class="cfg-h cfg-nctf">Scoring</h3>
+          <div class="row two cfg-nctf">
             <label for="kill-points">Kill pts</label>
             <input id="kill-points" type="number" min="1" max="500" value="60" />
             <label for="death-penalty">Death −%</label>
             <input id="death-penalty" type="number" min="0" max="90" value="33" />
           </div>
-          <div class="row cfg-haswin">
+          <div class="row cfg-haswin cfg-nctf">
             <label for="win-score">Points to win</label>
             <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
           </div>

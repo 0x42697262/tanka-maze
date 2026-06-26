@@ -77,6 +77,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       friendlyFire: sel("friendly-fire") === "on",
       teamKillPenalty: Number(($("team-kill") as HTMLInputElement).value) || 0,
       teamSpawnZones: sel("team-spawn-zones") === "on",
+      maxFlags: num("max-flags", 3),
       adv: gatherAdvanced(),
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
@@ -105,6 +106,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("friendly-fire", c.friendlyFire ? "on" : "off");
   set("team-kill", c.teamKillPenalty);
   set("team-spawn-zones", c.teamSpawnZones ? "on" : "off");
+  set("max-flags", c.maxFlags);
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
   set("pwr-charges", c.powerupCharges);
@@ -118,10 +120,16 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
 export function applyModeVisibility(): void {
   const mode = ($("mode") as HTMLSelectElement).value;
   const cfg = $("lobby-config");
-  cfg.querySelectorAll(".cfg-teams").forEach((el) =>
-    el.classList.toggle("hidden", mode !== "teams")
-  );
-  cfg.querySelectorAll(".cfg-haswin").forEach((el) => el.classList.toggle("hidden", mode === "lms"));
+  const ctf = mode === "ctf";
+  const toggle = (sel: string, hidden: boolean) =>
+    cfg.querySelectorAll(sel).forEach((el) => el.classList.toggle("hidden", hidden));
+  // Team-only controls (team count, team-kill, spawn-zones) — CTF locks these,
+  // so they're hidden there too.
+  toggle(".cfg-teams", mode !== "teams");
+  toggle(".cfg-haswin", mode === "lms");
+  // CTF-only (flags to win) vs the point-scoring/rounds controls it replaces.
+  toggle(".cfg-ctf", !ctf);
+  toggle(".cfg-nctf", ctf);
 }
 
 // ---- Map (walls) image picker ----

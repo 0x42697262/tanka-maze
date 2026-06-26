@@ -97,9 +97,10 @@ export class Lobby {
     this.teamColors.length = n;
   }
 
-  /** A member's in-game color: their team's color in Team VS, else their own. */
+  /** A member's in-game color: their team's color in Team VS / CTF, else their own. */
   private colorFor(client: Client): string {
-    return this.config.mode === "teams" ? this.teamColors[client.team] ?? client.color : client.color;
+    const teamBased = this.config.mode === "teams" || this.config.mode === "ctf";
+    return teamBased ? this.teamColors[client.team] ?? client.color : client.color;
   }
 
   /** True if `clientId` is the first member (captain) of `team`. */

@@ -13,7 +13,13 @@ import {
 import { escapeHtml } from "./dom.js";
 
 export function modeLabel(mode: GameMode): string {
-  return mode === "lms" ? "Last Man Standing" : mode === "teams" ? "Team VS" : "Free-for-all";
+  return mode === "lms"
+    ? "Last Man Standing"
+    : mode === "teams"
+      ? "Team VS"
+      : mode === "ctf"
+        ? "Capture the Flag"
+        : "Free-for-all";
 }
 
 export const WALL_LABEL: Record<WallStyle, string> = {
@@ -37,10 +43,11 @@ export const SIZE_LABEL: Record<MapSize, string> = {
 /** One-line summary shown in the lobby list + waiting room. */
 export function configSummary(c: GameConfig): string {
   const bits = [modeLabel(c.mode), `${WALL_LABEL[c.wallStyle]} · ${SIZE_LABEL[c.mapSize]} map`];
-  if (c.rounds > 1) bits.push(`best of ${c.rounds}`);
+  if (c.mode !== "ctf" && c.rounds > 1) bits.push(`best of ${c.rounds}`);
   if (c.hp > 1) bits.push(`${c.hp} HP`);
   if (c.tankSpeedPct !== 100) bits.push(`${c.tankSpeedPct}% speed`);
-  if (c.mode === "lms") bits.push(c.lives > 0 ? `${c.lives} lives` : "1 life");
+  if (c.mode === "ctf") bits.push(`2 teams · first to ${c.maxFlags} flags`);
+  else if (c.mode === "lms") bits.push(c.lives > 0 ? `${c.lives} lives` : "1 life");
   else if (c.mode === "teams") bits.push(`${c.teamCount} teams · first to ${c.winScore} pts`);
   else bits.push(`first to ${c.winScore} pts`);
   if (c.powerups) bits.push("power-ups");
@@ -63,20 +70,22 @@ export function standingHtml(standing: RoundStanding[]): string {
 export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   const c = lobby.config;
   const a = c.adv;
+  const ctf = c.mode === "ctf";
   const teams = c.mode === "teams";
-  const hasWin = c.mode !== "lms";
+  const teamBased = teams || ctf;
+  const hasWin = c.mode !== "lms" && !ctf;
   const onOff = (b: boolean) => (b ? "On" : "Off");
   type Row = [string, string | number];
   const groups: Array<{ title: string; rows: Row[] }> = [];
 
   const mode: Row[] = [["Mode", modeLabel(c.mode)]];
-  if (teams) mode.push(["Teams", c.teamCount]);
+  // CTF is locked to 2 teams; the value still shows here even though the control is hidden.
+  if (teamBased) mode.push(["Teams", ctf ? 2 : c.teamCount]);
   // Friendly fire governs self-damage in every mode (and teammate damage in Team VS).
   mode.push(["Friendly fire", onOff(c.friendlyFire)]);
-  if (teams) {
-    mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
-    mode.push(["Spawn zones", onOff(c.teamSpawnZones)]);
-  }
+  if (ctf) mode.push(["Flags to win", c.maxFlags]);
+  if (teams) mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
+  if (teamBased) mode.push(["Spawn zones", ctf ? "On (bases)" : onOff(c.teamSpawnZones)]);
   groups.push({ title: "Mode", rows: mode });
 
   groups.push({
@@ -87,25 +96,27 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     ],
   });
 
-  groups.push({
-    title: "Match",
-    rows: [
-      ["Rounds", c.rounds > 1 ? `best of ${c.rounds}` : "single round"],
-      ["Max players", lobby.maxPlayers],
-      ["Join after start", c.allowLateJoin ? "Allowed" : "Closed"],
-      ["Tank speed", `${c.tankSpeedPct}%`],
-      ["HP", c.hp],
-      ["Lives", c.lives > 0 ? c.lives : "∞"],
-      ["Respawn", `${c.respawnSeconds}s`],
-    ],
-  });
+  const match: Row[] = [];
+  // CTF is decided by flag captures, not a round series.
+  if (ctf) match.push(["Win", `first to ${c.maxFlags} flags`]);
+  else match.push(["Rounds", c.rounds > 1 ? `best of ${c.rounds}` : "single round"]);
+  match.push(["Max players", lobby.maxPlayers]);
+  match.push(["Join after start", c.allowLateJoin ? "Allowed" : "Closed"]);
+  match.push(["Tank speed", `${c.tankSpeedPct}%`]);
+  match.push(["HP", c.hp]);
+  match.push(["Lives", c.lives > 0 ? c.lives : "∞"]);
+  match.push(["Respawn", `${c.respawnSeconds}s`]);
+  groups.push({ title: "Match", rows: match });
 
-  const scoring: Row[] = [
-    ["Kill", `${c.killPoints} pts`],
-    ["Death penalty", `${c.deathPenaltyPct}%`],
-  ];
-  if (hasWin) scoring.push(["Points to win", `${c.winScore}`]);
-  groups.push({ title: "Scoring", rows: scoring });
+  // No point-scoring in CTF — it's won by captures, so the scoring group is omitted.
+  if (!ctf) {
+    const scoring: Row[] = [
+      ["Kill", `${c.killPoints} pts`],
+      ["Death penalty", `${c.deathPenaltyPct}%`],
+    ];
+    if (hasWin) scoring.push(["Points to win", `${c.winScore}`]);
+    groups.push({ title: "Scoring", rows: scoring });
+  }
 
   const pwr: Row[] = [["Power-ups", onOff(c.powerups)]];
   if (c.powerups) {

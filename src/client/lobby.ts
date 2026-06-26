@@ -51,7 +51,8 @@ export function renderLobby(lobby: LobbyDTO, firstRender: boolean): void {
   $("lobby-title").textContent = lobby.name;
   $("lobby-meta").textContent = `${lobby.players.length}/${lobby.maxPlayers} players · ${configSummary(lobby.config)}`;
 
-  const teams = lobby.config.mode === "teams";
+  // Both Team VS and Capture the Flag are team-based: show the team-box roster.
+  const teams = lobby.config.mode === "teams" || lobby.config.mode === "ctf";
   const isHost = lobby.hostId === state.playerId;
   const ul = $("lobby-players");
   ul.innerHTML = "";

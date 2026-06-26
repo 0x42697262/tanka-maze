@@ -59,7 +59,7 @@ const roster = (): Map<number, RosterEntry> =>
   new Map([[0, { index: 0, id: "a", name: "A", color: "#fff", team: 0, maxHp: 1, maxAmmo: 5 }]]);
 
 function emptySnap(over: Partial<SnapshotDTO> = {}): SnapshotDTO {
-  return { t: 0, tanks: [], bullets: [], powerups: [], blasts: [], beams: [], events: [], ...over };
+  return { t: 0, tanks: [], bullets: [], powerups: [], flags: [], blasts: [], beams: [], events: [], ...over };
 }
 
 describe("wire: input", () => {
@@ -128,5 +128,19 @@ describe("wire: snapshot", () => {
     const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
     assert.equal(out.events.length, 1);
     assert.deepEqual(out.events[0], { type: 0, killer: 0, victim: 1, points: 60 });
+  });
+
+  it("round-trips CTF flags (team, state, position)", () => {
+    const snap = emptySnap({
+      flags: [
+        { team: 0, x: 40, y: 50, state: "home" },
+        { team: 1, x: 700, y: 600, state: "carried" },
+      ],
+    });
+    const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
+    assert.equal(out.flags.length, 2);
+    assert.deepEqual(out.flags[0], { team: 0, x: 40, y: 50, state: "home" });
+    assert.equal(out.flags[1].state, "carried");
+    assert.equal(Math.round(out.flags[1].x), 700);
   });
 });

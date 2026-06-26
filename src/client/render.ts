@@ -217,6 +217,8 @@ export class Renderer {
 
     // Power-up pickups (stationary — drawn from the latest snapshot, no interp).
     this.drawPowerups(this.latest()?.powerups ?? [], nowMs);
+    // CTF flags (carried ones ride the interpolated tanks; the rest sit still).
+    this.drawFlags(interp, nowMs);
 
     const tankColors = new Map(interp.tanks.map((t) => [t.id, t.color]));
     for (const b of interp.bullets) {
@@ -566,6 +568,41 @@ export class Renderer {
     ctx.textBaseline = "alphabetic";
   }
 
+  /** CTF flags: a pennant on a pole in the team's color. Dropped flags pulse. */
+  private drawFlags(interp: SnapshotDTO, nowMs: number): void {
+    if (interp.flags.length === 0) return;
+    const { ctx } = this;
+    const teamColor = new Map(this.spawnZones.map((z) => [z.team, z.color]));
+    for (const fl of interp.flags) {
+      const color = teamColor.get(fl.team) ?? "#888888";
+      const bob = fl.state === "carried" ? 0 : Math.sin(nowMs / 300) * 1.5;
+      ctx.save();
+      ctx.translate(fl.x, fl.y + bob);
+      ctx.globalAlpha = fl.state === "dropped" ? 0.55 + 0.25 * Math.abs(Math.sin(nowMs / 250)) : 1;
+      const h = 18;
+      // Pole.
+      ctx.strokeStyle = "#352f25";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 4);
+      ctx.lineTo(0, -h);
+      ctx.stroke();
+      // Pennant.
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "rgba(0,0,0,0.5)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -h);
+      ctx.lineTo(13, -h + 4.5);
+      ctx.lineTo(0, -h + 9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   private drawExplosions(nowMs: number): void {
     const { ctx } = this;
     this.explosions = this.explosions.filter((e) => nowMs - e.start < EXPLOSION_MS);
@@ -791,7 +828,15 @@ export class Renderer {
       return { ...bb, x: lerp(ba.x, bb.x, f), y: lerp(ba.y, bb.y, f), dir };
     });
 
-    return { t: target, tanks, bullets, powerups: [], blasts: [], beams: [], events: [] };
+    // Flags move with their carrier, so interpolate them on the same clock.
+    const aFlags = new Map(a.snap.flags.map((fl) => [fl.team, fl]));
+    const flags = b.snap.flags.map((fb) => {
+      const fa = aFlags.get(fb.team);
+      if (!fa) return fb;
+      return { ...fb, x: lerp(fa.x, fb.x, f), y: lerp(fa.y, fb.y, f) };
+    });
+
+    return { t: target, tanks, bullets, powerups: [], flags, blasts: [], beams: [], events: [] };
   }
 }
 
