@@ -73,7 +73,8 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       killPoints: num("kill-points", 60),
       deathPenaltyPct: Number(($("death-penalty") as HTMLInputElement).value) || 0,
       winScore: num("win-score", 300),
-      teamCount: num("team-count", 2),
+      // CTF picks 2 or 4 from its own selector; Team VS uses the 2–4 spinner.
+      teamCount: sel("mode") === "ctf" ? num("ctf-team-count", 2) : num("team-count", 2),
       friendlyFire: sel("friendly-fire") === "on",
       teamKillPenalty: Number(($("team-kill") as HTMLInputElement).value) || 0,
       teamSpawnZones: sel("team-spawn-zones") === "on",
@@ -98,6 +99,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("rounds", c.rounds);
   set("allow-late", c.allowLateJoin ? "on" : "off");
   set("team-count", c.teamCount);
+  set("ctf-team-count", c.teamCount >= 3 ? 4 : 2);
   set("tank-speed", c.tankSpeedPct);
   set("hp", c.hp);
   set("lives", c.lives);

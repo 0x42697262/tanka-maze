@@ -136,30 +136,44 @@ describe("capture the flag", () => {
     { id: "a", name: "A", color: "#ff0000", team: 0 },
     { id: "b", name: "B", color: "#0000ff", team: 1 },
   ];
-  const makeCtf = (over: Partial<typeof DEFAULT_GAME_CONFIG> = {}) =>
+  const makeCtf = (over: Partial<typeof DEFAULT_GAME_CONFIG> = {}, maze?: Maze) =>
     makeGame({
       cfg: { mode: "ctf", maxFlags: 3, hp: 3, ...over },
       players: ctfPlayers,
-      maze: new Maze(10, 8, "open"),
+      maze: maze ?? new Maze(10, 8, "open"),
     });
   const flags = (g: Game): any[] => (g as any).flags;
   const flagOf = (g: Game, team: number) => flags(g).find((f) => f.team === team);
   const zoneOf = (g: Game, team: number) =>
     (g as any).spawnZones.find((z: any) => z.team === team);
 
-  it("places one flag inside each team's base, on a cell centre", () => {
+  it("places one flag at the exact centre of each team's base", () => {
     const g = makeCtf();
-    const cell = (g as any).maze.cell;
     assert.equal(flags(g).length, 2);
     for (const team of [0, 1]) {
       const z = zoneOf(g, team);
       const f = flagOf(g, team);
-      // Inside the base rectangle...
-      assert.ok(f.x >= z.x && f.x <= z.x + z.width && f.y >= z.y && f.y <= z.y + z.height);
-      // ...and on a cell centre, so a tank can stand on it.
-      assert.equal((f.x / cell - 0.5) % 1, 0);
-      assert.equal((f.y / cell - 0.5) % 1, 0);
+      assert.equal(f.x, z.x + z.width / 2);
+      assert.equal(f.y, z.y + z.height / 2);
       assert.equal(f.state, "home");
+    }
+  });
+
+  it("clears maze walls inside every spawn base (open rooms)", () => {
+    const g = makeCtf({}, new Maze(14, 11, "maze"));
+    const maze = (g as any).maze as Maze;
+    const cell = maze.cell;
+    for (const z of (g as any).spawnZones) {
+      const cx0 = Math.round(z.x / cell);
+      const cy0 = Math.round(z.y / cell);
+      const cx1 = cx0 + Math.round(z.width / cell);
+      const cy1 = cy0 + Math.round(z.height / cell);
+      for (let x = cx0; x < cx1; x++) {
+        for (let y = cy0; y < cy1; y++) {
+          if (x + 1 < cx1) assert.ok(maze.passable(x, y, x + 1, y), `wall inside base at ${x},${y}`);
+          if (y + 1 < cy1) assert.ok(maze.passable(x, y, x, y + 1), `wall inside base at ${x},${y}`);
+        }
+      }
     }
   });
 
@@ -329,10 +343,22 @@ describe("capture the flag", () => {
     assert.equal(tank(g, "a").score, 0);
   });
 
-  it("forces 2 teams and spawn-zone bases", () => {
+  it("uses spawn-zone bases (2 teams by default)", () => {
     const g = makeCtf();
     assert.equal((g as any).spawnZones.length, 2);
     assert.equal(g.spawnZoneDTOs().length, 2);
+  });
+
+  it("supports 4 teams: a base + flag in each corner", () => {
+    const g = makeCtf({ teamCount: 4 }, new Maze(14, 11, "maze"));
+    assert.equal((g as any).spawnZones.length, 4);
+    assert.equal(flags(g).length, 4);
+    for (const team of [0, 1, 2, 3]) {
+      const z = zoneOf(g, team);
+      const f = flagOf(g, team);
+      assert.equal(f.x, z.x + z.width / 2);
+      assert.equal(f.y, z.y + z.height / 2);
+    }
   });
 });
 

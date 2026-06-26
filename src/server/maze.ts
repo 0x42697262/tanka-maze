@@ -608,7 +608,7 @@ export class Maze {
   readonly height: number;
   readonly cell: number;
   readonly thickness: number;
-  readonly walls: Segment[];
+  walls: Segment[];
   /**
    * Side (in cells) of each diagonal base block the route guarantee connects —
    * clamped so two blocks can't overlap on a small grid. The bases stay in the
@@ -645,6 +645,26 @@ export class Maze {
     this.grid = new MazeGrid(cols, rows, this.baseSize);
     for (const cmd of buildPipeline(wallStyle, minCornerPaths, perfectMaze)) {
       cmd.run(this.grid);
+    }
+    this.walls = this.buildSegments();
+  }
+
+  /**
+   * Open up the given cell-rectangles (the spawn bases) so no wall sits inside
+   * them — clearing the interior walls between their cells — then rebuild the
+   * wall segments. Perimeter walls are kept; only walls are removed, so the
+   * arena stays fully connected.
+   */
+  clearZones(rects: Array<{ x: number; y: number; width: number; height: number }>): void {
+    for (const r of rects) {
+      const cx0 = Math.round(r.x / this.cell);
+      const cy0 = Math.round(r.y / this.cell);
+      const cx1 = cx0 + Math.round(r.width / this.cell);
+      const cy1 = cy0 + Math.round(r.height / this.cell);
+      for (let x = cx0 + 1; x < cx1; x++)
+        for (let y = cy0; y < cy1; y++) this.grid.vWalls[x][y] = false;
+      for (let x = cx0; x < cx1; x++)
+        for (let y = cy0 + 1; y < cy1; y++) this.grid.hWalls[x][y] = false;
     }
     this.walls = this.buildSegments();
   }

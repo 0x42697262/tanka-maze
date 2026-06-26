@@ -227,6 +227,7 @@ export class Game {
     this.powerupTimer = config.powerupEverySeconds;
     this.spawns = shuffle(maze.openCellCenters());
     this.buildSpawnZones(players.map((p) => p.team ?? 0));
+    this.maze.clearZones(this.spawnZones); // bases are open rooms (no inner walls)
     this.buildFlags();
 
     // Initial players take sequential spawn points around the arena.
@@ -1082,6 +1083,7 @@ export class Game {
     this.spawns = shuffle(maze.openCellCenters());
     this.spawnIndex = 0;
     this.buildSpawnZones([...this.tanks.values()].map((t) => t.team));
+    this.maze.clearZones(this.spawnZones); // bases are open rooms (no inner walls)
     this.buildFlags();
     this.round += 1;
     this.roundOver = false;
@@ -1252,18 +1254,11 @@ export class Game {
   private buildFlags(): void {
     this.flags = [];
     if (!this.ctf) return;
-    const cell = this.maze.cell;
     for (const z of this.spawnZones) {
-      // Home sits on the base cell nearest the arena centre (so it faces the
-      // battlefield): an even block's geometric centre lands on a cell corner,
-      // which no tank could stand on, so anchor to a real cell centre.
-      const side = Math.max(1, Math.round(z.width / cell));
-      const cx0 = Math.round(z.x / cell);
-      const cy0 = Math.round(z.y / cell);
-      const inX = z.x + z.width / 2 < this.maze.width / 2 ? side - 1 : 0;
-      const inY = z.y + z.height / 2 < this.maze.height / 2 ? side - 1 : 0;
-      const hx = (cx0 + inX + 0.5) * cell;
-      const hy = (cy0 + inY + 0.5) * cell;
+      // The base is an open room (no inner walls), so the flag sits at its exact
+      // centre — a tank can drive right onto it.
+      const hx = z.x + z.width / 2;
+      const hy = z.y + z.height / 2;
       this.flags.push({ team: z.team, homeX: hx, homeY: hy, x: hx, y: hy, state: "home", carrierId: null, stealCooldown: 0 });
     }
   }

@@ -404,8 +404,12 @@ function sanitizeConfig(raw: unknown): GameConfig {
     killPoints: clampInt(c.killPoints, 1, 500, d.killPoints),
     deathPenaltyPct: clampInt(c.deathPenaltyPct, 0, 90, d.deathPenaltyPct),
     winScore: clampInt(c.winScore, 60, 6000, d.winScore),
-    // CTF is always 2 teams, played out of corner bases (spawn zones forced on).
-    teamCount: ctf ? 2 : clampInt(c.teamCount, 2, 4, d.teamCount),
+    // CTF plays out of corner bases (spawn zones forced on) with 2 or 4 teams.
+    teamCount: ctf
+      ? clampInt(c.teamCount, 2, 4, 2) >= 3
+        ? 4
+        : 2
+      : clampInt(c.teamCount, 2, 4, d.teamCount),
     friendlyFire: typeof c.friendlyFire === "boolean" ? c.friendlyFire : d.friendlyFire,
     teamKillPenalty: clampInt(c.teamKillPenalty, 0, 500, d.teamKillPenalty),
     teamSpawnZones: ctf ? true : typeof c.teamSpawnZones === "boolean" ? c.teamSpawnZones : d.teamSpawnZones,
