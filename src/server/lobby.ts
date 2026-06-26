@@ -3,6 +3,7 @@ import {
   DEFAULT_MAX_PLAYERS,
   ROUND_INTERMISSION_SECONDS,
   SNAPSHOT_EVERY_TICKS,
+  SPAWN_ZONE_CELLS,
   TANK_COLORS,
   TEAM_COLORS,
   TICK_MS,
@@ -289,7 +290,7 @@ export class Lobby {
       rows: m.rows,
       cell: m.cell,
       paths: this.config.mode === "ctf" ? ctfPathCount(m.cols, m.rows) : 1,
-      inset: m.cornerInset,
+      baseSize: m.baseSize,
       walls: m.walls.map((w) => [w.x1, w.y1, w.x2, w.y2]),
       bases: this.game.spawnZoneDTOs().map((z) => ({
         team: z.team,
@@ -327,7 +328,8 @@ export class Lobby {
       cell,
       this.config.adv.wallThickness,
       minCornerPaths,
-      ctf
+      ctf,
+      SPAWN_ZONE_CELLS
     );
   }
 

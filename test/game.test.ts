@@ -147,14 +147,18 @@ describe("capture the flag", () => {
   const zoneOf = (g: Game, team: number) =>
     (g as any).spawnZones.find((z: any) => z.team === team);
 
-  it("places one flag at each team's base center", () => {
+  it("places one flag inside each team's base, on a cell centre", () => {
     const g = makeCtf();
+    const cell = (g as any).maze.cell;
     assert.equal(flags(g).length, 2);
     for (const team of [0, 1]) {
       const z = zoneOf(g, team);
       const f = flagOf(g, team);
-      assert.equal(f.x, z.x + z.width / 2);
-      assert.equal(f.y, z.y + z.height / 2);
+      // Inside the base rectangle...
+      assert.ok(f.x >= z.x && f.x <= z.x + z.width && f.y >= z.y && f.y <= z.y + z.height);
+      // ...and on a cell centre, so a tank can stand on it.
+      assert.equal((f.x / cell - 0.5) % 1, 0);
+      assert.equal((f.y / cell - 0.5) % 1, 0);
       assert.equal(f.state, "home");
     }
   });

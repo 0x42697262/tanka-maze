@@ -84,11 +84,18 @@ function cornerEdgeDisjointPaths(m: Maze, limit = 2): number {
   return flow;
 }
 
-/** Edge-disjoint routes between two specific cells (same max-flow as above). */
-function edgeDisjointPathsBetween(m: Maze, src: number, dst: number, limit = 3): number {
+/**
+ * Max edge-disjoint routes between the two diagonal corner *blocks* (mirroring
+ * the maze's super-source/sink routing), via unit-capacity max flow. The blocks
+ * are baseSize×baseSize cells anchored in the top-left and bottom-right corners.
+ */
+function blockEdgeDisjointPaths(m: Maze, limit = 4): number {
   const N = m.cols * m.rows;
+  const S = N;
+  const T = N + 1;
+  const V = N + 2;
   const cap = new Map<number, number>();
-  const add = (u: number, v: number) => cap.set(u * N + v, (cap.get(u * N + v) ?? 0) + 1);
+  const add = (u: number, v: number, c: number) => cap.set(u * V + v, (cap.get(u * V + v) ?? 0) + c);
   for (let y = 0; y < m.rows; y++) {
     for (let x = 0; x < m.cols; x++) {
       const u = y * m.cols + x;
@@ -97,45 +104,59 @@ function edgeDisjointPathsBetween(m: Maze, src: number, dst: number, limit = 3):
         const ny = y + dy;
         if (nx >= m.cols || ny >= m.rows || !m.passable(x, y, nx, ny)) continue;
         const v = ny * m.cols + nx;
-        add(u, v);
-        add(v, u);
+        add(u, v, 1);
+        add(v, u, 1);
       }
     }
   }
+  const side = m.baseSize;
+  for (let dy = 0; dy < side; dy++) {
+    for (let dx = 0; dx < side; dx++) {
+      add(S, dy * m.cols + dx, limit);
+      add((m.rows - 1 - dy) * m.cols + (m.cols - 1 - dx), T, limit);
+    }
+  }
+  const neighbors = (u: number): number[] => {
+    if (u === S || u === T) {
+      const out: number[] = [];
+      for (let dy = 0; dy < side; dy++)
+        for (let dx = 0; dx < side; dx++)
+          out.push(u === S ? dy * m.cols + dx : (m.rows - 1 - dy) * m.cols + (m.cols - 1 - dx));
+      return out;
+    }
+    const ux = u % m.cols;
+    const uy = (u - ux) / m.cols;
+    const out: number[] = [];
+    for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
+      const nx = ux + dx;
+      const ny = uy + dy;
+      if (nx >= 0 && ny >= 0 && nx < m.cols && ny < m.rows) out.push(ny * m.cols + nx);
+    }
+    out.push(S, T);
+    return out;
+  };
   let flow = 0;
   while (flow < limit) {
-    const prev = new Int32Array(N).fill(-1);
-    prev[src] = src;
-    const q = [src];
-    for (let h = 0; h < q.length && prev[dst] === -1; h++) {
+    const prev = new Int32Array(V).fill(-1);
+    prev[S] = S;
+    const q = [S];
+    for (let h = 0; h < q.length && prev[T] === -1; h++) {
       const u = q[h];
-      const ux = u % m.cols;
-      const uy = (u - ux) / m.cols;
-      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
-        const nx = ux + dx;
-        const ny = uy + dy;
-        if (nx < 0 || ny < 0 || nx >= m.cols || ny >= m.rows) continue;
-        const v = ny * m.cols + nx;
-        if (prev[v] !== -1 || (cap.get(u * N + v) ?? 0) <= 0) continue;
+      for (const v of neighbors(u)) {
+        if (prev[v] !== -1 || (cap.get(u * V + v) ?? 0) <= 0) continue;
         prev[v] = u;
         q.push(v);
       }
     }
-    if (prev[dst] === -1) break;
-    for (let v = dst; v !== src; v = prev[v]) {
+    if (prev[T] === -1) break;
+    for (let v = T; v !== S; v = prev[v]) {
       const u = prev[v];
-      cap.set(u * N + v, (cap.get(u * N + v) as number) - 1);
-      cap.set(v * N + u, (cap.get(v * N + u) ?? 0) + 1);
+      cap.set(u * V + v, (cap.get(u * V + v) as number) - 1);
+      cap.set(v * V + u, (cap.get(v * V + u) ?? 0) + 1);
     }
     flow++;
   }
   return flow;
-}
-
-/** Cells the diagonal bases sit in from the corner (mirrors Maze.cornerInset). */
-function baseEndpoints(m: Maze): [number, number] {
-  const i = m.cornerInset;
-  return [i * m.cols + i, (m.rows - 1 - i) * m.cols + (m.cols - 1 - i)];
 }
 
 /**
@@ -199,7 +220,7 @@ function internalWallUnits(m: Maze): number {
 
 describe("maze: CTF true maze", () => {
   it("scales base-to-base routes with map area (small/normal/large)", () => {
-    assert.equal(ctfPathCount(7, 5), 1); // ~small
+    assert.equal(ctfPathCount(7, 5), 2); // ~small (min 2)
     assert.equal(ctfPathCount(10, 7), 2); // normal
     assert.equal(ctfPathCount(14, 10), 3); // ~large
   });
@@ -238,16 +259,15 @@ describe("maze: CTF true maze", () => {
     }
   });
 
-  it("delivers the requested base routes (3 insets the bases off the corner)", () => {
-    const m2 = new Maze(14, 11, "maze", undefined, undefined, 2, true);
-    const [s2, t2] = baseEndpoints(m2);
-    assert.equal(m2.cornerInset, 0);
-    assert.ok(edgeDisjointPathsBetween(m2, s2, t2) >= 2, "fewer than 2 base routes");
+  it("delivers the requested base routes from corner blocks (2x2 stays in corner)", () => {
+    const m2 = new Maze(14, 11, "maze", undefined, undefined, 2, true, 2);
+    assert.equal(m2.baseSize, 2);
+    assert.ok(blockEdgeDisjointPaths(m2) >= 2, "fewer than 2 base routes");
 
-    const m3 = new Maze(20, 14, "maze", undefined, undefined, 3, true);
-    const [s3, t3] = baseEndpoints(m3);
-    assert.equal(m3.cornerInset, 1);
-    assert.ok(edgeDisjointPathsBetween(m3, s3, t3) >= 3, "fewer than 3 base routes");
+    // A 2x2 corner block has four exits, so three routes fit without insetting.
+    const m3 = new Maze(20, 14, "maze", undefined, undefined, 3, true, 2);
+    assert.equal(m3.baseSize, 2);
+    assert.ok(blockEdgeDisjointPaths(m3) >= 3, "fewer than 3 base routes");
   });
 });
 

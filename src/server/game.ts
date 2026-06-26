@@ -3,6 +3,7 @@ import {
   POWERUP_RADIUS,
   FLAG_STEAL_COOLDOWN,
   SPAWN_SHIELD_SECONDS,
+  SPAWN_ZONE_CELLS,
   TANK_COLORS,
   TANK_REVERSE_SPEED,
   TANK_SPEED,
@@ -1198,11 +1199,11 @@ export class Game {
   }
 
   /**
-   * Compute each team's designated spawn area: a single cell anchored near a
-   * corner, ordered so teams sit as far apart as possible. The area is always
-   * one cell regardless of team size (never larger than one maze cell). Bases
-   * inset off the corner to match the maze when it carves a third base route.
-   * Cell-aligned, so a tank dropped at the cell center always clears the walls.
+   * Compute each team's designated spawn area: a square block of cells anchored
+   * in a corner, ordered so teams sit as far apart as possible. The block is
+   * SPAWN_ZONE_CELLS per side (clamped so corner blocks can't overlap on a small
+   * grid), matching the maze's base blocks so the carved routes meet them.
+   * Cell-aligned, so a tank dropped at any cell center always clears the walls.
    * No-op unless Team VS spawn zones are enabled.
    */
   private buildSpawnZones(_teams: number[]): void {
@@ -1212,18 +1213,16 @@ export class Game {
       this.cfg.mode === "ctf" || (this.cfg.mode === "teams" && this.cfg.teamSpawnZones);
     if (!wantZones) return;
 
-    const { cols, rows, cell, cornerInset } = this.maze;
-    // Each base is exactly one cell; the maze tells us how far off the corner it
-    // sits (0 normally, 1 when a third base route had to be carved).
-    const side = 1;
-    const i = cornerInset;
+    const { cols, rows, cell } = this.maze;
+    // Same block size the maze routed its base paths to (kept in the corner).
+    const side = Math.max(1, Math.min(SPAWN_ZONE_CELLS, Math.floor(cols / 2), Math.floor(rows / 2)));
     // Corner anchors (top-left cell of each block), ordered for max separation:
     // diagonal first (TL, BR), then the other diagonal (TR, BL).
     const corners = [
-      { cx: i, cy: i },
-      { cx: cols - side - i, cy: rows - side - i },
-      { cx: cols - side - i, cy: i },
-      { cx: i, cy: rows - side - i },
+      { cx: 0, cy: 0 },
+      { cx: cols - side, cy: rows - side },
+      { cx: cols - side, cy: 0 },
+      { cx: 0, cy: rows - side },
     ];
     for (let team = 0; team < this.cfg.teamCount; team++) {
       const { cx, cy } = corners[team % corners.length];
@@ -1253,9 +1252,18 @@ export class Game {
   private buildFlags(): void {
     this.flags = [];
     if (!this.ctf) return;
+    const cell = this.maze.cell;
     for (const z of this.spawnZones) {
-      const hx = z.x + z.width / 2;
-      const hy = z.y + z.height / 2;
+      // Home sits on the base cell nearest the arena centre (so it faces the
+      // battlefield): an even block's geometric centre lands on a cell corner,
+      // which no tank could stand on, so anchor to a real cell centre.
+      const side = Math.max(1, Math.round(z.width / cell));
+      const cx0 = Math.round(z.x / cell);
+      const cy0 = Math.round(z.y / cell);
+      const inX = z.x + z.width / 2 < this.maze.width / 2 ? side - 1 : 0;
+      const inY = z.y + z.height / 2 < this.maze.height / 2 ? side - 1 : 0;
+      const hx = (cx0 + inX + 0.5) * cell;
+      const hy = (cy0 + inY + 0.5) * cell;
       this.flags.push({ team: z.team, homeX: hx, homeY: hy, x: hx, y: hy, state: "home", carrierId: null, stealCooldown: 0 });
     }
   }

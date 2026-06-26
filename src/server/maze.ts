@@ -35,13 +35,13 @@ export function mazeDimensions(size: MapSize): { cols: number; rows: number } {
 }
 
 /**
- * Base-to-base routes a CTF maze should guarantee, scaled by map area: ~1 on a
- * small map (a plain single-path maze), ~2 on a normal map, ~3 on a large map.
- * Random maps land wherever their rolled area falls.
+ * Base-to-base routes a CTF maze should guarantee, scaled by map area: at least
+ * 2 on small and normal maps, 3 on a large map. Random maps land wherever their
+ * rolled area falls. (Bases are multi-cell blocks, so a corner has enough exits.)
  */
 export function ctfPathCount(cols: number, rows: number): number {
   const ratio = (cols * rows) / (MAZE_COLS * MAZE_ROWS);
-  return ratio < 0.75 ? 1 : ratio < 1.5 ? 2 : 3;
+  return ratio < 1.5 ? 2 : 3;
 }
 
 interface Segment {
@@ -79,8 +79,9 @@ export class MazeGrid {
   constructor(
     readonly cols: number,
     readonly rows: number,
-    // How far off the corner the two diagonal bases sit (see Maze.cornerInset).
-    readonly cornerInset: number = 0
+    // Side (in cells) of each diagonal base block; the route guarantee connects
+    // these whole corner blocks (see Maze.baseSize).
+    readonly baseSize: number = 1
   ) {
     this.vWalls = makeGrid(cols + 1, rows, true);
     this.hWalls = makeGrid(cols, rows + 1, true);
@@ -285,18 +286,21 @@ export class EnsureConnectedCommand implements MazeCommand {
 
 /**
  * Guarantee at least `minPaths` edge-disjoint routes between the two diagonal
- * bases, so no single corridor can be the sole link between them.
+ * base blocks, so no single corridor can be the sole link between them.
  *
- * Solved as a *min-cost* max-flow: each grid adjacency is a unit-capacity edge
- * whose cost is 0 if it's already an open passage and 1 if it's a wall (so using
- * it would cost one carve). Pushing `minPaths` units of cheapest flow makes the
- * routes thread through the existing maze corridors and only break the few walls
- * they truly need — the first route reuses the existing maze for free, so the
- * maze keeps its winding character instead of a plain BFS bulldozing whole
- * border corridors open. The walls that end up carrying net flow are carved.
+ * Solved as a *min-cost* max-flow between a super-source wired to every cell of
+ * the top-left base block and a super-sink wired from the bottom-right block.
+ * Each grid adjacency is a unit-capacity edge whose cost is 0 if it's already an
+ * open passage and 1 if it's a wall (so using it would cost one carve). Pushing
+ * `minPaths` units of cheapest flow makes the routes thread through the existing
+ * maze corridors and only break the few walls they truly need — the first route
+ * reuses the existing maze for free, so the maze keeps its winding character
+ * instead of a plain BFS bulldozing whole border corridors open. The walls that
+ * end up carrying net flow are carved.
  *
- * The bases inset off the corner (cornerInset) when a third route is required,
- * since a corner cell has only two exits.
+ * Routing to the whole corner block (rather than the single corner cell) is what
+ * lets a corner support three routes: a lone corner cell has only two exits, but
+ * a 2×2 block has four.
  */
 export class EnsureCornerPathsCommand implements MazeCommand {
   constructor(private readonly minPaths: number) {}
@@ -305,14 +309,15 @@ export class EnsureCornerPathsCommand implements MazeCommand {
     const minPaths = this.minPaths;
     if (minPaths < 2 || g.cols < 2 || g.rows < 2) return;
     const N = g.cols * g.rows;
-    const inset = g.cornerInset;
-    const source = inset * g.cols + inset;
-    const target = (g.rows - 1 - inset) * g.cols + (g.cols - 1 - inset);
+    const S = N; // super-source
+    const T = N + 1; // super-sink
+    const V = N + 2;
+    const side = Math.max(1, Math.min(g.baseSize, Math.floor(g.cols / 2), Math.floor(g.rows / 2)));
 
     // Adjacency-list residual network. Arcs come in (real, residual) pairs so
     // the reverse of arc a is a ^ 1. Each grid edge is added as two opposing
     // unit-capacity arcs (the undirected-edge model for edge-disjoint flow).
-    const head = new Int32Array(N).fill(-1);
+    const head = new Int32Array(V).fill(-1);
     const to: number[] = [];
     const nxt: number[] = [];
     const cap: number[] = [];
@@ -324,9 +329,9 @@ export class EnsureCornerPathsCommand implements MazeCommand {
       nxt.push(head[u]);
       head[u] = to.length - 1;
     };
-    const addEdge = (u: number, v: number, co: number): number => {
+    const addEdge = (u: number, v: number, ca: number, co: number): number => {
       const id = to.length;
-      addArc(u, v, 1, co); // real arc
+      addArc(u, v, ca, co); // real arc
       addArc(v, u, 0, -co); // residual
       return id;
     };
@@ -341,22 +346,31 @@ export class EnsureCornerPathsCommand implements MazeCommand {
           if (nx >= g.cols || ny >= g.rows) continue;
           const v = ny * g.cols + nx;
           const co = g.passable(x, y, nx, ny) ? 0 : 1;
-          const a1 = addEdge(u, v, co);
-          const a2 = addEdge(v, u, co);
+          const a1 = addEdge(u, v, 1, co);
+          const a2 = addEdge(v, u, 1, co);
           edges.push({ x, y, nx, ny, a1, a2 });
         }
       }
     }
+    // Wire the super-source/sink to each cell of the corner blocks (cost 0). The
+    // capacity is generous; the grid edges are the real bottleneck.
+    for (let dy = 0; dy < side; dy++) {
+      for (let dx = 0; dx < side; dx++) {
+        addEdge(S, dy * g.cols + dx, minPaths, 0);
+        addEdge((g.rows - 1 - dy) * g.cols + (g.cols - 1 - dx), T, minPaths, 0);
+      }
+    }
 
     // Successive shortest (cheapest) augmenting paths via SPFA (Bellman–Ford
-    // queue handles the negative residual-arc costs). Unit caps ⇒ 1 unit/aug.
+    // queue handles the negative residual-arc costs). Unit grid caps ⇒ routes
+    // stay edge-disjoint.
     for (let f = 0; f < minPaths; f++) {
-      const dist = new Float64Array(N).fill(Infinity);
-      const inQueue = new Uint8Array(N);
-      const prevArc = new Int32Array(N).fill(-1);
-      dist[source] = 0;
-      const q = [source];
-      inQueue[source] = 1;
+      const dist = new Float64Array(V).fill(Infinity);
+      const inQueue = new Uint8Array(V);
+      const prevArc = new Int32Array(V).fill(-1);
+      dist[S] = 0;
+      const q = [S];
+      inQueue[S] = 1;
       while (q.length) {
         const u = q.shift() as number;
         inQueue[u] = 0;
@@ -374,8 +388,8 @@ export class EnsureCornerPathsCommand implements MazeCommand {
           }
         }
       }
-      if (!Number.isFinite(dist[target])) break; // no more edge-disjoint routes
-      for (let v = target; v !== source; ) {
+      if (!Number.isFinite(dist[T])) break; // no more edge-disjoint routes
+      for (let v = T; v !== S; ) {
         const a = prevArc[v];
         cap[a] -= 1;
         cap[a ^ 1] += 1;
@@ -596,13 +610,11 @@ export class Maze {
   readonly thickness: number;
   readonly walls: Segment[];
   /**
-   * Cells the two diagonal bases sit in from the corner (0 = the exact corner).
-   * A corner cell has only two exits, so guaranteeing three edge-disjoint base
-   * routes requires nudging the bases one cell inward to a three-exit cell. The
-   * spawn-zone builder reads this so the bases land exactly where the carved
-   * routes meet them.
+   * Side (in cells) of each diagonal base block the route guarantee connects —
+   * clamped so two blocks can't overlap on a small grid. The bases stay in the
+   * corners; a multi-cell block gives a corner enough exits for several routes.
    */
-  readonly cornerInset: number;
+  readonly baseSize: number;
 
   private grid: MazeGrid;
 
@@ -613,12 +625,13 @@ export class Maze {
     cellSize: number = CELL,
     thickness: number = WALL_THICKNESS,
     // Minimum edge-disjoint routes to guarantee between the diagonal bases (CTF
-    // bases). 1 = leave the layout as generated; 2 = ensure a second route;
-    // 3 = a third (which insets the bases off the corner so it can fit).
+    // bases). 1 = leave the layout as generated; 2+ = ensure that many routes.
     minCornerPaths: number = 1,
     // True for CTF: carve a true single-path maze (dead ends kept, every wall
     // joined to its neighbours) instead of the open arena other modes use.
-    perfectMaze: boolean = false
+    perfectMaze: boolean = false,
+    // Side (in cells) of each diagonal base block the route guarantee connects.
+    baseSize: number = 1
   ) {
     this.cols = cols;
     this.rows = rows;
@@ -626,11 +639,10 @@ export class Maze {
     this.thickness = thickness;
     this.width = cols * cellSize;
     this.height = rows * cellSize;
-    // Three base routes can't leave a two-exit corner cell, so inset the bases
-    // one cell inward (to a higher-degree cell) when a third route is required.
-    this.cornerInset = minCornerPaths >= 3 && cols > 4 && rows > 4 ? 1 : 0;
+    // Clamp so the two corner blocks can never overlap on a small grid.
+    this.baseSize = Math.max(1, Math.min(baseSize, Math.floor(cols / 2), Math.floor(rows / 2)));
 
-    this.grid = new MazeGrid(cols, rows, this.cornerInset);
+    this.grid = new MazeGrid(cols, rows, this.baseSize);
     for (const cmd of buildPipeline(wallStyle, minCornerPaths, perfectMaze)) {
       cmd.run(this.grid);
     }

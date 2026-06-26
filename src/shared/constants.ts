@@ -63,6 +63,9 @@ export const SPAWN_SHIELD_SECONDS = 2; // spawn protection whenever a tank (re)s
 // CTF: grace after a flag changes hands before it can be taken again, so two
 // adjacent tanks don't ping-pong the flag every tick.
 export const FLAG_STEAL_COOLDOWN = 0.6;
+// Side (in cells) of each team's square spawn base (Team VS zones / CTF bases).
+// A wider base also gives a CTF corner enough exits for multiple base routes.
+export const SPAWN_ZONE_CELLS = 2;
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;
