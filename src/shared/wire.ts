@@ -96,7 +96,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     2 + // tag + tank count
     s.tanks.length * TANK_BYTES +
     1 +
-    s.bullets.length * 7 +
+    s.bullets.length * 8 +
     1 +
     s.powerups.length * 5 +
     1 +
@@ -138,6 +138,9 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint8(o++, Math.min(255, t.livesLeft));
   }
 
+  // Owner is sent as the tank's wire index (resolved back to color client-side).
+  // 255 = unknown owner.
+  const ownerIndex = new Map(s.tanks.map((t) => [t.id, t.index]));
   dv.setUint8(o++, s.bullets.length);
   for (const b of s.bullets) {
     dv.setUint16(o, b.id & 0xffff, true);
@@ -147,6 +150,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint16(o, u16(b.y), true);
     o += 2;
     dv.setUint8(o++, kindCode(b.kind));
+    dv.setUint8(o++, ownerIndex.get(b.ownerId) ?? 255);
   }
 
   dv.setUint8(o++, s.powerups.length);
@@ -257,7 +261,9 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     const y = dv.getUint16(o, true);
     o += 2;
     const kind = KIND_CODES[dv.getUint8(o++)] ?? "normal";
-    bullets.push({ id, x, y, ownerId: "", kind });
+    const ownerIndex = dv.getUint8(o++);
+    const ownerId = roster.get(ownerIndex)?.id ?? "";
+    bullets.push({ id, x, y, ownerId, kind });
   }
 
   const powerups = [];

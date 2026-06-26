@@ -13,9 +13,14 @@ import {
 // between. Must exceed the network send interval (≈66ms at 15 Hz) with margin.
 const INTERP_DELAY = 140;
 
-// Bullets are black; size varies a little by kind. Tracking rounds render as a
-// triangle (drawn separately), the rest as filled circles.
+// Bullets are rendered in the owning tank's color so shots are identifiable by
+// shooter. Size varies a little by kind. Tracking rounds render as a triangle
+// (drawn separately), the rest as filled circles.
 const BULLET_COLOR = "#11100e";
+/** A bullet takes the owning tank's color, falling back to the dark base. */
+function bulletColor(tankColor: string | undefined): string {
+  return tankColor ?? BULLET_COLOR;
+}
 const BULLET_STYLE: Record<BulletKind, { dr: number }> = {
   normal: { dr: 0 },
   sniper: { dr: 0 },
@@ -206,10 +211,11 @@ export class Renderer {
     // Power-up pickups (stationary — drawn from the latest snapshot, no interp).
     this.drawPowerups(this.latest()?.powerups ?? [], nowMs);
 
+    const tankColors = new Map(interp.tanks.map((t) => [t.id, t.color]));
     for (const b of interp.bullets) {
       const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
       const rad = Math.max(1, this.bulletR + style.dr);
-      ctx.fillStyle = BULLET_COLOR;
+      ctx.fillStyle = bulletColor(tankColors.get(b.ownerId));
       if (b.kind === "tracking") {
         // Triangle pointing in the travel direction.
         ctx.save();
