@@ -17,7 +17,17 @@ import {
 } from "../shared/protocol.js";
 import { bytesEqual, encodeSnapshot } from "../shared/wire.js";
 import { Game } from "./game.js";
-import { Maze, mazeDimensions } from "./maze.js";
+import { Maze, mazeDimensions, ctfPathCount } from "./maze.js";
+
+/**
+ * How much finer the CTF maze grid is than other modes: it packs this many times
+ * more cells (each proportionally smaller) into the same-sized arena, giving a
+ * wall-heavy maze instead of wide open runs. 1 = same grid as FFA. Tuned as a
+ * balance between a dense maze (higher) and room to move between walls (lower);
+ * the perfect-maze style already keeps the walls dense, so this stays modest so
+ * CTF corridors aren't much tighter than the open modes'.
+ */
+const CTF_MAZE_DENSITY = 1.3;
 
 export interface Client {
   id: string; // public player id (used as tank id)
@@ -262,22 +272,62 @@ export class Lobby {
       standing: this.game.roundStandings(),
     });
     this.broadcastSnapshot(true); // initial state (binary)
+    // this.logMap(); // map dump disabled — re-enable to inspect generated mazes
+  }
+
+  /** Dump the generated maze as one-line JSON to the server console so it can be
+   *  copied out verbatim and re-parsed. Walls are `[x1,y1,x2,y2]` tuples; bases
+   *  carry their team index and cell-centre position. */
+  private logMap(): void {
+    if (!this.game || !this.maze) return;
+    const m = this.maze;
+    const payload = {
+      mode: this.config.mode,
+      size: this.config.mapSize,
+      style: this.config.wallStyle,
+      cols: m.cols,
+      rows: m.rows,
+      cell: m.cell,
+      paths: this.config.mode === "ctf" ? ctfPathCount(m.cols, m.rows) : 1,
+      inset: m.cornerInset,
+      walls: m.walls.map((w) => [w.x1, w.y1, w.x2, w.y2]),
+      bases: this.game.spawnZoneDTOs().map((z) => ({
+        team: z.team,
+        x: z.x + z.width / 2,
+        y: z.y + z.height / 2,
+      })),
+    };
+    console.log(`[map] ${JSON.stringify(payload)}`);
   }
 
   /** A fresh maze sized for the configured map size + wall style. */
   private buildMaze(): Maze {
-    const { cols, rows } = mazeDimensions(this.config.mapSize);
-    // CTF wants at least two routes between bases so one corridor can't be
-    // bottled up — except on small maps, which stay single-path.
-    const minCornerPaths =
-      this.config.mode === "ctf" && this.config.mapSize !== "small" ? 2 : 1;
+    let { cols, rows } = mazeDimensions(this.config.mapSize);
+    let cell = this.config.adv.cellSize;
+    // CTF plays on a true maze whose number of base-to-base routes scales with
+    // the map area (~1 small, ~2 normal, ~3 large; random follows its area), so
+    // a single corridor can't bottle up the bases. Other modes use the open
+    // arena and a single guaranteed route.
+    const ctf = this.config.mode === "ctf";
+    // Route count is keyed to the *base* area; compute it before densifying.
+    const minCornerPaths = ctf ? ctfPathCount(cols, rows) : 1;
+    if (ctf) {
+      // A perfect maze already holds the most walls a grid that size can; to make
+      // the maze tighter (more walls, narrower corridors) we pack more, smaller
+      // cells into the same arena rather than leaving wide open runs.
+      const density = CTF_MAZE_DENSITY;
+      cols = Math.round(cols * density);
+      rows = Math.round(rows * density);
+      cell = Math.max(1, Math.round(cell / density));
+    }
     return new Maze(
       cols,
       rows,
       this.config.wallStyle,
-      this.config.adv.cellSize,
+      cell,
       this.config.adv.wallThickness,
-      minCornerPaths
+      minCornerPaths,
+      ctf
     );
   }
 

@@ -1195,33 +1195,32 @@ export class Game {
   }
 
   /**
-   * Compute each team's designated spawn area: an equal-size square block of
-   * cells anchored at a corner, ordered so teams sit as far apart as possible.
-   * Cell-aligned, so a tank dropped at any cell center always clears the walls.
+   * Compute each team's designated spawn area: a single cell anchored near a
+   * corner, ordered so teams sit as far apart as possible. The area is always
+   * one cell regardless of team size (never larger than one maze cell). Bases
+   * inset off the corner to match the maze when it carves a third base route.
+   * Cell-aligned, so a tank dropped at the cell center always clears the walls.
    * No-op unless Team VS spawn zones are enabled.
    */
-  private buildSpawnZones(teams: number[]): void {
+  private buildSpawnZones(_teams: number[]): void {
     this.spawnZones = [];
     // Team VS uses zones when enabled; CTF always uses them (they're the bases).
     const wantZones =
       this.cfg.mode === "ctf" || (this.cfg.mode === "teams" && this.cfg.teamSpawnZones);
     if (!wantZones) return;
 
-    const { cols, rows, cell } = this.maze;
-    const counts = new Array<number>(this.cfg.teamCount).fill(0);
-    for (const t of teams) if (t >= 0 && t < counts.length) counts[t]++;
-    const maxTeam = Math.max(1, ...counts);
-    // Side of the (square) block in cells: big enough to give each tank its own
-    // cell, but never so big that two corner zones could overlap.
-    const sideMax = Math.max(1, Math.floor(Math.min(cols, rows) / 2));
-    const side = Math.min(sideMax, Math.max(1, Math.ceil(Math.sqrt(maxTeam))));
+    const { cols, rows, cell, cornerInset } = this.maze;
+    // Each base is exactly one cell; the maze tells us how far off the corner it
+    // sits (0 normally, 1 when a third base route had to be carved).
+    const side = 1;
+    const i = cornerInset;
     // Corner anchors (top-left cell of each block), ordered for max separation:
     // diagonal first (TL, BR), then the other diagonal (TR, BL).
     const corners = [
-      { cx: 0, cy: 0 },
-      { cx: cols - side, cy: rows - side },
-      { cx: cols - side, cy: 0 },
-      { cx: 0, cy: rows - side },
+      { cx: i, cy: i },
+      { cx: cols - side - i, cy: rows - side - i },
+      { cx: cols - side - i, cy: i },
+      { cx: i, cy: rows - side - i },
     ];
     for (let team = 0; team < this.cfg.teamCount; team++) {
       const { cx, cy } = corners[team % corners.length];
