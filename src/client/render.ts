@@ -6,6 +6,7 @@ import {
   type MazeDTO,
   type PowerupDTO,
   type SnapshotDTO,
+  type SpawnZoneDTO,
   type TankDTO,
 } from "../shared/protocol.js";
 
@@ -55,6 +56,7 @@ interface Beam {
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private maze: MazeDTO | null = null;
+  private spawnZones: SpawnZoneDTO[] = [];
   private buffer: Buffered[] = [];
   private explosions: Explosion[] = [];
   private beams: Beam[] = [];
@@ -113,6 +115,11 @@ export class Renderer {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas context unavailable");
     this.ctx = ctx;
+  }
+
+  /** Team VS designated spawn areas; empty in other modes / when disabled. */
+  setSpawnZones(zones: SpawnZoneDTO[]): void {
+    this.spawnZones = zones;
   }
 
   setMaze(maze: MazeDTO): void {
@@ -604,6 +611,19 @@ export class Renderer {
     ctx.fillStyle = "#e7d9b8";
     ctx.fillRect(0, 0, maze.width, maze.height);
 
+    // Team spawn zones: a faint wash of each team's color, with a soft dashed
+    // outline. Drawn under the walls so the arena structure reads on top.
+    for (const z of this.spawnZones) {
+      ctx.fillStyle = hexToRgba(z.color, 0.14);
+      ctx.fillRect(z.x, z.y, z.width, z.height);
+      ctx.save();
+      ctx.strokeStyle = hexToRgba(z.color, 0.5);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.strokeRect(z.x + 1, z.y + 1, z.width - 2, z.height - 2);
+      ctx.restore();
+    }
+
     // Inked wall lines.
     ctx.strokeStyle = "#352f25";
     ctx.lineWidth = maze.thickness;
@@ -825,4 +845,10 @@ function shade(hex: string, amt: number): string {
 }
 function clampByte(v: number): number {
   return v < 0 ? 0 : v > 255 ? 255 : v;
+}
+
+/** "#rrggbb" + alpha → an rgba() string. */
+function hexToRgba(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 0xff},${(n >> 8) & 0xff},${n & 0xff},${alpha})`;
 }

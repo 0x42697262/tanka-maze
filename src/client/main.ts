@@ -112,7 +112,7 @@ net.onMessage((msg: ServerMessage) => {
       break;
     case "gameStart":
       state.roster = new Map(msg.roster.map((r) => [r.index, r]));
-      startGame(msg.maze, msg.round, msg.totalRounds, msg.standing);
+      startGame(msg.maze, msg.spawnZones, msg.round, msg.totalRounds, msg.standing);
       // The first snapshot arrives next as a binary frame.
       break;
     case "roster":

@@ -404,6 +404,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     teamCount: clampInt(c.teamCount, 2, 4, d.teamCount),
     friendlyFire: typeof c.friendlyFire === "boolean" ? c.friendlyFire : d.friendlyFire,
     teamKillPenalty: clampInt(c.teamKillPenalty, 0, 500, d.teamKillPenalty),
+    teamSpawnZones: typeof c.teamSpawnZones === "boolean" ? c.teamSpawnZones : d.teamSpawnZones,
     adv: sanitizeAdvanced(c.adv),
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),

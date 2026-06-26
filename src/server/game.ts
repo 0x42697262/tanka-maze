@@ -21,8 +21,19 @@ import {
   type RoundStanding,
   type ScoreDTO,
   type SnapshotDTO,
+  type SpawnZoneDTO,
 } from "../shared/protocol.js";
 import { Maze } from "./maze.js";
+
+/** A team's designated spawn area: a cell-aligned rectangle and its cell centers. */
+interface SpawnZone {
+  team: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  cells: Array<{ x: number; y: number }>;
+}
 
 /** 4-neighbour offsets (up, right, down, left) for homing-round pathfinding. */
 const HOMING_DIRS: ReadonlyArray<readonly [number, number]> = [
@@ -145,6 +156,8 @@ export class Game {
   private nextBulletId = 1;
   private nextIndex = 0;
   private spawns: Array<{ x: number; y: number }>;
+  // Team VS: per-team designated spawn areas (empty when disabled / not Team VS).
+  private spawnZones: SpawnZone[] = [];
   private finished = false; // the whole match is decided
   private winnerName = ""; // match champion (set once finished)
   // Round series state.
@@ -187,6 +200,7 @@ export class Game {
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
     this.powerupTimer = config.powerupEverySeconds;
     this.spawns = shuffle(maze.openCellCenters());
+    this.buildSpawnZones(players.map((p) => p.team ?? 0));
 
     // Initial players take sequential spawn points around the arena.
     for (const p of players) this.addPlayer(p, false);
@@ -200,9 +214,11 @@ export class Game {
     const team = p.team ?? 0;
     // Color is supplied by the lobby (team color in Team VS), else palette.
     const color = p.color ?? TANK_COLORS[this.colorIndex++ % TANK_COLORS.length];
-    const spawn = farSpawn
-      ? this.pickSpawn(p.id)
-      : this.spawns[this.spawnIndex++ % this.spawns.length];
+    const spawn = this.zonesActive
+      ? this.pickSpawn(p.id, team)
+      : farSpawn
+        ? this.pickSpawn(p.id)
+        : this.spawns[this.spawnIndex++ % this.spawns.length];
     this.tanks.set(p.id, {
       id: p.id,
       index: this.nextIndex++,
@@ -1024,6 +1040,7 @@ export class Game {
     this.maze = maze;
     this.spawns = shuffle(maze.openCellCenters());
     this.spawnIndex = 0;
+    this.buildSpawnZones([...this.tanks.values()].map((t) => t.team));
     this.round += 1;
     this.roundOver = false;
     this.roundWinnerName = "";
@@ -1039,7 +1056,7 @@ export class Game {
 
     let i = 0;
     for (const t of this.tanks.values()) {
-      const spot = this.spawns[i++ % this.spawns.length];
+      const spot = this.zonesActive ? this.pickSpawn(t.id, t.team) : this.spawns[i++ % this.spawns.length];
       t.x = spot.x;
       t.y = spot.y;
       t.vx = 0;
@@ -1103,7 +1120,7 @@ export class Game {
   }
 
   private respawn(tank: Tank): void {
-    const spot = this.pickSpawn(tank.id);
+    const spot = this.pickSpawn(tank.id, tank.team);
     tank.x = spot.x;
     tank.y = spot.y;
     tank.vx = 0;
@@ -1124,17 +1141,94 @@ export class Game {
     tank.laserCharge = 0;
   }
 
+  /** True when team spawn zones are active for this match. */
+  private get zonesActive(): boolean {
+    return this.cfg.mode === "teams" && this.cfg.teamSpawnZones && this.spawnZones.length > 0;
+  }
+
+  /** Candidate spawn cells: a team's zone when zones are active, else the whole arena. */
+  private spawnCandidates(team?: number): Array<{ x: number; y: number }> {
+    if (team != null) {
+      const zone = this.spawnZones.find((z) => z.team === team);
+      if (zone && zone.cells.length > 0) return zone.cells;
+    }
+    return this.spawns;
+  }
+
+  /**
+   * Compute each team's designated spawn area: an equal-size square block of
+   * cells anchored at a corner, ordered so teams sit as far apart as possible.
+   * Cell-aligned, so a tank dropped at any cell center always clears the walls.
+   * No-op unless Team VS spawn zones are enabled.
+   */
+  private buildSpawnZones(teams: number[]): void {
+    this.spawnZones = [];
+    if (this.cfg.mode !== "teams" || !this.cfg.teamSpawnZones) return;
+
+    const { cols, rows, cell } = this.maze;
+    const counts = new Array<number>(this.cfg.teamCount).fill(0);
+    for (const t of teams) if (t >= 0 && t < counts.length) counts[t]++;
+    const maxTeam = Math.max(1, ...counts);
+    // Side of the (square) block in cells: big enough to give each tank its own
+    // cell, but never so big that two corner zones could overlap.
+    const sideMax = Math.max(1, Math.floor(Math.min(cols, rows) / 2));
+    const side = Math.min(sideMax, Math.max(1, Math.ceil(Math.sqrt(maxTeam))));
+    // Corner anchors (top-left cell of each block), ordered for max separation:
+    // diagonal first (TL, BR), then the other diagonal (TR, BL).
+    const corners = [
+      { cx: 0, cy: 0 },
+      { cx: cols - side, cy: rows - side },
+      { cx: cols - side, cy: 0 },
+      { cx: 0, cy: rows - side },
+    ];
+    for (let team = 0; team < this.cfg.teamCount; team++) {
+      const { cx, cy } = corners[team % corners.length];
+      const cells: Array<{ x: number; y: number }> = [];
+      for (let dy = 0; dy < side; dy++) {
+        for (let dx = 0; dx < side; dx++) {
+          cells.push({ x: (cx + dx + 0.5) * cell, y: (cy + dy + 0.5) * cell });
+        }
+      }
+      this.spawnZones.push({
+        team,
+        x: cx * cell,
+        y: cy * cell,
+        width: side * cell,
+        height: side * cell,
+        cells,
+      });
+    }
+  }
+
+  /** Spawn areas for the client to render (team color resolved from live tanks). */
+  spawnZoneDTOs(): SpawnZoneDTO[] {
+    return this.spawnZones.map((z) => {
+      const member = [...this.tanks.values()].find((t) => t.team === z.team);
+      return {
+        team: z.team,
+        x: z.x,
+        y: z.y,
+        width: z.width,
+        height: z.height,
+        color: member?.color ?? this.teamColorFallback(z.team),
+      };
+    });
+  }
+
   /**
    * Pick a randomized spawn point. With no other living tanks around, any open
    * cell is fair game; otherwise we randomly choose from the farther half of
-   * cells so respawns are varied but never right on top of an opponent.
+   * cells so respawns are varied but never right on top of an opponent. When a
+   * team is given and spawn zones are active, candidates are limited to that
+   * team's zone.
    */
-  private pickSpawn(excludeId?: string): { x: number; y: number } {
+  private pickSpawn(excludeId?: string, team?: number): { x: number; y: number } {
+    const candidates = this.spawnCandidates(team);
     const living = [...this.tanks.values()].filter((t) => t.alive && t.id !== excludeId);
     if (living.length === 0) {
-      return this.spawns[Math.floor(Math.random() * this.spawns.length)];
+      return candidates[Math.floor(Math.random() * candidates.length)];
     }
-    const scored = this.spawns
+    const scored = candidates
       .map((s) => {
         let nearest = Infinity;
         for (const t of living) {

@@ -73,7 +73,10 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   if (teams) mode.push(["Teams", c.teamCount]);
   // Friendly fire governs self-damage in every mode (and teammate damage in Team VS).
   mode.push(["Friendly fire", onOff(c.friendlyFire)]);
-  if (teams) mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
+  if (teams) {
+    mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
+    mode.push(["Spawn zones", onOff(c.teamSpawnZones)]);
+  }
   groups.push({ title: "Mode", rows: mode });
 
   groups.push({

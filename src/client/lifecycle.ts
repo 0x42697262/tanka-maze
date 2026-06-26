@@ -7,6 +7,7 @@ import {
   type MazeDTO,
   type RoundStanding,
   type ScoreDTO,
+  type SpawnZoneDTO,
 } from "../shared/protocol.js";
 import { encodeInput } from "../shared/wire.js";
 import { $, escapeHtml, show } from "./dom.js";
@@ -17,8 +18,15 @@ import { closeScoreboard } from "./scoreboard.js";
 import { applyConfigToControls, applyModeVisibility } from "./settings.js";
 import { canvas, IDLE_INPUT, IS_TOUCH, net, renderer, state } from "./state.js";
 
-export function startGame(maze: MazeDTO, round = 1, totalRounds = 1, standing: RoundStanding[] = []): void {
+export function startGame(
+  maze: MazeDTO,
+  spawnZones: SpawnZoneDTO[] = [],
+  round = 1,
+  totalRounds = 1,
+  standing: RoundStanding[] = []
+): void {
   renderer.setMaze(maze);
+  renderer.setSpawnZones(spawnZones);
   const adv = state.currentLobby?.config.adv ?? DEFAULT_GAME_CONFIG.adv;
   renderer.setParams(adv.tankRadius, adv.bulletRadius);
   renderer.setScope({

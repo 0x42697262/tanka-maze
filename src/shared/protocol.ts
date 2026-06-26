@@ -270,6 +270,7 @@ export interface GameConfig {
   teamCount: number; // 2..4 (Team VS only)
   friendlyFire: boolean; // allow damaging yourself (any mode) and teammates (Team VS)
   teamKillPenalty: number; // points lost for killing a teammate (Team VS)
+  teamSpawnZones: boolean; // Team VS: spawn each team in its own corner zone (off = randomized)
   adv: AdvancedConfig; // advanced engine tuning
   // Power-ups
   powerups: boolean; // spawn pickups on the map
@@ -294,6 +295,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   teamCount: 2,
   friendlyFire: true,
   teamKillPenalty: 60,
+  teamSpawnZones: true,
   adv: DEFAULT_ADVANCED,
   powerups: true,
   powerupEverySeconds: 8,
@@ -345,6 +347,16 @@ export interface WallDTO {
   y1: number;
   x2: number;
   y2: number;
+}
+
+/** A team's designated spawn area (Team VS), as a pixel rectangle + tint. */
+export interface SpawnZoneDTO {
+  team: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string; // the team's color (rendered faintly)
 }
 
 export interface MazeDTO {
@@ -534,6 +546,7 @@ export type ServerMessage =
   | {
       type: "gameStart";
       maze: MazeDTO;
+      spawnZones: SpawnZoneDTO[];
       roster: RosterEntry[];
       round: number;
       totalRounds: number;

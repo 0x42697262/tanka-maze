@@ -254,6 +254,7 @@ export class Lobby {
     this.broadcast({
       type: "gameStart",
       maze: this.maze.toDTO(),
+      spawnZones: this.game.spawnZoneDTOs(),
       roster: this.game.roster(),
       round: this.game.currentRound,
       totalRounds: this.game.roundCount,
@@ -281,6 +282,7 @@ export class Lobby {
       encode({
         type: "gameStart",
         maze: this.maze.toDTO(),
+        spawnZones: this.game.spawnZoneDTOs(),
         roster: this.game.roster(),
         round: this.game.currentRound,
         totalRounds: this.game.roundCount,
@@ -411,6 +413,7 @@ export class Lobby {
     this.broadcast({
       type: "gameStart",
       maze: this.maze.toDTO(),
+      spawnZones: this.game.spawnZoneDTOs(),
       roster: this.game.roster(),
       round: this.game.currentRound,
       totalRounds: this.game.roundCount,

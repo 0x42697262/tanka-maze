@@ -76,6 +76,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       teamCount: num("team-count", 2),
       friendlyFire: sel("friendly-fire") === "on",
       teamKillPenalty: Number(($("team-kill") as HTMLInputElement).value) || 0,
+      teamSpawnZones: sel("team-spawn-zones") === "on",
       adv: gatherAdvanced(),
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
@@ -103,6 +104,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("win-score", c.winScore);
   set("friendly-fire", c.friendlyFire ? "on" : "off");
   set("team-kill", c.teamKillPenalty);
+  set("team-spawn-zones", c.teamSpawnZones ? "on" : "off");
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
   set("pwr-charges", c.powerupCharges);

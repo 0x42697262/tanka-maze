@@ -131,6 +131,66 @@ describe("explosive", () => {
   });
 });
 
+describe("team spawn zones", () => {
+  const teamPlayers = [
+    { id: "a", name: "A", color: "#ff0000", team: 0 },
+    { id: "b", name: "B", color: "#ff0000", team: 0 },
+    { id: "c", name: "C", color: "#0000ff", team: 1 },
+    { id: "d", name: "D", color: "#0000ff", team: 1 },
+  ];
+  const inRect = (t: any, z: any): boolean =>
+    t.x >= z.x && t.x <= z.x + z.width && t.y >= z.y && t.y <= z.y + z.height;
+
+  it("spawns every tank inside its own team's zone (Team VS, default on)", () => {
+    const g = makeGame({ cfg: { mode: "teams", teamCount: 2 }, players: teamPlayers });
+    const zones = g.spawnZoneDTOs();
+    assert.equal(zones.length, 2);
+    for (const id of ["a", "b", "c", "d"]) {
+      const t = tank(g, id);
+      const z = zones.find((z) => z.team === t.team)!;
+      assert.ok(inRect(t, z), `${id} should spawn in its team zone`);
+    }
+  });
+
+  it("makes all zones the same size and places teams far apart", () => {
+    const g = makeGame({ cfg: { mode: "teams", teamCount: 2 }, players: teamPlayers });
+    const [z0, z1] = g.spawnZoneDTOs();
+    assert.equal(z0.width, z1.width);
+    assert.equal(z0.height, z1.height);
+    // Zone centers should be most of the arena apart (opposite corners).
+    const c0 = { x: z0.x + z0.width / 2, y: z0.y + z0.height / 2 };
+    const c1 = { x: z1.x + z1.width / 2, y: z1.y + z1.height / 2 };
+    const dist = Math.hypot(c1.x - c0.x, c1.y - c0.y);
+    assert.ok(dist > 600, `zones should be far apart (got ${Math.round(dist)})`);
+  });
+
+  it("tints each zone with its team's color", () => {
+    const g = makeGame({ cfg: { mode: "teams", teamCount: 2 }, players: teamPlayers });
+    const zones = g.spawnZoneDTOs();
+    assert.equal(zones.find((z) => z.team === 0)!.color, "#ff0000");
+    assert.equal(zones.find((z) => z.team === 1)!.color, "#0000ff");
+  });
+
+  it("keeps spawns clear of walls even on a maze layout", () => {
+    const g = makeGame({
+      cfg: { mode: "teams", teamCount: 2 },
+      players: teamPlayers,
+      maze: new Maze(10, 8, "maze"),
+    });
+    for (const id of ["a", "b", "c", "d"]) {
+      const t = tank(g, id);
+      assert.equal((g as any).maze.hitsCircle(t.x, t.y, 11), false, `${id} clear of walls`);
+    }
+  });
+
+  it("emits no zones when disabled or outside Team VS", () => {
+    const off = makeGame({ cfg: { mode: "teams", teamSpawnZones: false }, players: teamPlayers });
+    assert.deepEqual(off.spawnZoneDTOs(), []);
+    const ffa = makeGame({ cfg: { mode: "ffa" }, players: teamPlayers });
+    assert.deepEqual(ffa.spawnZoneDTOs(), []);
+  });
+});
+
 describe("friendly fire", () => {
   const friendly = (g: Game, ownerId: string, targetId: string): boolean =>
     (g as any).isFriendly(ownerId, tank(g, targetId));
