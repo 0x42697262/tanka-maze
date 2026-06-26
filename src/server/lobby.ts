@@ -160,10 +160,18 @@ export class Lobby {
 
   /** Switch a member's team (Team VS, lobby only). */
   setTeam(clientId: string, team: number): void {
-    const m = this.members.find((c) => c.id === clientId);
-    if (!m || this.inGame) return;
-    if (team < 0 || team >= this.config.teamCount) return;
+    const idx = this.members.findIndex((c) => c.id === clientId);
+    if (idx === -1 || this.inGame) return;
+    const m = this.members[idx];
+    if (team < 0 || team >= this.config.teamCount || m.team === team) return;
     m.team = team;
+    // Joining a team makes you its newest member: move to the end of the roster
+    // so each team box stays ordered by who joined the team first. This keeps
+    // team captaincy (the first member of a team — who edits its name/color)
+    // with whoever was already there, rather than handing it to an
+    // earlier-joined player who switches in.
+    this.members.splice(idx, 1);
+    this.members.push(m);
     this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
   }
 
