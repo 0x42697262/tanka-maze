@@ -337,6 +337,19 @@ describe("capture the flag", () => {
     assert.equal(ownFlag.carrierId, null);
   });
 
+  it("respawn delay grows by ctfRespawnBonus with each death in the round", () => {
+    const g = makeCtf({ respawnSeconds: 2, ctfRespawnBonus: 4 });
+    const b = tank(g, "b");
+    (g as any).kill(b, "a");
+    assert.equal(b.respawnIn, 2); // 1st death: base respawn
+    (g as any).respawn(b);
+    (g as any).kill(b, "a");
+    assert.equal(b.respawnIn, 6); // 2nd death: base + 1×bonus
+    (g as any).respawn(b);
+    (g as any).kill(b, "a");
+    assert.equal(b.respawnIn, 10); // 3rd death: base + 2×bonus
+  });
+
   it("kills award no points in CTF (won by captures, not score)", () => {
     const g = makeCtf();
     (g as any).kill(tank(g, "b"), "a");

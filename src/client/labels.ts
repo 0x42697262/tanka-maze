@@ -85,6 +85,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   if (ctf) {
     mode.push(["Rounds to win", c.maxFlags]);
     mode.push(["Captures/round", c.flagsPerRound]);
+    mode.push(["Respawn +/death", `${c.ctfRespawnBonus}s`]);
   }
   if (teams) mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
   if (teamBased) mode.push(["Spawn zones", ctf ? "On (bases)" : onOff(c.teamSpawnZones)]);

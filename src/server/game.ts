@@ -957,11 +957,14 @@ export class Game {
     const loss = this.ctf ? 0 : Math.floor((victim.score * this.cfg.deathPenaltyPct) / 100);
     victim.score = Math.max(0, victim.score - loss);
 
-    // Eliminated if lives are limited and exhausted; otherwise respawns.
+    // Eliminated if lives are limited and exhausted; otherwise respawns. In CTF
+    // each death in the round stacks an extra respawn delay, so repeated dying is
+    // increasingly costly (the first death uses the normal respawn time).
     if (this.cfg.lives > 0 && victim.deaths >= this.cfg.lives) {
       victim.out = true;
     } else {
-      victim.respawnIn = this.cfg.respawnSeconds;
+      const extra = this.ctf ? this.cfg.ctfRespawnBonus * Math.max(0, victim.deaths - 1) : 0;
+      victim.respawnIn = this.cfg.respawnSeconds + extra;
     }
 
     const killer = this.tanks.get(killerId);

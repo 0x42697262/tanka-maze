@@ -287,6 +287,8 @@ export interface GameConfig {
   flagsPerRound: number;
   // CTF: how a capture is scored. "deliver" = carry an enemy flag into your base.
   ctfScoreMode: CtfScoreMode;
+  // CTF: extra seconds added to the respawn delay on death (0 = none).
+  ctfRespawnBonus: number;
   adv: AdvancedConfig; // advanced engine tuning
   // Power-ups
   powerups: boolean; // spawn pickups on the map
@@ -317,6 +319,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   flagStealOnContact: true,
   flagsPerRound: 1,
   ctfScoreMode: "deliver",
+  ctfRespawnBonus: 3,
   adv: DEFAULT_ADVANCED,
   powerups: true,
   powerupEverySeconds: 8,

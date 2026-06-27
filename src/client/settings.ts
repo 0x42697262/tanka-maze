@@ -84,6 +84,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       flagStealOnContact: sel("flag-steal") === "on",
       flagsPerRound: num("flags-per-round", 1),
       ctfScoreMode: sel("ctf-score-mode") as CtfScoreMode,
+      ctfRespawnBonus: num("ctf-respawn-bonus", 3),
       adv: gatherAdvanced(),
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
@@ -118,6 +119,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("flag-steal", c.flagStealOnContact ? "on" : "off");
   set("flags-per-round", c.flagsPerRound);
   set("ctf-score-mode", c.ctfScoreMode);
+  set("ctf-respawn-bonus", c.ctfRespawnBonus);
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
   set("pwr-charges", c.powerupCharges);

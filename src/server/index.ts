@@ -423,6 +423,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     // Captures to win a round; defaults to one per rival team (1 for 2, 3 for 4).
     flagsPerRound: clampInt(c.flagsPerRound, 1, 50, Math.max(1, teamCount - 1)),
     ctfScoreMode: oneOf(c.ctfScoreMode, CTF_SCORE_MODES, d.ctfScoreMode),
+    ctfRespawnBonus: clampInt(c.ctfRespawnBonus, 0, 60, d.ctfRespawnBonus),
     adv: sanitizeAdvanced(c.adv),
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
