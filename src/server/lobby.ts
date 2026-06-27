@@ -279,7 +279,7 @@ export class Lobby {
       standing: this.game.roundStandings(),
     });
     this.broadcastSnapshot(true); // initial state (binary)
-    this.logMap(); // map dump disabled — re-enable to inspect generated mazes
+    // this.logMap(); // map dump disabled — re-enable to inspect generated mazes
   }
 
   /** Dump the generated maze as one-line JSON to the server console so it can be
