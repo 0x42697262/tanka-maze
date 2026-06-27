@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { WALL_STYLES } from "../src/shared/protocol.js";
-import { Maze, mazeDimensions, ctfPathCount } from "../src/server/maze.js";
+import { Maze, mazeDimensions, ctfPathCount, ctfCenterRoom } from "../src/server/maze.js";
 
 /** Flood-fill the cell grid via `passable`; true if every cell is reachable. */
 function fullyConnected(m: Maze): boolean {
@@ -309,6 +309,45 @@ describe("maze: CTF true maze", () => {
     const m3 = new Maze(20, 14, "maze", undefined, undefined, 3, true, 2);
     assert.equal(m3.baseSize, 2);
     assert.ok(blockEdgeDisjointPaths(m3) >= 3, "fewer than 3 base routes");
+  });
+});
+
+describe("maze: CTF centre room + corner barriers", () => {
+  it("ctfCenterRoom scales: none small, 2 normal, 3 large", () => {
+    assert.equal(ctfCenterRoom(7, 5), 0); // small
+    assert.equal(ctfCenterRoom(10, 7), 2); // normal
+    assert.equal(ctfCenterRoom(14, 10), 3); // large
+  });
+
+  it("clearCenter opens a side×side room and stays connected", () => {
+    for (const [cols, rows, s] of [[13, 9, 2], [18, 13, 3]] as const) {
+      const m = new Maze(cols, rows, "maze", undefined, undefined, 2, true, 2);
+      m.clearCenter(s);
+      const cx0 = Math.floor((cols - s) / 2);
+      const cy0 = Math.floor((rows - s) / 2);
+      for (let x = cx0; x < cx0 + s; x++) {
+        for (let y = cy0; y < cy0 + s; y++) {
+          if (x + 1 < cx0 + s) assert.ok(m.passable(x, y, x + 1, y), "centre wall present");
+          if (y + 1 < cy0 + s) assert.ok(m.passable(x, y, x, y + 1), "centre wall present");
+        }
+      }
+      assert.ok(fullyConnected(m), `${cols}x${rows}: not connected after centre room`);
+    }
+  });
+
+  it("addCornerBarriers blocks straight edge runs while staying connected", () => {
+    for (let k = 0; k < 25; k++) {
+      const m = new Maze(13, 9, "maze", undefined, undefined, 2, true, 2);
+      m.addCornerBarriers(2);
+      assert.ok(fullyConnected(m), "not connected after barriers");
+      // No straight run hugging the top edge (row 0) or the left edge (col 0).
+      let topOpen = true;
+      for (let x = 0; x + 1 < m.cols; x++) if (!m.passable(x, 0, x + 1, 0)) topOpen = false;
+      assert.ok(!topOpen, "top edge fully open between bases");
+      let leftOpen = true;
+      for (let y = 0; y + 1 < m.rows; y++) if (!m.passable(0, y, 0, y + 1)) leftOpen = false;
+      assert.ok(!leftOpen, "left edge fully open between bases");
+    }
   });
 });
 

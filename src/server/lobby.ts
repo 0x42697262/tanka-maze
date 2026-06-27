@@ -18,7 +18,7 @@ import {
 } from "../shared/protocol.js";
 import { bytesEqual, encodeSnapshot } from "../shared/wire.js";
 import { Game } from "./game.js";
-import { Maze, mazeDimensions, ctfPathCount } from "./maze.js";
+import { Maze, mazeDimensions, ctfPathCount, ctfCenterRoom } from "./maze.js";
 
 /**
  * How much finer the CTF maze grid is than other modes: it packs this many times
@@ -273,7 +273,7 @@ export class Lobby {
       standing: this.game.roundStandings(),
     });
     this.broadcastSnapshot(true); // initial state (binary)
-    // this.logMap(); // map dump disabled — re-enable to inspect generated mazes
+    this.logMap(); // map dump disabled — re-enable to inspect generated mazes
   }
 
   /** Dump the generated maze as one-line JSON to the server console so it can be
@@ -310,8 +310,10 @@ export class Lobby {
     // a single corridor can't bottle up the bases. Other modes use the open
     // arena and a single guaranteed route.
     const ctf = this.config.mode === "ctf";
-    // Route count is keyed to the *base* area; compute it before densifying.
+    // Route count + centre room are keyed to the *base* area; compute before
+    // densifying.
     const minCornerPaths = ctf ? ctfPathCount(cols, rows) : 1;
+    const centerRoom = ctf ? ctfCenterRoom(cols, rows) : 0;
     if (ctf) {
       // A perfect maze already holds the most walls a grid that size can; to make
       // the maze tighter (more walls, narrower corridors) we pack more, smaller
@@ -321,7 +323,7 @@ export class Lobby {
       rows = Math.round(rows * density);
       cell = Math.max(1, Math.round(cell / density));
     }
-    return new Maze(
+    const maze = new Maze(
       cols,
       rows,
       this.config.wallStyle,
@@ -331,6 +333,13 @@ export class Lobby {
       ctf,
       SPAWN_ZONE_CELLS
     );
+    if (ctf) {
+      // 4-team: wall off straight runs between the corner bases so no two connect
+      // directly (which would gang up on the odd team out).
+      if (this.config.teamCount === 4) maze.addCornerBarriers(SPAWN_ZONE_CELLS);
+      maze.clearCenter(centerRoom); // open contested space at the map centre
+    }
+    return maze;
   }
 
   /** Send the maze + roster (JSON) and current snapshot (binary) to one client. */

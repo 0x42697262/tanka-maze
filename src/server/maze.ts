@@ -45,6 +45,16 @@ export function ctfPathCount(cols: number, rows: number): number {
   return ratio < 1.5 ? 2 : 3;
 }
 
+/**
+ * Side (in cells) of the open room carved at the map centre for CTF: none on a
+ * small map, 2×2 on a normal map, 3×3 on a large one. Random maps scale by area.
+ * Takes the *base* (pre-density) dimensions, like ctfPathCount.
+ */
+export function ctfCenterRoom(cols: number, rows: number): number {
+  const ratio = (cols * rows) / (MAZE_COLS * MAZE_ROWS);
+  return ratio < 0.75 ? 0 : ratio < 1.5 ? 2 : 3;
+}
+
 interface Segment {
   x1: number;
   y1: number;
@@ -811,6 +821,125 @@ export class Maze {
         for (let y = cy0 + 1; y < cy1; y++) this.grid.hWalls[x][y] = false;
     }
     this.walls = this.buildSegments();
+  }
+
+  /**
+   * Carve a `side`×`side` open room at the map centre (CTF free space). It reuses
+   * the existing maze openings as doorways, so it stays connected. No-op for
+   * side < 2.
+   */
+  clearCenter(side: number): void {
+    if (side < 2) return;
+    const s = Math.min(side, this.cols, this.rows);
+    const cx0 = Math.floor((this.cols - s) / 2);
+    const cy0 = Math.floor((this.rows - s) / 2);
+    this.clearZones([
+      { x: cx0 * this.cell, y: cy0 * this.cell, width: s * this.cell, height: s * this.cell },
+    ]);
+  }
+
+  /**
+   * Drop a short wall barrier inward from the middle of each map edge, so no two
+   * corner bases (4-team CTF) connect by a straight run hugging the shared edge —
+   * they must detour through the maze. Each wall is only kept if the arena stays
+   * fully connected, so this never seals anything off.
+   */
+  addCornerBarriers(baseSide: number): void {
+    const g = this.grid;
+    const depth = Math.max(1, Math.min(baseSide + 1, this.rows, this.cols));
+    const midC = Math.floor(this.cols / 2);
+    const midR = Math.floor(this.rows / 2);
+    // Raise the four barrier walls, marking them protected, then restore any lost
+    // connectivity by opening *other* walls — so the barriers themselves stay up.
+    const protectedWalls = new Set<string>();
+    for (let y = 0; y < depth; y++) {
+      g.vWalls[midC][y] = true; // top
+      protectedWalls.add(`v${midC},${y}`);
+      g.vWalls[midC][this.rows - 1 - y] = true; // bottom
+      protectedWalls.add(`v${midC},${this.rows - 1 - y}`);
+    }
+    for (let x = 0; x < depth; x++) {
+      g.hWalls[x][midR] = true; // left
+      protectedWalls.add(`h${x},${midR}`);
+      g.hWalls[this.cols - 1 - x][midR] = true; // right
+      protectedWalls.add(`h${this.cols - 1 - x},${midR}`);
+    }
+    this.repairConnectivity(protectedWalls);
+    this.walls = this.buildSegments();
+  }
+
+  /**
+   * Reconnect any cell cut off by the barriers, opening a non-barrier wall where
+   * possible (only falling back to a barrier wall if it's the sole bridge). Keeps
+   * the barriers standing while guaranteeing every cell is reachable.
+   */
+  private repairConnectivity(protectedWalls: Set<string>): void {
+    const total = this.cols * this.rows;
+    const g = this.grid;
+    for (let guard = 0; guard < total; guard++) {
+      const reached = new Uint8Array(total);
+      const stack = [0];
+      reached[0] = 1;
+      let count = 1;
+      while (stack.length) {
+        const cur = stack.pop() as number;
+        const cx = cur % this.cols;
+        const cy = (cur - cx) / this.cols;
+        for (const [dx, dy] of DIRS) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
+          const ni = ny * this.cols + nx;
+          if (!reached[ni] && g.passable(cx, cy, nx, ny)) {
+            reached[ni] = 1;
+            count++;
+            stack.push(ni);
+          }
+        }
+      }
+      if (count === total) return;
+      // Bridge the reached region to an unreached neighbour, preferring a
+      // non-barrier wall.
+      let fallback: (() => void) | null = null;
+      let opened = false;
+      for (let i = 0; i < total && !opened; i++) {
+        if (!reached[i]) continue;
+        const cx = i % this.cols;
+        const cy = (i - cx) / this.cols;
+        for (const [dx, dy] of DIRS) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
+          if (reached[ny * this.cols + nx] || g.passable(cx, cy, nx, ny)) continue;
+          let keyEdge: string;
+          let open: () => void;
+          if (nx === cx + 1) {
+            keyEdge = `v${cx + 1},${cy}`;
+            open = () => (g.vWalls[cx + 1][cy] = false);
+          } else if (nx === cx - 1) {
+            keyEdge = `v${cx},${cy}`;
+            open = () => (g.vWalls[cx][cy] = false);
+          } else if (ny === cy + 1) {
+            keyEdge = `h${cx},${cy + 1}`;
+            open = () => (g.hWalls[cx][cy + 1] = false);
+          } else {
+            keyEdge = `h${cx},${cy}`;
+            open = () => (g.hWalls[cx][cy] = false);
+          }
+          if (protectedWalls.has(keyEdge)) {
+            fallback ??= open;
+            continue;
+          }
+          open();
+          opened = true;
+          break;
+        }
+      }
+      if (!opened) {
+        if (fallback) fallback();
+        else return;
+      }
+    }
   }
 
   /** World point → grid cell indices (clamped to the arena). */
