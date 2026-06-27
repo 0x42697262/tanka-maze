@@ -2,9 +2,11 @@ import {
   MAX_POWERUPS_ON_MAP,
   POWERUP_RADIUS,
   FLAG_STEAL_COOLDOWN,
+  KILL_STREAK_WINDOW,
   SPAWN_SHIELD_SECONDS,
   SPAWN_ZONE_CELLS,
   TANK_COLORS,
+  TEAMKILL_DENIED_WINDOW,
   TANK_REVERSE_SPEED,
   TANK_SPEED,
   TRACKING_REPATH,
@@ -201,6 +203,11 @@ export class Game {
   private pendingBlasts: Array<{ x: number; y: number }> = [];
   private pendingBeams: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
   private pendingEvents: KillEvent[] = [];
+  // Kill-streak announcements (server-authoritative so every client agrees).
+  private elapsed = 0; // seconds since match start (advances each step)
+  private enemyStreak = new Map<number, { count: number; last: number }>();
+  private teamKillShownAt = new Map<number, number>();
+  private firstBloodDone = false;
   // Reused BFS scratch for homing-round pathfinding (stamped by generation so
   // it never needs clearing). Sized to the maze grid on first use.
   private pathSeen: Int32Array = new Int32Array(0);
@@ -357,6 +364,7 @@ export class Game {
   /** Advance the simulation by `dt` seconds. */
   step(dt: number): void {
     if (this.finished) return; // frozen only once the whole match is decided
+    this.elapsed += dt; // drives kill-streak timing
 
     // Transient effects only live for the snapshot taken right after this step.
     this.pendingBlasts = [];
@@ -979,6 +987,7 @@ export class Game {
           killer: killer.index,
           victim: victim.index,
           points: killer.score - before,
+          streak: this.killStreakTier(killer.index, true),
         });
       } else {
         if (!this.ctf) {
@@ -990,17 +999,42 @@ export class Game {
           killer: killer.index,
           victim: victim.index,
           points: this.ctf ? 0 : this.cfg.killPoints,
+          streak: this.killStreakTier(killer.index, false),
         });
         if (this.cfg.mode === "ffa" && killer.score >= this.cfg.winScore) {
           this.endRound(killer.id, killer.name);
         }
       }
     } else {
-      // Self-destruct / environment (e.g. own ricochet).
-      this.pendingEvents.push({ type: 1, killer: 255, victim: victim.index, points: -loss });
+      // Self-destruct / environment (e.g. own ricochet) — no announcement.
+      this.pendingEvents.push({ type: 1, killer: 255, victim: victim.index, points: -loss, streak: 0 });
     }
     this.checkElimination();
     this.checkTeamWin();
+  }
+
+  /**
+   * Kill-streak announcement tier for a kill by `killerIndex` (see KillEvent
+   * .streak). Enemy kills chain into multikills within KILL_STREAK_WINDOW; the
+   * first enemy kill of the round is First Blood. Team kills return a "denied"
+   * tier, throttled to once per TEAMKILL_DENIED_WINDOW so a serial team-killer
+   * doesn't spam it. 0 = no announcement (e.g. a lone kill).
+   */
+  private killStreakTier(killerIndex: number, isTeamKill: boolean): number {
+    if (isTeamKill) {
+      const last = this.teamKillShownAt.get(killerIndex) ?? -Infinity;
+      if (this.elapsed - last < TEAMKILL_DENIED_WINDOW) return 0;
+      this.teamKillShownAt.set(killerIndex, this.elapsed);
+      return 6; // denied
+    }
+    const prev = this.enemyStreak.get(killerIndex);
+    const count = prev && this.elapsed - prev.last <= KILL_STREAK_WINDOW ? prev.count + 1 : 1;
+    this.enemyStreak.set(killerIndex, { count, last: this.elapsed });
+    if (!this.firstBloodDone) {
+      this.firstBloodDone = true;
+      return 1; // first blood
+    }
+    return count >= 5 ? 5 : count >= 2 ? count : 0; // savage caps at 5; lone kill = 0
   }
 
   /**
@@ -1090,6 +1124,10 @@ export class Game {
     this.maze.clearZones(this.spawnZones); // bases are open rooms (no inner walls)
     this.buildFlags();
     this.teamRoundCaptures.clear();
+    // Fresh fight, fresh streaks (a new First Blood is up for grabs).
+    this.enemyStreak.clear();
+    this.teamKillShownAt.clear();
+    this.firstBloodDone = false;
     this.round += 1;
     this.roundOver = false;
     this.roundWinnerName = "";

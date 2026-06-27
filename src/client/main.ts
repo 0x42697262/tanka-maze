@@ -177,7 +177,7 @@ function frame(): void {
     // Kill log fires on the interpolation clock (in sync with the explosion).
     for (const e of renderer.takeEvents()) {
       logKillEvent(e);
-      announceKill(e, now);
+      announceKill(e);
     }
     renderLeaderboard();
     // The death overlay follows the *displayed* (interpolated) world so it pops

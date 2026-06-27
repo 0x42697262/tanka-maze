@@ -601,16 +601,26 @@ canvas {
   transform: translateX(-50%) scale(0.6);
   opacity: 0;
   pointer-events: none;
-  font-weight: 900;
-  letter-spacing: 2px;
-  text-transform: uppercase;
   white-space: nowrap;
-  line-height: 1;
   text-align: center;
   font-family: system-ui, sans-serif;
 }
 .announce.show {
-  animation: ann-pop 1.7s ease-out forwards;
+  animation: ann-pop 1.5s ease-out forwards;
+}
+.ann-label {
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.ann-by {
+  margin-top: 4px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 6px rgba(0, 0, 0, 0.5);
 }
 @keyframes ann-pop {
   0% {
@@ -634,34 +644,34 @@ canvas {
   }
 }
 /* Tiers — flashier (bigger + brighter glow) the higher the streak. */
-.announce.denied {
+.announce.denied .ann-label {
   font-size: 26px;
   letter-spacing: 4px;
   color: #b9483f;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
 }
-.announce.t2 {
+.announce.t2 .ann-label {
   font-size: 30px;
   color: #ffd95a;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 12px rgba(255, 217, 90, 0.5);
 }
-.announce.t3 {
+.announce.t3 .ann-label {
   font-size: 37px;
   color: #ff9f3f;
   text-shadow: 0 2px 9px rgba(0, 0, 0, 0.55), 0 0 18px rgba(255, 159, 63, 0.6);
 }
-.announce.t4 {
+.announce.t4 .ann-label {
   font-size: 45px;
   color: #ff5a3c;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 90, 60, 0.7);
 }
-.announce.t5 {
+.announce.t5 .ann-label {
   font-size: 56px;
   color: #ff3b6b;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6), 0 0 30px rgba(255, 59, 107, 0.85),
     0 0 56px rgba(255, 59, 107, 0.5);
 }
-.announce.fb {
+.announce.fb .ann-label {
   font-size: 48px;
   color: #ff2d2d;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 28px rgba(255, 45, 45, 0.8);
@@ -669,14 +679,14 @@ canvas {
 /* Top tiers also pulse-glow (filter doesn't fight the pop's transform). */
 .announce.show.t5,
 .announce.show.fb {
-  animation: ann-pop 1.7s ease-out forwards, ann-glow 0.4s ease-in-out 3 alternate;
+  animation: ann-pop 1.5s ease-out forwards, ann-glow 0.35s ease-in-out 3 alternate;
 }
 @keyframes ann-glow {
   from {
     filter: brightness(1);
   }
   to {
-    filter: brightness(1.55) drop-shadow(0 0 16px currentColor);
+    filter: brightness(1.6);
   }
 }
 @media (prefers-reduced-motion: reduce) {

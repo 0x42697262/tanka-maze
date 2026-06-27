@@ -8,6 +8,7 @@ import {
   type InputState,
 } from "../src/shared/protocol.js";
 import { Game } from "../src/server/game.js";
+import { TEAMKILL_DENIED_WINDOW } from "../src/shared/constants.js";
 import { Maze } from "../src/server/maze.js";
 
 type Player = { id: string; name: string; color?: string; team?: number };
@@ -558,6 +559,44 @@ describe("scoring / kills", () => {
     assert.equal(a.score, 75);
     const ev = (g as any).pendingEvents.at(-1);
     assert.equal(ev.type, 1); // suicide
+    assert.equal(ev.streak, 0); // suicides never announce
+  });
+
+  it("kill streaks: first blood → savage (capped), restart after the window", () => {
+    const g = makeGame({ cfg: { winScore: 100000 } }); // don't let FFA end mid-test
+    const b = tank(g, "b");
+    const streakOf = (n: number) => {
+      const tiers: number[] = [];
+      for (let i = 0; i < n; i++) {
+        (g as any).kill(b, "a");
+        tiers.push((g as any).pendingEvents.at(-1).streak);
+      }
+      return tiers;
+    };
+    // elapsed stays 0 (no step calls) → all within the window → a clean chain.
+    assert.deepEqual(streakOf(6), [1, 2, 3, 4, 5, 5]); // fb, double, triple, maniac, savage, savage
+    (g as any).elapsed = 100; // jump past the multikill window
+    (g as any).kill(b, "a");
+    assert.equal((g as any).pendingEvents.at(-1).streak, 0); // chain broken → lone kill, no banner
+  });
+
+  it("team kills announce DENIED, throttled to once per 2x window", () => {
+    const g = makeGame({
+      cfg: { mode: "teams", teamKillPenalty: 10, winScore: 100000 },
+      players: [
+        { id: "a", name: "A", team: 0 },
+        { id: "b", name: "B", team: 0 },
+        { id: "c", name: "C", team: 1 },
+      ],
+    });
+    const b = tank(g, "b");
+    (g as any).kill(b, "a");
+    assert.equal((g as any).pendingEvents.at(-1).streak, 6); // denied
+    (g as any).kill(b, "a");
+    assert.equal((g as any).pendingEvents.at(-1).streak, 0); // within window → suppressed
+    (g as any).elapsed = TEAMKILL_DENIED_WINDOW;
+    (g as any).kill(b, "a");
+    assert.equal((g as any).pendingEvents.at(-1).streak, 6); // window elapsed → denied again
   });
 
   it("team-killing is penalized, not rewarded", () => {

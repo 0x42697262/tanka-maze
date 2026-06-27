@@ -70,6 +70,11 @@ export const SPAWN_SHIELD_SECONDS = 2; // spawn protection whenever a tank (re)s
 // CTF: grace after a flag changes hands before it can be taken again, so two
 // adjacent tanks don't ping-pong the flag every tick.
 export const FLAG_STEAL_COOLDOWN = 0.6;
+// Kill-streak announcements: max seconds between a killer's kills to chain a
+// multikill, and the (2×) window a team-kill "denied" re-shows on after the last.
+export const KILL_STREAK_WINDOW = 15;
+export const TEAMKILL_DENIED_WINDOW = KILL_STREAK_WINDOW * 2;
+
 // Side (in cells) of each team's square spawn base (Team VS zones / CTF bases).
 // A wider base also gives a CTF corner enough exits for multiple base routes.
 export const SPAWN_ZONE_CELLS = 2;
