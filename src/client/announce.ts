@@ -7,14 +7,17 @@ import { type KillEvent } from "../shared/protocol.js";
 import { $, escapeHtml } from "./dom.js";
 import { state } from "./state.js";
 
-/** tier code (KillEvent.streak) → banner label + CSS class (flashier = higher). */
+/** tier code (KillEvent.streak) → banner label + CSS class. Enemy multikills
+ *  (1-5) get flashier; team-kill betrayals (6-8) get grim, horror styling. */
 const TIERS: Record<number, { label: string; cls: string }> = {
   1: { label: "FIRST BLOOD!", cls: "fb" },
   2: { label: "DOUBLE KILL!", cls: "t2" },
   3: { label: "TRIPLE KILL!!", cls: "t3" },
   4: { label: "MANIAC!!", cls: "t4" },
   5: { label: "SAVAGE!!!", cls: "t5" },
-  6: { label: "DENIED", cls: "denied" },
+  6: { label: "BETRAYAL", cls: "b1" },
+  7: { label: "TRAITOR", cls: "b2" },
+  8: { label: "KINSLAYER", cls: "b3" },
 };
 
 const DISPLAY_MS = 1500; // each queued banner holds this long before the next plays

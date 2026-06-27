@@ -644,12 +644,6 @@ canvas {
   }
 }
 /* Tiers — flashier (bigger + brighter glow) the higher the streak. */
-.announce.denied .ann-label {
-  font-size: 26px;
-  letter-spacing: 4px;
-  color: #b9483f;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
-}
 .announce.t2 .ann-label {
   font-size: 30px;
   color: #ffd95a;
@@ -689,10 +683,85 @@ canvas {
     filter: brightness(1.6);
   }
 }
+
+/* Betrayal tiers — grim, bloody, no cheerful glow. Dried-blood reds on heavy
+   black, a sickly flicker, and a slight skew so it feels wrong. */
+.announce.b1 .ann-label,
+.announce.b2 .ann-label,
+.announce.b3 .ann-label {
+  font-family: "Courier New", ui-monospace, monospace;
+  letter-spacing: 5px;
+  text-shadow: 0 0 2px #000, 0 2px 4px #000, 0 0 14px rgba(120, 0, 0, 0.85);
+}
+.announce.b1 .ann-label {
+  font-size: 34px;
+  color: #8a0d0d;
+}
+.announce.b2 .ann-label {
+  font-size: 44px;
+  color: #a30909;
+}
+.announce.b3 .ann-label {
+  font-size: 58px;
+  color: #c20000;
+  text-shadow: 0 0 2px #000, 0 2px 5px #000, 0 0 20px rgba(150, 0, 0, 0.95),
+    0 0 44px rgba(90, 0, 0, 0.7);
+}
+.announce.show.b1,
+.announce.show.b2,
+.announce.show.b3 {
+  animation: ann-horror 1.8s ease-out forwards;
+}
+.announce.show.b3 {
+  animation: ann-horror 2s ease-out forwards;
+}
+/* Stutters in with a flicker (like a failing light), trembles, then bleeds out. */
+@keyframes ann-horror {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(1.18) skewX(-5deg);
+    filter: blur(3px) brightness(0.6);
+  }
+  8% {
+    opacity: 1;
+    filter: blur(0) brightness(1);
+  }
+  11% {
+    opacity: 0.15;
+  }
+  15% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.02) skewX(3deg);
+  }
+  19% {
+    opacity: 0.4;
+  }
+  24% {
+    opacity: 1;
+    transform: translateX(-51%) scale(1) skewX(0);
+  }
+  28% {
+    transform: translateX(-49%) scale(1);
+  }
+  32% {
+    transform: translateX(-50%) scale(1);
+  }
+  78% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.98);
+    filter: blur(2px);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .announce.show,
   .announce.show.t5,
-  .announce.show.fb {
+  .announce.show.fb,
+  .announce.show.b1,
+  .announce.show.b2,
+  .announce.show.b3 {
     animation: ann-fade 1.5s ease-out forwards;
   }
   @keyframes ann-fade {

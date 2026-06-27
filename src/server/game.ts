@@ -6,7 +6,7 @@ import {
   SPAWN_SHIELD_SECONDS,
   SPAWN_ZONE_CELLS,
   TANK_COLORS,
-  TEAMKILL_DENIED_WINDOW,
+  TEAMKILL_STREAK_WINDOW,
   TANK_REVERSE_SPEED,
   TANK_SPEED,
   TRACKING_REPATH,
@@ -206,7 +206,7 @@ export class Game {
   // Kill-streak announcements (server-authoritative so every client agrees).
   private elapsed = 0; // seconds since match start (advances each step)
   private enemyStreak = new Map<number, { count: number; last: number }>();
-  private teamKillShownAt = new Map<number, number>();
+  private teamKillStreak = new Map<number, { count: number; last: number }>();
   private firstBloodDone = false;
   // Reused BFS scratch for homing-round pathfinding (stamped by generation so
   // it never needs clearing). Sized to the maze grid on first use.
@@ -1016,16 +1016,19 @@ export class Game {
   /**
    * Kill-streak announcement tier for a kill by `killerIndex` (see KillEvent
    * .streak). Enemy kills chain into multikills within KILL_STREAK_WINDOW; the
-   * first enemy kill of the round is First Blood. Team kills return a "denied"
-   * tier, throttled to once per TEAMKILL_DENIED_WINDOW so a serial team-killer
-   * doesn't spam it. 0 = no announcement (e.g. a lone kill).
+   * first enemy kill of the round is First Blood. Team kills chain into a betrayal
+   * within TEAMKILL_STREAK_WINDOW (1st = betrayal, 3rd = traitor, 5th+ = the
+   * worst). 0 = no announcement (a lone enemy kill, or a 2nd/4th team kill).
    */
   private killStreakTier(killerIndex: number, isTeamKill: boolean): number {
     if (isTeamKill) {
-      const last = this.teamKillShownAt.get(killerIndex) ?? -Infinity;
-      if (this.elapsed - last < TEAMKILL_DENIED_WINDOW) return 0;
-      this.teamKillShownAt.set(killerIndex, this.elapsed);
-      return 6; // denied
+      const prev = this.teamKillStreak.get(killerIndex);
+      const count = prev && this.elapsed - prev.last <= TEAMKILL_STREAK_WINDOW ? prev.count + 1 : 1;
+      this.teamKillStreak.set(killerIndex, { count, last: this.elapsed });
+      if (count >= 5) return 8; // kinslayer (most impactful)
+      if (count === 3) return 7; // traitor
+      if (count === 1) return 6; // betrayal
+      return 0; // 2nd / 4th team kill — no banner, just building toward the next
     }
     const prev = this.enemyStreak.get(killerIndex);
     const count = prev && this.elapsed - prev.last <= KILL_STREAK_WINDOW ? prev.count + 1 : 1;
@@ -1126,7 +1129,7 @@ export class Game {
     this.teamRoundCaptures.clear();
     // Fresh fight, fresh streaks (a new First Blood is up for grabs).
     this.enemyStreak.clear();
-    this.teamKillShownAt.clear();
+    this.teamKillStreak.clear();
     this.firstBloodDone = false;
     this.round += 1;
     this.roundOver = false;

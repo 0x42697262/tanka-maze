@@ -8,7 +8,7 @@ import {
   type InputState,
 } from "../src/shared/protocol.js";
 import { Game } from "../src/server/game.js";
-import { TEAMKILL_DENIED_WINDOW } from "../src/shared/constants.js";
+import { TEAMKILL_STREAK_WINDOW } from "../src/shared/constants.js";
 import { Maze } from "../src/server/maze.js";
 
 type Player = { id: string; name: string; color?: string; team?: number };
@@ -580,7 +580,7 @@ describe("scoring / kills", () => {
     assert.equal((g as any).pendingEvents.at(-1).streak, 0); // chain broken → lone kill, no banner
   });
 
-  it("team kills announce DENIED, throttled to once per 2x window", () => {
+  it("team kills chain into a betrayal: 1st betrayal, 3rd traitor, 5th kinslayer", () => {
     const g = makeGame({
       cfg: { mode: "teams", teamKillPenalty: 10, winScore: 100000 },
       players: [
@@ -590,13 +590,17 @@ describe("scoring / kills", () => {
       ],
     });
     const b = tank(g, "b");
+    const tiers: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      (g as any).kill(b, "a"); // a team-kills b (elapsed stays 0 → all in window)
+      tiers.push((g as any).pendingEvents.at(-1).streak);
+    }
+    // betrayal(6), —, traitor(7), —, kinslayer(8), kinslayer(8)
+    assert.deepEqual(tiers, [6, 0, 7, 0, 8, 8]);
+
+    (g as any).elapsed = TEAMKILL_STREAK_WINDOW + 1; // chain expires
     (g as any).kill(b, "a");
-    assert.equal((g as any).pendingEvents.at(-1).streak, 6); // denied
-    (g as any).kill(b, "a");
-    assert.equal((g as any).pendingEvents.at(-1).streak, 0); // within window → suppressed
-    (g as any).elapsed = TEAMKILL_DENIED_WINDOW;
-    (g as any).kill(b, "a");
-    assert.equal((g as any).pendingEvents.at(-1).streak, 6); // window elapsed → denied again
+    assert.equal((g as any).pendingEvents.at(-1).streak, 6); // back to a fresh betrayal
   });
 
   it("team-killing is penalized, not rewarded", () => {
