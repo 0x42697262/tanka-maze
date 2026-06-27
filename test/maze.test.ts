@@ -313,8 +313,8 @@ describe("maze: CTF true maze", () => {
 });
 
 describe("maze: CTF centre room + corner barriers", () => {
-  it("ctfCenterRoom scales: none small, 2 normal, 3 large", () => {
-    assert.equal(ctfCenterRoom(7, 5), 0); // small
+  it("ctfCenterRoom scales: 2 small, 2 normal, 3 large", () => {
+    assert.equal(ctfCenterRoom(7, 5), 2); // small
     assert.equal(ctfCenterRoom(10, 7), 2); // normal
     assert.equal(ctfCenterRoom(14, 10), 3); // large
   });

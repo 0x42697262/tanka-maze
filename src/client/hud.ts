@@ -100,18 +100,18 @@ export function renderLeaderboard(): void {
   const ol = $("leaderboard-rows");
   ol.innerHTML = "";
 
-  // Capture the Flag: rank the two teams by flags captured (from the series tally).
+  // Capture the Flag: rank teams by flags captured this match (live from tanks).
   if (state.currentLobby?.config.mode === "ctf") {
     const names = state.currentLobby?.teamNames ?? [];
     const colors = state.currentLobby?.teamColors ?? [];
     const myTeam = snap.tanks.find((t) => t.id === state.playerId)?.team;
     const capByTeam = new Map<number, number>();
-    for (const s of state.roundStanding ?? []) {
-      if (s.key.startsWith("t")) capByTeam.set(Number(s.key.slice(1)), s.wins);
-    }
     const memberN = new Map<number, number>();
-    for (const t of snap.tanks) memberN.set(t.team, (memberN.get(t.team) ?? 0) + 1);
-    [0, 1]
+    for (const t of snap.tanks) {
+      capByTeam.set(t.team, (capByTeam.get(t.team) ?? 0) + t.captures);
+      memberN.set(t.team, (memberN.get(t.team) ?? 0) + 1);
+    }
+    [...memberN.keys()]
       .map((team) => ({ team, caps: capByTeam.get(team) ?? 0 }))
       .sort((a, b) => b.caps - a.caps || a.team - b.team)
       .forEach(({ team, caps }, i) => {

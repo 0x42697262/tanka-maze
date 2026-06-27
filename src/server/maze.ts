@@ -46,13 +46,13 @@ export function ctfPathCount(cols: number, rows: number): number {
 }
 
 /**
- * Side (in cells) of the open room carved at the map centre for CTF: none on a
- * small map, 2×2 on a normal map, 3×3 on a large one. Random maps scale by area.
- * Takes the *base* (pre-density) dimensions, like ctfPathCount.
+ * Side (in cells) of the open room carved at the map centre for CTF: 2×2 on
+ * small and normal maps, 3×3 on a large one. Random maps scale by area. Takes the
+ * *base* (pre-density) dimensions, like ctfPathCount.
  */
 export function ctfCenterRoom(cols: number, rows: number): number {
   const ratio = (cols * rows) / (MAZE_COLS * MAZE_ROWS);
-  return ratio < 0.75 ? 0 : ratio < 1.5 ? 2 : 3;
+  return ratio < 1.5 ? 2 : 3;
 }
 
 interface Segment {

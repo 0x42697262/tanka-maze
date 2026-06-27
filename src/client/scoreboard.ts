@@ -13,17 +13,11 @@ export function renderScoreboard(): void {
   const lms = lobby.config.mode === "lms"; // rank by survival (lives), not points
   const isHost = lobby.hostId === state.playerId;
   const snap = renderer.latest();
-  // Metric column: flags-captured per team in CTF, lives in LMS, score otherwise.
-  const capByTeam = new Map<number, number>();
-  if (ctf) {
-    for (const s of state.roundStanding ?? []) {
-      if (s.key.startsWith("t")) capByTeam.set(Number(s.key.slice(1)), s.wins);
-    }
-  }
+  // Metric column: flags captured (per player) in CTF, lives in LMS, score otherwise.
   const metricById = new Map<string, number>();
   if (snap) {
     for (const t of snap.tanks) {
-      metricById.set(t.id, ctf ? capByTeam.get(t.team) ?? 0 : lms ? t.livesLeft : t.score);
+      metricById.set(t.id, ctf ? t.captures : lms ? t.livesLeft : t.score);
     }
   }
 

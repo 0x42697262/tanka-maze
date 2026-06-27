@@ -438,6 +438,8 @@ export interface TankDTO {
   scoped: boolean;
   /** Team index (Team VS); 0 in other modes. */
   team: number;
+  /** Flags this tank has captured so far this match (Capture the Flag). */
+  captures: number;
 }
 
 export interface BulletDTO {

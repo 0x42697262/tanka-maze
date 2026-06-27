@@ -93,7 +93,7 @@ export function decodeInput(buf: ArrayBuffer): InputState {
 
 // --- snapshot --------------------------------------------------------------
 
-const TANK_BYTES = 19;
+const TANK_BYTES = 20;
 
 export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
   const size =
@@ -142,6 +142,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint8(o++, weaponCode(t.weapon));
     dv.setUint8(o++, Math.min(255, t.weaponCharges));
     dv.setUint8(o++, Math.min(255, t.livesLeft));
+    dv.setUint8(o++, Math.min(255, t.captures));
   }
 
   // Owner is sent as the tank's wire index (resolved back to color client-side).
@@ -239,6 +240,7 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     const weapon = WEAPON_CODES[dv.getUint8(o++)] ?? null;
     const weaponCharges = dv.getUint8(o++);
     const livesLeft = dv.getUint8(o++);
+    const captures = dv.getUint8(o++);
     const r = roster.get(index);
     tanks.push({
       index,
@@ -265,6 +267,7 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
       weapon,
       weaponCharges,
       livesLeft,
+      captures,
     });
   }
 

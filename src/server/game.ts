@@ -1494,6 +1494,7 @@ export class Game {
           charging: t.laserCharge > 0,
           scoped: t.scopeTimer > 0 && t.scopeShots > 0,
           team: t.team,
+          captures: t.captures,
         })),
       bullets: this.bullets.map((b) => ({
         id: b.id,
