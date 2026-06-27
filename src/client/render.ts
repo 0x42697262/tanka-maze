@@ -322,6 +322,8 @@ export class Renderer {
     const ca = Math.cos(a);
     const sa = Math.sin(a);
     const sc = this.scope;
+    // A round lives `lifetime` seconds, so it travels its real speed × lifetime.
+    const reach = (vx: number, vy: number, lifetime: number) => Math.hypot(vx, vy) * lifetime;
     const muzzle = this.tankR + this.bulletR + 2;
     const ox = me.x + ca * muzzle;
     const oy = me.y + sa * muzzle;
@@ -350,48 +352,37 @@ export class Renderer {
       const fan = (sc.multiSpread * Math.PI) / 180;
       const stepA = n > 1 ? fan / (n - 1) : 0;
       const start = a - fan / 2;
-      const range = sc.bulletSpeed * sc.bulletLifetime;
       const paths: Array<{ x: number; y: number }[]> = [];
       for (let i = 0; i < n; i++) {
         const ang = n > 1 ? start + stepA * i : a;
         const mx = me.x + Math.cos(ang) * muzzle;
         const my = me.y + Math.sin(ang) * muzzle;
+        const pvx = Math.cos(ang) * sc.bulletSpeed + vel.x;
+        const pvy = Math.sin(ang) * sc.bulletSpeed + vel.y;
         paths.push(
-          this.walkPath(mx, my, Math.cos(ang) * sc.bulletSpeed + vel.x, Math.sin(ang) * sc.bulletSpeed + vel.y, {
-            range,
-            bounces: sc.bulletBounces,
-          })
+          this.walkPath(mx, my, pvx, pvy, { range: reach(pvx, pvy, sc.bulletLifetime), bounces: sc.bulletBounces })
         );
       }
       return paths;
     }
 
+    // Velocity inherits the tank's momentum, so reach is the real fire speed ×
+    // lifetime (not the base bullet speed) — otherwise the guide stops short of a
+    // moving tank's shot and hides its later bounces.
+    const vx = ca * sc.bulletSpeed + vel.x;
+    const vy = sa * sc.bulletSpeed + vel.y;
+
     if (me.weapon === "explosive") {
       // Detonates at the first wall (or where its lifetime runs out).
-      return [
-        this.walkPath(ox, oy, ca * sc.bulletSpeed + vel.x, sa * sc.bulletSpeed + vel.y, {
-          range: sc.bulletSpeed * sc.bulletLifetime,
-          stopOnWall: true,
-        }),
-      ];
+      return [this.walkPath(ox, oy, vx, vy, { range: reach(vx, vy, sc.bulletLifetime), stopOnWall: true })];
     }
 
     if (me.weapon === "tracking") {
-      return [
-        this.walkPath(ox, oy, ca * sc.bulletSpeed + vel.x, sa * sc.bulletSpeed + vel.y, {
-          range: sc.bulletSpeed * sc.trackingLifetime,
-          bounces: sc.trackingBounces,
-        }),
-      ];
+      return [this.walkPath(ox, oy, vx, vy, { range: reach(vx, vy, sc.trackingLifetime), bounces: sc.trackingBounces })];
     }
 
     // Plain cannon.
-    return [
-      this.walkPath(ox, oy, ca * sc.bulletSpeed + vel.x, sa * sc.bulletSpeed + vel.y, {
-        range: sc.bulletSpeed * sc.bulletLifetime,
-        bounces: sc.bulletBounces,
-      }),
-    ];
+    return [this.walkPath(ox, oy, vx, vy, { range: reach(vx, vy, sc.bulletLifetime), bounces: sc.bulletBounces })];
   }
 
   /**
