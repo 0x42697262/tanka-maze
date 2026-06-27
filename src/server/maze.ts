@@ -762,6 +762,40 @@ export class CenterRoomCommand implements MazeCommand {
 }
 
 /**
+ * Stop adjacent corner bases (4-team) from being joined by a straight border
+ * run: drop a short wall "tooth" inward from the middle of each map edge, so the
+ * top/bottom/left/right border corridors can't be travelled corner-to-corner in
+ * a straight line. Teeth (and the centre box) are protected while connectivity
+ * is repaired, so they stay up without sealing anything off.
+ */
+export class EdgeBarriersCommand implements MazeCommand {
+  constructor(private readonly baseCorners: number, private readonly centerSide: number) {}
+
+  run(g: MazeGrid): void {
+    if (this.baseCorners < 4) return; // only matters when all four corners are bases
+    const depth = Math.max(1, Math.min(clampSide(g, g.baseSize) + 1, g.rows, g.cols));
+    const midC = Math.floor(g.cols / 2);
+    const midR = Math.floor(g.rows / 2);
+    const protectedWalls = new Set<string>();
+    const box = centerBox(g, this.centerSide);
+    if (box) for (const w of box.walls) protectedWalls.add(w);
+    for (let y = 0; y < depth; y++) {
+      g.vWalls[midC][y] = true; // top
+      protectedWalls.add(`v${midC},${y}`);
+      g.vWalls[midC][g.rows - 1 - y] = true; // bottom
+      protectedWalls.add(`v${midC},${g.rows - 1 - y}`);
+    }
+    for (let x = 0; x < depth; x++) {
+      g.hWalls[x][midR] = true; // left
+      protectedWalls.add(`h${x},${midR}`);
+      g.hWalls[g.cols - 1 - x][midR] = true; // right
+      protectedWalls.add(`h${g.cols - 1 - x},${midR}`);
+    }
+    repairConnectivity(g, protectedWalls);
+  }
+}
+
+/**
  * Braid a true maze: give most dead ends one extra opening so they connect
  * through (often looping back), leaving a flowing maze instead of a thicket of
  * stubs. A wall is only removed when both its lattice endpoints keep a wall
@@ -960,6 +994,7 @@ export function buildPipeline(
     cmds.push(new CenterSpokesCommand(minCornerPaths, baseCorners, centerRoom));
     cmds.push(new CenterRoomCommand(centerRoom));
     cmds.push(new BraidDeadEndsCommand(CTF_DEADEND_KEEP, centerRoom));
+    cmds.push(new EdgeBarriersCommand(baseCorners, centerRoom));
   } else if (minCornerPaths >= 2) {
     cmds.push(new EnsureCornerPathsCommand(minCornerPaths));
   }

@@ -329,6 +329,25 @@ describe("maze: CTF true maze", () => {
       assert.ok(fullyConnected(m), "small 4-team maze not connected");
     }
   });
+
+  it("breaks straight border corridors between adjacent corner bases (4 teams)", () => {
+    for (let k = 0; k < 15; k++) {
+      const m = new Maze(13, 9, "maze", undefined, undefined, 2, true, 2, 4, 3);
+      const rowOpen = (y: number) => {
+        for (let x = 0; x + 1 < m.cols; x++) if (!m.passable(x, y, x + 1, y)) return false;
+        return true;
+      };
+      const colOpen = (x: number) => {
+        for (let y = 0; y + 1 < m.rows; y++) if (!m.passable(x, y, x, y + 1)) return false;
+        return true;
+      };
+      assert.ok(!rowOpen(0), "top border is a straight corridor");
+      assert.ok(!rowOpen(m.rows - 1), "bottom border is a straight corridor");
+      assert.ok(!colOpen(0), "left border is a straight corridor");
+      assert.ok(!colOpen(m.cols - 1), "right border is a straight corridor");
+      assert.ok(fullyConnected(m), "not connected");
+    }
+  });
 });
 
 describe("maze: CTF centre room", () => {
