@@ -956,6 +956,9 @@ export class Game {
   private kill(victim: Tank, killerId: string): void {
     victim.alive = false;
     victim.deaths += 1;
+    // Dying resets your own streaks (kill chain and betrayal chain alike).
+    this.enemyStreak.delete(victim.index);
+    this.teamKillStreak.delete(victim.index);
 
     // CTF: a carried flag drops where the carrier fell, free to be picked up again.
     if (this.ctf) this.dropFlagOf(victim.id);
@@ -982,24 +985,28 @@ export class Game {
         // Team-killing is penalized, not rewarded (no points in CTF).
         const before = killer.score;
         if (!this.ctf) killer.score = Math.max(0, killer.score - this.cfg.teamKillPenalty);
+        const a = this.killStreakTier(killer.index, true);
         this.pendingEvents.push({
           type: 2,
           killer: killer.index,
           victim: victim.index,
           points: killer.score - before,
-          streak: this.killStreakTier(killer.index, true),
+          streak: a.tier,
+          mult: a.mult,
         });
       } else {
         if (!this.ctf) {
           killer.score += this.cfg.killPoints;
           if (killer.score < 1) killer.score = 1; // a kill always leaves you ≥ 1
         }
+        const a = this.killStreakTier(killer.index, false);
         this.pendingEvents.push({
           type: 0,
           killer: killer.index,
           victim: victim.index,
           points: this.ctf ? 0 : this.cfg.killPoints,
-          streak: this.killStreakTier(killer.index, false),
+          streak: a.tier,
+          mult: a.mult,
         });
         if (this.cfg.mode === "ffa" && killer.score >= this.cfg.winScore) {
           this.endRound(killer.id, killer.name);
@@ -1007,37 +1014,41 @@ export class Game {
       }
     } else {
       // Self-destruct / environment (e.g. own ricochet) — no announcement.
-      this.pendingEvents.push({ type: 1, killer: 255, victim: victim.index, points: -loss, streak: 0 });
+      this.pendingEvents.push({ type: 1, killer: 255, victim: victim.index, points: -loss, streak: 0, mult: 0 });
     }
     this.checkElimination();
     this.checkTeamWin();
   }
 
   /**
-   * Kill-streak announcement tier for a kill by `killerIndex` (see KillEvent
-   * .streak). Enemy kills chain into multikills within KILL_STREAK_WINDOW; the
-   * first enemy kill of the round is First Blood. Team kills chain into a betrayal
-   * within TEAMKILL_STREAK_WINDOW (1st = betrayal, 3rd = traitor, 5th+ = the
-   * worst). 0 = no announcement (a lone enemy kill, or a 2nd/4th team kill).
+   * Kill-streak announcement for a kill by `killerIndex` (see KillEvent.streak /
+   * .mult). Enemy kills chain into multikills within KILL_STREAK_WINDOW (first of
+   * the round is First Blood); team kills chain into a betrayal within
+   * TEAMKILL_STREAK_WINDOW (1st betrayal, 3rd traitor, 5th+ kinslayer). The top
+   * tier (savage / kinslayer) carries a succession multiplier: 0 for the first,
+   * then 2, 3, … for each consecutive one. `tier` 0 = no banner.
    */
-  private killStreakTier(killerIndex: number, isTeamKill: boolean): number {
+  private killStreakTier(killerIndex: number, isTeamKill: boolean): { tier: number; mult: number } {
+    // Repeats of the top tier (count 5 = the 1st, no mult; 6 = ×2; 7 = ×3; …).
+    const topMult = (count: number) => (count >= 6 ? count - 4 : 0);
     if (isTeamKill) {
       const prev = this.teamKillStreak.get(killerIndex);
       const count = prev && this.elapsed - prev.last <= TEAMKILL_STREAK_WINDOW ? prev.count + 1 : 1;
       this.teamKillStreak.set(killerIndex, { count, last: this.elapsed });
-      if (count >= 5) return 8; // kinslayer (most impactful)
-      if (count === 3) return 7; // traitor
-      if (count === 1) return 6; // betrayal
-      return 0; // 2nd / 4th team kill — no banner, just building toward the next
+      if (count >= 5) return { tier: 8, mult: topMult(count) }; // kinslayer (most impactful)
+      if (count === 3) return { tier: 7, mult: 0 }; // traitor
+      if (count === 1) return { tier: 6, mult: 0 }; // betrayal
+      return { tier: 0, mult: 0 }; // 2nd / 4th — building toward the next
     }
     const prev = this.enemyStreak.get(killerIndex);
     const count = prev && this.elapsed - prev.last <= KILL_STREAK_WINDOW ? prev.count + 1 : 1;
     this.enemyStreak.set(killerIndex, { count, last: this.elapsed });
     if (!this.firstBloodDone) {
       this.firstBloodDone = true;
-      return 1; // first blood
+      return { tier: 1, mult: 0 }; // first blood
     }
-    return count >= 5 ? 5 : count >= 2 ? count : 0; // savage caps at 5; lone kill = 0
+    if (count >= 5) return { tier: 5, mult: topMult(count) }; // savage (caps the tier, multiplies)
+    return { tier: count >= 2 ? count : 0, mult: 0 }; // double/triple/maniac, or lone kill
   }
 
   /**

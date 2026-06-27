@@ -123,13 +123,13 @@ describe("wire: snapshot", () => {
     }
   });
 
-  it("carries kill events (with streak tier)", () => {
+  it("carries kill events (with streak tier + multiplier)", () => {
     const snap = emptySnap({
-      events: [{ type: 0, killer: 0, victim: 1, points: 60, streak: 5 }],
+      events: [{ type: 0, killer: 0, victim: 1, points: 60, streak: 5, mult: 3 }],
     });
     const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
     assert.equal(out.events.length, 1);
-    assert.deepEqual(out.events[0], { type: 0, killer: 0, victim: 1, points: 60, streak: 5 });
+    assert.deepEqual(out.events[0], { type: 0, killer: 0, victim: 1, points: 60, streak: 5, mult: 3 });
   });
 
   it("round-trips CTF flags (team, state, position, carrier)", () => {

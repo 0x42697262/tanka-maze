@@ -110,7 +110,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     1 +
     s.beams.length * 8 +
     1 +
-    s.events.length * 6;
+    s.events.length * 7;
   const dv = new DataView(new ArrayBuffer(size));
   let o = 0;
 
@@ -208,6 +208,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setInt16(o, Math.max(-32767, Math.min(32767, e.points)), true);
     o += 2;
     dv.setUint8(o++, e.streak & 0xff);
+    dv.setUint8(o++, Math.min(255, e.mult));
   }
 
   return new Uint8Array(dv.buffer);
@@ -344,7 +345,8 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     const points = dv.getInt16(o, true);
     o += 2;
     const streak = dv.getUint8(o++);
-    events.push({ type, killer, victim, points, streak });
+    const mult = dv.getUint8(o++);
+    events.push({ type, killer, victim, points, streak, mult });
   }
 
   return { t: 0, tanks, bullets, powerups, flags, blasts, beams, events };

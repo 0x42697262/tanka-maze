@@ -25,6 +25,7 @@ const DISPLAY_MS = 1500; // each queued banner holds this long before the next p
 interface Item {
   tier: number;
   killer: number;
+  mult: number;
 }
 const queue: Item[] = [];
 let playTimer: ReturnType<typeof setTimeout> | null = null;
@@ -44,7 +45,7 @@ export function resetAnnouncements(): void {
 /** Queue a kill event's announcement (no-op when the server set no tier). */
 export function announceKill(e: KillEvent): void {
   if (!e.streak || !TIERS[e.streak]) return;
-  queue.push({ tier: e.streak, killer: e.killer });
+  queue.push({ tier: e.streak, killer: e.killer, mult: e.mult });
   if (!playing) playNext();
 }
 
@@ -66,7 +67,9 @@ function show(item: Item): void {
   el.className = "announce";
   void el.offsetWidth; // force reflow so the pop replays even back-to-back
   el.className = `announce show ${t.cls}`;
+  // Succession multiplier (savage/kinslayer repeats) sits small to the right.
+  const mult = item.mult >= 2 ? `<span class="ann-mult">×${item.mult}</span>` : "";
   el.innerHTML =
-    `<div class="ann-label">${escapeHtml(t.label)}</div>` +
+    `<div class="ann-label">${escapeHtml(t.label)}${mult}</div>` +
     `<div class="ann-by" style="color:${r?.color ?? "#ddd"}">${escapeHtml(r?.name ?? "?")}</div>`;
 }

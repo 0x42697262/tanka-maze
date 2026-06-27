@@ -466,8 +466,11 @@ export interface KillEvent {
   /** Signed point delta (positive for the killer's gain, negative for a loss). */
   points: number;
   /** Kill-streak announcement tier (server-decided): 0 none, 1 first blood,
-   *  2 double, 3 triple, 4 maniac, 5 savage, 6 team-kill "denied". */
+   *  2 double, 3 triple, 4 maniac, 5 savage, 6 betrayal, 7 traitor, 8 kinslayer. */
   streak: number;
+  /** Succession multiplier for repeated savage/kinslayer (≥2; 0 = none). The
+   *  first savage/kinslayer has no multiplier; each one after bumps it. */
+  mult: number;
 }
 
 export interface PowerupDTO {

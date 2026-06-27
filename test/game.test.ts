@@ -562,22 +562,34 @@ describe("scoring / kills", () => {
     assert.equal(ev.streak, 0); // suicides never announce
   });
 
-  it("kill streaks: first blood → savage (capped), restart after the window", () => {
+  it("kill streaks: first blood → savage (capped) with succession multiplier", () => {
     const g = makeGame({ cfg: { winScore: 100000 } }); // don't let FFA end mid-test
     const b = tank(g, "b");
-    const streakOf = (n: number) => {
-      const tiers: number[] = [];
-      for (let i = 0; i < n; i++) {
-        (g as any).kill(b, "a");
-        tiers.push((g as any).pendingEvents.at(-1).streak);
-      }
-      return tiers;
-    };
-    // elapsed stays 0 (no step calls) → all within the window → a clean chain.
-    assert.deepEqual(streakOf(6), [1, 2, 3, 4, 5, 5]); // fb, double, triple, maniac, savage, savage
+    const tiers: number[] = [];
+    const mults: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      (g as any).kill(b, "a"); // elapsed stays 0 → all within the window
+      const ev = (g as any).pendingEvents.at(-1);
+      tiers.push(ev.streak);
+      mults.push(ev.mult);
+    }
+    assert.deepEqual(tiers, [1, 2, 3, 4, 5, 5, 5]); // fb, double, triple, maniac, savage×3
+    assert.deepEqual(mults, [0, 0, 0, 0, 0, 2, 3]); // 1st savage no mult, then ×2, ×3
     (g as any).elapsed = 100; // jump past the multikill window
     (g as any).kill(b, "a");
     assert.equal((g as any).pendingEvents.at(-1).streak, 0); // chain broken → lone kill, no banner
+  });
+
+  it("a player's kill streak resets when they die", () => {
+    const g = makeGame({ cfg: { winScore: 100000 } });
+    const a = tank(g, "a");
+    const b = tank(g, "b");
+    (g as any).kill(b, "a"); // a: first blood
+    (g as any).kill(b, "a"); // a: double kill
+    assert.equal((g as any).pendingEvents.at(-1).streak, 2);
+    (g as any).kill(a, "b"); // a dies → a's streak is wiped
+    (g as any).kill(b, "a"); // a kills again → fresh chain (count 1 → no banner)
+    assert.equal((g as any).pendingEvents.at(-1).streak, 0);
   });
 
   it("team kills chain into a betrayal: 1st betrayal, 3rd traitor, 5th kinslayer", () => {
@@ -591,12 +603,16 @@ describe("scoring / kills", () => {
     });
     const b = tank(g, "b");
     const tiers: number[] = [];
+    const mults: number[] = [];
     for (let i = 0; i < 6; i++) {
       (g as any).kill(b, "a"); // a team-kills b (elapsed stays 0 → all in window)
-      tiers.push((g as any).pendingEvents.at(-1).streak);
+      const ev = (g as any).pendingEvents.at(-1);
+      tiers.push(ev.streak);
+      mults.push(ev.mult);
     }
-    // betrayal(6), —, traitor(7), —, kinslayer(8), kinslayer(8)
+    // betrayal(6), —, traitor(7), —, kinslayer(8), kinslayer(8)×2
     assert.deepEqual(tiers, [6, 0, 7, 0, 8, 8]);
+    assert.deepEqual(mults, [0, 0, 0, 0, 0, 2]);
 
     (g as any).elapsed = TEAMKILL_STREAK_WINDOW + 1; // chain expires
     (g as any).kill(b, "a");
