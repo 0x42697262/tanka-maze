@@ -46,7 +46,7 @@ export function configSummary(c: GameConfig): string {
   if (c.mode !== "ctf" && c.rounds > 1) bits.push(`best of ${c.rounds}`);
   if (c.hp > 1) bits.push(`${c.hp} HP`);
   if (c.tankSpeedPct !== 100) bits.push(`${c.tankSpeedPct}% speed`);
-  if (c.mode === "ctf") bits.push(`2 teams · first to ${c.maxFlags} flags`);
+  if (c.mode === "ctf") bits.push(`${c.teamCount} teams · first to ${c.maxFlags} rounds`);
   else if (c.mode === "lms") bits.push(c.lives > 0 ? `${c.lives} lives` : "1 life");
   else if (c.mode === "teams") bits.push(`${c.teamCount} teams · first to ${c.winScore} pts`);
   else bits.push(`first to ${c.winScore} pts`);
@@ -79,11 +79,13 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   const groups: Array<{ title: string; rows: Row[] }> = [];
 
   const mode: Row[] = [["Mode", modeLabel(c.mode)]];
-  // CTF is locked to 2 teams; the value still shows here even though the control is hidden.
-  if (teamBased) mode.push(["Teams", ctf ? 2 : c.teamCount]);
+  if (teamBased) mode.push(["Teams", c.teamCount]);
   // Friendly fire governs self-damage in every mode (and teammate damage in Team VS).
   mode.push(["Friendly fire", onOff(c.friendlyFire)]);
-  if (ctf) mode.push(["Flags to win", c.maxFlags]);
+  if (ctf) {
+    mode.push(["Rounds to win", c.maxFlags]);
+    mode.push(["Captures/round", c.flagsPerRound]);
+  }
   if (teams) mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
   if (teamBased) mode.push(["Spawn zones", ctf ? "On (bases)" : onOff(c.teamSpawnZones)]);
   groups.push({ title: "Mode", rows: mode });
@@ -97,8 +99,9 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   });
 
   const match: Row[] = [];
-  // CTF is decided by flag captures, not a round series.
-  if (ctf) match.push(["Win", `first to ${c.maxFlags} flags`]);
+  // CTF is a round series: each round is won by capturing flagsPerRound flags,
+  // the match by winning maxFlags rounds.
+  if (ctf) match.push(["Win", `first to ${c.maxFlags} rounds`]);
   else match.push(["Rounds", c.rounds > 1 ? `best of ${c.rounds}` : "single round"]);
   match.push(["Max players", lobby.maxPlayers]);
   match.push(["Join after start", c.allowLateJoin ? "Allowed" : "Closed"]);

@@ -33,9 +33,10 @@ export function clearKillLog(): void {
 /** "Round 2 / 3" pill in the game header (hidden for single-round matches). */
 export function renderRoundBadge(): void {
   const el = $("gh-round");
-  // CTF isn't a round series to the player — it's a race to N flag captures.
+  // CTF is a round series: a round is won by capturing flags, the match by
+  // winning rounds — show the current round like other multi-round matches.
   if (state.currentLobby?.config.mode === "ctf") {
-    el.textContent = `First to ${state.currentLobby.config.maxFlags} ⚑`;
+    el.textContent = `Round ${state.roundInfo.round} / ${state.roundInfo.total}`;
     el.classList.remove("hidden");
     return;
   }
