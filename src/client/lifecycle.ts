@@ -11,6 +11,7 @@ import {
 } from "../shared/protocol.js";
 import { encodeInput } from "../shared/wire.js";
 import { $, escapeHtml, show } from "./dom.js";
+import { resetAnnouncements } from "./announce.js";
 import { clearKillLog, renderRoundBadge, renderSeriesBoard } from "./hud.js";
 import { Input } from "./input.js";
 import { standingHtml } from "./labels.js";
@@ -68,6 +69,7 @@ export function startGame(
     $("touch-controls").classList.remove("hidden");
   }
   clearKillLog();
+  resetAnnouncements();
   show("game");
   fitCanvas();
 }

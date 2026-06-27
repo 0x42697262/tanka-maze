@@ -591,6 +591,112 @@ canvas {
   cursor: crosshair;
   touch-action: none;
 }
+
+/* ---- Kill-streak announcement (MOBA style; pops, then fades) ---- */
+.announce {
+  position: absolute;
+  top: 13%;
+  left: 50%;
+  z-index: 30;
+  transform: translateX(-50%) scale(0.6);
+  opacity: 0;
+  pointer-events: none;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  line-height: 1;
+  text-align: center;
+  font-family: system-ui, sans-serif;
+}
+.announce.show {
+  animation: ann-pop 1.7s ease-out forwards;
+}
+@keyframes ann-pop {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.5);
+  }
+  12% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.14);
+  }
+  22% {
+    transform: translateX(-50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) scale(1.05);
+  }
+}
+/* Tiers — flashier (bigger + brighter glow) the higher the streak. */
+.announce.denied {
+  font-size: 26px;
+  letter-spacing: 4px;
+  color: #b9483f;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+.announce.t2 {
+  font-size: 30px;
+  color: #ffd95a;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 12px rgba(255, 217, 90, 0.5);
+}
+.announce.t3 {
+  font-size: 37px;
+  color: #ff9f3f;
+  text-shadow: 0 2px 9px rgba(0, 0, 0, 0.55), 0 0 18px rgba(255, 159, 63, 0.6);
+}
+.announce.t4 {
+  font-size: 45px;
+  color: #ff5a3c;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 90, 60, 0.7);
+}
+.announce.t5 {
+  font-size: 56px;
+  color: #ff3b6b;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6), 0 0 30px rgba(255, 59, 107, 0.85),
+    0 0 56px rgba(255, 59, 107, 0.5);
+}
+.announce.fb {
+  font-size: 48px;
+  color: #ff2d2d;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 28px rgba(255, 45, 45, 0.8);
+}
+/* Top tiers also pulse-glow (filter doesn't fight the pop's transform). */
+.announce.show.t5,
+.announce.show.fb {
+  animation: ann-pop 1.7s ease-out forwards, ann-glow 0.4s ease-in-out 3 alternate;
+}
+@keyframes ann-glow {
+  from {
+    filter: brightness(1);
+  }
+  to {
+    filter: brightness(1.55) drop-shadow(0 0 16px currentColor);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .announce.show,
+  .announce.show.t5,
+  .announce.show.fb {
+    animation: ann-fade 1.5s ease-out forwards;
+  }
+  @keyframes ann-fade {
+    0%,
+    70% {
+      opacity: 1;
+      transform: translateX(-50%) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(-50%) scale(1);
+    }
+  }
+}
 .hint {
   color: var(--ink-soft);
   font-size: 13px;

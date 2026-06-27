@@ -6,6 +6,7 @@ import "./style.css";
 import { DEFAULT_GAME_CONFIG, type ServerMessage } from "../shared/protocol.js";
 import { bytesEqual, decodeSnapshot, encodeInput } from "../shared/wire.js";
 import { $, show, toast } from "./dom.js";
+import { announceKill } from "./announce.js";
 import { logKillEvent, renderAmmo, renderLeaderboard, updateRespawnOverlay } from "./hud.js";
 import {
   buildSwatches,
@@ -174,7 +175,10 @@ function frame(): void {
     }
     renderer.render(state.playerId, now);
     // Kill log fires on the interpolation clock (in sync with the explosion).
-    for (const e of renderer.takeEvents()) logKillEvent(e);
+    for (const e of renderer.takeEvents()) {
+      logKillEvent(e);
+      announceKill(e, now);
+    }
     renderLeaderboard();
     // The death overlay follows the *displayed* (interpolated) world so it pops
     // with the on-screen explosion, not the instant the server signalled it.
