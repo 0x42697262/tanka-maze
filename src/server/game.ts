@@ -187,6 +187,7 @@ export class Game {
   private roundOver = false; // current round decided; match continues
   private roundWinnerName = ""; // who took the round just ended
   private roundWins = new Map<string, number>(); // competitor key -> rounds won
+  private teamRoundCaptures = new Map<number, number>(); // CTF: team -> captures this round
   private colorIndex = 0;
   private spawnIndex = 0;
   private everMultiple = false;
@@ -1085,6 +1086,7 @@ export class Game {
     this.buildSpawnZones([...this.tanks.values()].map((t) => t.team));
     this.maze.clearZones(this.spawnZones); // bases are open rooms (no inner walls)
     this.buildFlags();
+    this.teamRoundCaptures.clear();
     this.round += 1;
     this.roundOver = false;
     this.roundWinnerName = "";
@@ -1341,25 +1343,50 @@ export class Game {
       }
     }
 
-    // A carrier inside its own base scores with an enemy flag, or returns its own.
-    for (const flag of this.flags) {
-      if (flag.state !== "carried" || !flag.carrierId) continue;
-      const carrier = this.tanks.get(flag.carrierId);
-      if (!carrier) continue;
-      const base = this.spawnZones.find((z) => z.team === carrier.team);
-      if (!base || !this.inRect(carrier.x, carrier.y, base)) continue;
-      if (flag.team === carrier.team) {
-        // Brought your own flag home → it returns to base, ready to grab again.
-        flag.state = "home";
-        flag.x = flag.homeX;
-        flag.y = flag.homeY;
-        flag.carrierId = null;
-      } else {
-        carrier.captures += 1;
-        this.endRound(`t${carrier.team}`, this.teamNames[carrier.team] ?? `Team ${carrier.team + 1}`);
-        return;
+    // Scoring is per base: only the team that owns the spawn point can capture
+    // there. A teammate standing in their own base with an enemy flag scores it
+    // for that base's team; their own flag carried back simply returns home.
+    for (const base of this.spawnZones) {
+      for (const flag of this.flags) {
+        if (flag.state !== "carried" || !flag.carrierId) continue;
+        const carrier = this.tanks.get(flag.carrierId);
+        if (!carrier || carrier.team !== base.team) continue; // only the base's team scores here
+        if (!this.inRect(carrier.x, carrier.y, base)) continue;
+        if (flag.team === base.team) {
+          // Own flag brought home → returns to base, ready to grab again.
+          this.sendFlagHome(flag);
+        } else if (this.captureFlag(carrier, flag)) {
+          return; // round ended
+        }
       }
     }
+  }
+
+  /** Send a flag back to its home base. */
+  private sendFlagHome(flag: Flag): void {
+    flag.state = "home";
+    flag.x = flag.homeX;
+    flag.y = flag.homeY;
+    flag.carrierId = null;
+    flag.stealCooldown = 0;
+  }
+
+  /**
+   * Credit a capture to the carrier's team and send the taken flag home. Ends the
+   * round once the team reaches the configured captures-per-round. Returns true if
+   * the round ended.
+   */
+  private captureFlag(carrier: Tank, flag: Flag): boolean {
+    carrier.captures += 1;
+    const team = carrier.team;
+    const total = (this.teamRoundCaptures.get(team) ?? 0) + 1;
+    this.teamRoundCaptures.set(team, total);
+    this.sendFlagHome(flag); // captured flag returns so it can be contested again
+    if (total >= Math.max(1, this.cfg.flagsPerRound)) {
+      this.endRound(`t${team}`, this.teamNames[team] ?? `Team ${team + 1}`);
+      return true;
+    }
+    return false;
   }
 
   /** A carried flag drops where its carrier fell (called from kill). */
@@ -1378,7 +1405,16 @@ export class Game {
 
   /** Flags for the snapshot (CTF only; empty otherwise). */
   flagDTOs(): FlagDTO[] {
-    return this.flags.map((f) => ({ team: f.team, x: round(f.x), y: round(f.y), state: f.state }));
+    return this.flags.map((f) => {
+      const carrier = f.carrierId ? this.tanks.get(f.carrierId) : undefined;
+      return {
+        team: f.team,
+        x: round(f.x),
+        y: round(f.y),
+        state: f.state,
+        carrier: carrier ? carrier.index : 255,
+      };
+    });
   }
 
   /** Spawn areas for the client to render (team color resolved from live tanks). */

@@ -360,6 +360,69 @@ describe("capture the flag", () => {
       assert.equal(f.y, z.y + z.height / 2);
     }
   });
+
+  it("only a spawn point's own team can score a capture there", () => {
+    const players = [
+      { id: "a", name: "A", color: "#f00", team: 0 },
+      { id: "b", name: "B", color: "#0f0", team: 1 },
+      { id: "c", name: "C", color: "#00f", team: 2 },
+      { id: "d", name: "D", color: "#ff0", team: 3 },
+    ];
+    const g = makeGame({
+      cfg: { mode: "ctf", maxFlags: 3, hp: 3, teamCount: 4, flagsPerRound: 1 },
+      players,
+      maze: new Maze(14, 11, "maze"),
+    });
+    const a = tank(g, "a"); // team 0
+    const f1 = flagOf(g, 1); // team 1's flag
+    a.x = f1.x;
+    a.y = f1.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(f1.carrierId, "a");
+
+    // Carry it into team 2's base → must NOT score (not team 0's base).
+    const z2 = zoneOf(g, 2);
+    a.x = z2.x + z2.width / 2;
+    a.y = z2.y + z2.height / 2;
+    f1.x = a.x;
+    f1.y = a.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(g.isRoundOver, false);
+    assert.equal((g as any).roundWins.get("t0") ?? 0, 0);
+    assert.equal((g as any).roundWins.get("t2") ?? 0, 0);
+
+    // Carry it into team 0's own base → scores for team 0.
+    const z0 = zoneOf(g, 0);
+    a.x = z0.x + z0.width / 2;
+    a.y = z0.y + z0.height / 2;
+    f1.x = a.x;
+    f1.y = a.y;
+    (g as any).stepFlags(0.1);
+    assert.equal((g as any).roundWins.get("t0"), 1);
+  });
+
+  it("needs flagsPerRound captures to win a round", () => {
+    const g = makeCtf({ flagsPerRound: 2 });
+    const a = tank(g, "a"); // team 0
+    const f = flagOf(g, 1); // team 1's flag
+    const z0 = zoneOf(g, 0);
+    const capture = () => {
+      a.x = f.x;
+      a.y = f.y;
+      (g as any).stepFlags(0.1); // pick up the (home) enemy flag
+      a.x = z0.x + z0.width / 2;
+      a.y = z0.y + z0.height / 2;
+      f.x = a.x;
+      f.y = a.y;
+      (g as any).stepFlags(0.1); // deliver to own base
+    };
+    capture();
+    assert.equal(g.isRoundOver, false); // 1 of 2
+    assert.equal(a.captures, 1);
+    capture();
+    assert.equal(g.isRoundOver, true); // 2 of 2 → round won
+    assert.equal((g as any).roundWins.get("t0"), 1);
+  });
 });
 
 describe("team spawn zones", () => {

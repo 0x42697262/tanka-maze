@@ -2,6 +2,7 @@ import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS } from "../shared/constants.
 import {
   powerupDef,
   type BulletKind,
+  type FlagDTO,
   type KillEvent,
   type MazeDTO,
   type PowerupDTO,
@@ -568,33 +569,51 @@ export class Renderer {
     ctx.textBaseline = "alphabetic";
   }
 
-  /** CTF flags: a pennant on a pole in the team's color. Dropped flags pulse. */
+  /** CTF flags: a pennant on a pole in the team's color. Dropped flags pulse.
+   *  When one tank carries several flags, their pennants stack up a taller pole
+   *  (lowest team index at the bottom) so every held flag stays visible. */
   private drawFlags(interp: SnapshotDTO, nowMs: number): void {
     if (interp.flags.length === 0) return;
     const { ctx } = this;
     const teamColor = new Map(this.spawnZones.map((z) => [z.team, z.color]));
+    // Stack order for carried flags: index within their carrier's held set.
+    const stackIndex = new Map<FlagDTO, number>();
+    const byCarrier = new Map<number, FlagDTO[]>();
+    for (const fl of interp.flags) {
+      if (fl.state !== "carried" || fl.carrier === 255) continue;
+      const list = byCarrier.get(fl.carrier) ?? [];
+      list.push(fl);
+      byCarrier.set(fl.carrier, list);
+    }
+    for (const list of byCarrier.values()) {
+      list.sort((a, b) => a.team - b.team);
+      list.forEach((fl, i) => stackIndex.set(fl, i));
+    }
+
+    const PENNANT_GAP = 9; // vertical spacing between stacked pennants
     for (const fl of interp.flags) {
       const color = teamColor.get(fl.team) ?? "#888888";
       const bob = fl.state === "carried" ? 0 : Math.sin(nowMs / 300) * 1.5;
+      const tier = stackIndex.get(fl) ?? 0;
+      const peak = 18 + tier * PENNANT_GAP; // pole height for this pennant's tier
       ctx.save();
       ctx.translate(fl.x, fl.y + bob);
       ctx.globalAlpha = fl.state === "dropped" ? 0.55 + 0.25 * Math.abs(Math.sin(nowMs / 250)) : 1;
-      const h = 18;
-      // Pole.
+      // Pole (tall enough to reach this tier's pennant).
       ctx.strokeStyle = "#352f25";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, 4);
-      ctx.lineTo(0, -h);
+      ctx.lineTo(0, -peak);
       ctx.stroke();
-      // Pennant.
+      // Pennant at this tier.
       ctx.fillStyle = color;
       ctx.strokeStyle = "rgba(0,0,0,0.5)";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(0, -h);
-      ctx.lineTo(13, -h + 4.5);
-      ctx.lineTo(0, -h + 9);
+      ctx.moveTo(0, -peak);
+      ctx.lineTo(13, -peak + 4.5);
+      ctx.lineTo(0, -peak + 9);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();

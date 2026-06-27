@@ -7,6 +7,7 @@ import {
   POWERUP_DEFS,
   WALL_STYLES,
   type AdvancedConfig,
+  type CtfScoreMode,
   type GameConfig,
   type GameMode,
   type MapSize,
@@ -81,6 +82,8 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       maxFlags: num("max-flags", 3),
       flagTeamCarry: sel("flag-team-carry") === "on",
       flagStealOnContact: sel("flag-steal") === "on",
+      flagsPerRound: num("flags-per-round", 1),
+      ctfScoreMode: sel("ctf-score-mode") as CtfScoreMode,
       adv: gatherAdvanced(),
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
@@ -113,6 +116,8 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("max-flags", c.maxFlags);
   set("flag-team-carry", c.flagTeamCarry ? "on" : "off");
   set("flag-steal", c.flagStealOnContact ? "on" : "off");
+  set("flags-per-round", c.flagsPerRound);
+  set("ctf-score-mode", c.ctfScoreMode);
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
   set("pwr-charges", c.powerupCharges);

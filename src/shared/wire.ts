@@ -104,7 +104,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     1 +
     s.powerups.length * 5 +
     1 +
-    s.flags.length * 6 +
+    s.flags.length * 7 +
     1 +
     s.blasts.length * 4 +
     1 +
@@ -176,6 +176,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     o += 2;
     dv.setUint16(o, u16(f.y), true);
     o += 2;
+    dv.setUint8(o++, f.carrier & 0xff);
   }
 
   dv.setUint8(o++, s.blasts.length);
@@ -302,7 +303,8 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     o += 2;
     const y = dv.getUint16(o, true);
     o += 2;
-    flags.push({ team, state, x, y });
+    const carrier = dv.getUint8(o++);
+    flags.push({ team, state, x, y, carrier });
   }
 
   const blasts = [];

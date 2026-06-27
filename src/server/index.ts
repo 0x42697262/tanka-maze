@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import {
+  CTF_SCORE_MODES,
   decode,
   DEFAULT_ADVANCED,
   DEFAULT_GAME_CONFIG,
@@ -387,6 +388,12 @@ function sanitizeConfig(raw: unknown): GameConfig {
   if (mode === "lms" && lives < 1) lives = 3;
   // CTF: respawn-at-base means nobody is ever eliminated, so lives are infinite.
   if (ctf) lives = 0;
+  // CTF runs 2 or 4 teams; other modes allow 2–4.
+  const teamCount = ctf
+    ? clampInt(c.teamCount, 2, 4, 2) >= 3
+      ? 4
+      : 2
+    : clampInt(c.teamCount, 2, 4, d.teamCount);
   return {
     mode,
     wallStyle: oneOf(
@@ -405,11 +412,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     deathPenaltyPct: clampInt(c.deathPenaltyPct, 0, 90, d.deathPenaltyPct),
     winScore: clampInt(c.winScore, 60, 6000, d.winScore),
     // CTF plays out of corner bases (spawn zones forced on) with 2 or 4 teams.
-    teamCount: ctf
-      ? clampInt(c.teamCount, 2, 4, 2) >= 3
-        ? 4
-        : 2
-      : clampInt(c.teamCount, 2, 4, d.teamCount),
+    teamCount,
     friendlyFire: typeof c.friendlyFire === "boolean" ? c.friendlyFire : d.friendlyFire,
     teamKillPenalty: clampInt(c.teamKillPenalty, 0, 500, d.teamKillPenalty),
     teamSpawnZones: ctf ? true : typeof c.teamSpawnZones === "boolean" ? c.teamSpawnZones : d.teamSpawnZones,
@@ -417,6 +420,9 @@ function sanitizeConfig(raw: unknown): GameConfig {
     flagTeamCarry: typeof c.flagTeamCarry === "boolean" ? c.flagTeamCarry : d.flagTeamCarry,
     flagStealOnContact:
       typeof c.flagStealOnContact === "boolean" ? c.flagStealOnContact : d.flagStealOnContact,
+    // Captures to win a round; defaults to one per rival team (1 for 2, 3 for 4).
+    flagsPerRound: clampInt(c.flagsPerRound, 1, 50, Math.max(1, teamCount - 1)),
+    ctfScoreMode: oneOf(c.ctfScoreMode, CTF_SCORE_MODES, d.ctfScoreMode),
     adv: sanitizeAdvanced(c.adv),
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),

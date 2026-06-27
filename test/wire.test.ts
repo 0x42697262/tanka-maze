@@ -130,17 +130,18 @@ describe("wire: snapshot", () => {
     assert.deepEqual(out.events[0], { type: 0, killer: 0, victim: 1, points: 60 });
   });
 
-  it("round-trips CTF flags (team, state, position)", () => {
+  it("round-trips CTF flags (team, state, position, carrier)", () => {
     const snap = emptySnap({
       flags: [
-        { team: 0, x: 40, y: 50, state: "home" },
-        { team: 1, x: 700, y: 600, state: "carried" },
+        { team: 0, x: 40, y: 50, state: "home", carrier: 255 },
+        { team: 1, x: 700, y: 600, state: "carried", carrier: 3 },
       ],
     });
     const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
     assert.equal(out.flags.length, 2);
-    assert.deepEqual(out.flags[0], { team: 0, x: 40, y: 50, state: "home" });
+    assert.deepEqual(out.flags[0], { team: 0, x: 40, y: 50, state: "home", carrier: 255 });
     assert.equal(out.flags[1].state, "carried");
+    assert.equal(out.flags[1].carrier, 3);
     assert.equal(Math.round(out.flags[1].x), 700);
   });
 });

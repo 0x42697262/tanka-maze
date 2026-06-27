@@ -210,8 +210,14 @@ $("start").onclick = () => net.send({ type: "startGame" });
 
 // In-lobby game settings (host).
 buildPowerupAdvInputs();
-$("lobby-config").addEventListener("change", () => {
+$("lobby-config").addEventListener("change", (e) => {
   if (!state.currentLobby || state.currentLobby.hostId !== state.playerId) return;
+  // CTF: default captures-per-round to one per rival team (1 for 2, 3 for 4).
+  const target = e.target as HTMLElement | null;
+  if (target?.id === "ctf-team-count") {
+    const teams = Number(($("ctf-team-count") as HTMLSelectElement).value) || 2;
+    ($("flags-per-round") as HTMLInputElement).value = String(Math.max(1, teams - 1));
+  }
   applyModeVisibility();
   const { maxPlayers, config } = gatherConfig();
   net.send({ type: "updateConfig", maxPlayers, config });

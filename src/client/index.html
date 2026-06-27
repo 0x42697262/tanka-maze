@@ -151,6 +151,16 @@
               <option value="off">Off (kill to drop)</option>
             </select>
           </div>
+          <div class="row cfg-ctf">
+            <label for="flags-per-round">Captures per round</label>
+            <input id="flags-per-round" type="number" min="1" max="50" value="1" />
+          </div>
+          <div class="row cfg-ctf">
+            <label for="ctf-score-mode">Scoring method</label>
+            <select id="ctf-score-mode">
+              <option value="deliver">Deliver to base</option>
+            </select>
+          </div>
           <div class="row two">
             <label for="tank-speed">Tank speed %</label>
             <input id="tank-speed" type="number" min="50" max="200" step="10" value="100" />

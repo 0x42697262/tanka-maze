@@ -95,6 +95,10 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
 // ---------------------------------------------------------------------------
 
 export type GameMode = "ffa" | "lms" | "teams" | "ctf";
+/** How a CTF capture is scored. More modes coming; "deliver" = bring an enemy
+ *  flag into your own base. */
+export type CtfScoreMode = "deliver";
+export const CTF_SCORE_MODES: CtfScoreMode[] = ["deliver"];
 export type WallStyle =
   | "maze"
   | "sparse"
@@ -278,6 +282,11 @@ export interface GameConfig {
   // CTF: touching a flag carrier takes the flag (enemies steal, teammates relay);
   // off = the flag only drops when the carrier is killed.
   flagStealOnContact: boolean;
+  // CTF: captures a team must score to win a round (default scales with team
+  // count: 1 for 2 teams, 3 for 4 teams — i.e. one per rival).
+  flagsPerRound: number;
+  // CTF: how a capture is scored. "deliver" = carry an enemy flag into your base.
+  ctfScoreMode: CtfScoreMode;
   adv: AdvancedConfig; // advanced engine tuning
   // Power-ups
   powerups: boolean; // spawn pickups on the map
@@ -306,6 +315,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   maxFlags: 3,
   flagTeamCarry: true,
   flagStealOnContact: true,
+  flagsPerRound: 1,
+  ctfScoreMode: "deliver",
   adv: DEFAULT_ADVANCED,
   powerups: true,
   powerupEverySeconds: 8,
@@ -474,6 +485,9 @@ export interface FlagDTO {
   x: number;
   y: number;
   state: FlagState;
+  /** Carrier's tank index when carried, else 255 — lets the client stack a
+   *  carrier's flags so multiple held flags are all visible. */
+  carrier: number;
 }
 
 export interface SnapshotDTO {
