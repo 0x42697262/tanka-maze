@@ -84,12 +84,31 @@ function cornerEdgeDisjointPaths(m: Maze, limit = 2): number {
   return flow;
 }
 
-/**
- * Max edge-disjoint routes between the two diagonal corner *blocks* (mirroring
- * the maze's super-source/sink routing), via unit-capacity max flow. The blocks
- * are baseSize×baseSize cells anchored in the top-left and bottom-right corners.
- */
-function blockEdgeDisjointPaths(m: Maze, limit = 4): number {
+/** Cells of a side×side block anchored at top-left cell (cx0, cy0). */
+function blockCells(m: Maze, cx0: number, cy0: number, side: number): number[] {
+  const out: number[] = [];
+  for (let dy = 0; dy < side; dy++)
+    for (let dx = 0; dx < side; dx++) out.push((cy0 + dy) * m.cols + (cx0 + dx));
+  return out;
+}
+/** Corner base block (0 TL, 1 BR, 2 TR, 3 BL), matching the spawn-zone order. */
+function cornerCells(m: Maze, idx: number, side: number): number[] {
+  const a: Record<number, [number, number]> = {
+    0: [0, 0],
+    1: [m.cols - side, m.rows - side],
+    2: [m.cols - side, 0],
+    3: [0, m.rows - side],
+  };
+  const [cx, cy] = a[idx % 4];
+  return blockCells(m, cx, cy, side);
+}
+/** Centred side×side block. */
+function centerCells(m: Maze, side: number): number[] {
+  return blockCells(m, Math.floor((m.cols - side) / 2), Math.floor((m.rows - side) / 2), side);
+}
+
+/** Max edge-disjoint routes between two cell sets, via unit-capacity max flow. */
+function routesBetween(m: Maze, sources: number[], sinks: number[], limit = 4): number {
   const N = m.cols * m.rows;
   const S = N;
   const T = N + 1;
@@ -109,21 +128,13 @@ function blockEdgeDisjointPaths(m: Maze, limit = 4): number {
       }
     }
   }
-  const side = m.baseSize;
-  for (let dy = 0; dy < side; dy++) {
-    for (let dx = 0; dx < side; dx++) {
-      add(S, dy * m.cols + dx, limit);
-      add((m.rows - 1 - dy) * m.cols + (m.cols - 1 - dx), T, limit);
-    }
-  }
+  for (const c of sources) add(S, c, limit);
+  for (const c of sinks) add(c, T, limit);
+  const srcSet = new Set(sources);
+  const sinkSet = new Set(sinks);
   const neighbors = (u: number): number[] => {
-    if (u === S || u === T) {
-      const out: number[] = [];
-      for (let dy = 0; dy < side; dy++)
-        for (let dx = 0; dx < side; dx++)
-          out.push(u === S ? dy * m.cols + dx : (m.rows - 1 - dy) * m.cols + (m.cols - 1 - dx));
-      return out;
-    }
+    if (u === S) return sources;
+    if (u === T) return [];
     const ux = u % m.cols;
     const uy = (u - ux) / m.cols;
     const out: number[] = [];
@@ -132,7 +143,8 @@ function blockEdgeDisjointPaths(m: Maze, limit = 4): number {
       const ny = uy + dy;
       if (nx >= 0 && ny >= 0 && nx < m.cols && ny < m.rows) out.push(ny * m.cols + nx);
     }
-    out.push(S, T);
+    if (srcSet.has(u)) out.push(S);
+    if (sinkSet.has(u)) out.push(T);
     return out;
   };
   let flow = 0;
@@ -300,53 +312,55 @@ describe("maze: CTF true maze", () => {
     }
   });
 
-  it("delivers the requested base routes from corner blocks (2x2 stays in corner)", () => {
-    const m2 = new Maze(14, 11, "maze", undefined, undefined, 2, true, 2);
-    assert.equal(m2.baseSize, 2);
-    assert.ok(blockEdgeDisjointPaths(m2) >= 2, "fewer than 2 base routes");
-
-    // A 2x2 corner block has four exits, so three routes fit without insetting.
-    const m3 = new Maze(20, 14, "maze", undefined, undefined, 3, true, 2);
-    assert.equal(m3.baseSize, 2);
-    assert.ok(blockEdgeDisjointPaths(m3) >= 3, "fewer than 3 base routes");
-  });
-});
-
-describe("maze: CTF centre room + corner barriers", () => {
-  it("ctfCenterRoom scales: 2 small, 2 normal, 3 large", () => {
-    assert.equal(ctfCenterRoom(7, 5), 2); // small
-    assert.equal(ctfCenterRoom(10, 7), 2); // normal
-    assert.equal(ctfCenterRoom(14, 10), 3); // large
-  });
-
-  it("clearCenter opens a side×side room and stays connected", () => {
-    for (const [cols, rows, s] of [[13, 9, 2], [18, 13, 3]] as const) {
-      const m = new Maze(cols, rows, "maze", undefined, undefined, 2, true, 2);
-      m.clearCenter(s);
-      const cx0 = Math.floor((cols - s) / 2);
-      const cy0 = Math.floor((rows - s) / 2);
-      for (let x = cx0; x < cx0 + s; x++) {
-        for (let y = cy0; y < cy0 + s; y++) {
-          if (x + 1 < cx0 + s) assert.ok(m.passable(x, y, x + 1, y), "centre wall present");
-          if (y + 1 < cy0 + s) assert.ok(m.passable(x, y, x, y + 1), "centre wall present");
-        }
+  it("wires every base to the boxed centre and stays connected (2 and 4 teams)", () => {
+    for (const [cols, rows, paths, teams] of [[14, 11, 2, 2], [20, 14, 3, 4]] as const) {
+      const m = new Maze(cols, rows, "maze", undefined, undefined, paths, true, 2, teams, 3);
+      const ctr = centerCells(m, 3);
+      for (let i = 0; i < teams; i++) {
+        assert.ok(routesBetween(m, cornerCells(m, i, 2), ctr) >= 1, `base ${i} can't reach centre`);
       }
-      assert.ok(fullyConnected(m), `${cols}x${rows}: not connected after centre room`);
+      assert.ok(fullyConnected(m), `${cols}x${rows}: not connected`);
     }
   });
 
-  it("addCornerBarriers blocks straight edge runs while staying connected", () => {
-    for (let k = 0; k < 25; k++) {
-      const m = new Maze(13, 9, "maze", undefined, undefined, 2, true, 2);
-      m.addCornerBarriers(2);
-      assert.ok(fullyConnected(m), "not connected after barriers");
-      // No straight run hugging the top edge (row 0) or the left edge (col 0).
-      let topOpen = true;
-      for (let x = 0; x + 1 < m.cols; x++) if (!m.passable(x, 0, x + 1, 0)) topOpen = false;
-      assert.ok(!topOpen, "top edge fully open between bases");
-      let leftOpen = true;
-      for (let y = 0; y + 1 < m.rows; y++) if (!m.passable(0, y, 0, y + 1)) leftOpen = false;
-      assert.ok(!leftOpen, "left edge fully open between bases");
+  it("stays connected for a small 4-team map (1x1 centre)", () => {
+    for (let k = 0; k < 10; k++) {
+      const m = new Maze(9, 7, "maze", undefined, undefined, 2, true, 2, 4, 1);
+      assert.ok(fullyConnected(m), "small 4-team maze not connected");
+    }
+  });
+});
+
+describe("maze: CTF centre room", () => {
+  it("ctfCenterRoom scales: 1 small, 3 normal, 3 large", () => {
+    assert.equal(ctfCenterRoom(7, 5), 1); // small
+    assert.equal(ctfCenterRoom(10, 7), 3); // normal
+    assert.equal(ctfCenterRoom(14, 10), 3); // large
+  });
+
+  it("boxes the centre into an open room with a doorway on each side", () => {
+    for (const [cols, rows] of [[13, 9], [18, 13]] as const) {
+      const m = new Maze(cols, rows, "maze", undefined, undefined, 2, true, 2, 4, 3);
+      const cs = Math.min(3, cols - 2, rows - 2);
+      const cx0 = Math.floor((cols - cs) / 2);
+      const cy0 = Math.floor((rows - cs) / 2);
+      const cx1 = cx0 + cs;
+      const cy1 = cy0 + cs;
+      // Interior fully open.
+      for (let x = cx0; x < cx1; x++) {
+        for (let y = cy0; y < cy1; y++) {
+          if (x + 1 < cx1) assert.ok(m.passable(x, y, x + 1, y), "interior wall");
+          if (y + 1 < cy1) assert.ok(m.passable(x, y, x, y + 1), "interior wall");
+        }
+      }
+      // Perimeter mostly walled with just a few doorways (boxed, not wide open).
+      let walls = 0;
+      let holes = 0;
+      for (let y = cy0; y < cy1; y++) for (const px of [cx0, cx1]) (m.passable(px - 1, y, px, y) ? holes++ : walls++);
+      for (let x = cx0; x < cx1; x++) for (const py of [cy0, cy1]) (m.passable(x, py - 1, x, py) ? holes++ : walls++);
+      assert.ok(walls >= 6, `${cols}x${rows}: centre not boxed (${walls}/12 perimeter walls)`);
+      assert.ok(holes >= 2 && holes <= 6, `${cols}x${rows}: centre holes out of range (${holes})`);
+      assert.ok(fullyConnected(m), `${cols}x${rows}: not connected`);
     }
   });
 });

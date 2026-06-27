@@ -195,19 +195,25 @@ export class Lobby {
    */
   setConfig(requesterId: string, maxPlayers: number, config: GameConfig): void {
     if (requesterId !== this.hostId) return;
+    const prevTeamCount = this.config.teamCount;
     this.config = config;
     this.maxPlayers = clamp(maxPlayers, 2, 32) || this.maxPlayers;
     this.ensureTeams();
-    if (this.inGame) {
-      this.game?.updateConfig(config);
-    } else {
-      // Keep team assignments valid if the team count shrank.
-      for (const m of this.members) {
-        if (m.team >= config.teamCount) m.team = config.teamCount - 1;
-      }
-    }
+    // Team count changed: spread everyone evenly across the new teams. This runs
+    // even mid-match (it applies live for the lobby roster and on the next round /
+    // restart, which is when the team-count change takes structural effect).
+    if (config.teamCount !== prevTeamCount) this.rebalanceTeams();
+    if (this.inGame) this.game?.updateConfig(config);
     this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
     this.onChange(); // listing shows the new mode
+  }
+
+  /** Distribute members evenly across the configured teams (counts differ by ≤1). */
+  private rebalanceTeams(): void {
+    const n = Math.max(1, this.config.teamCount);
+    this.members.forEach((m, i) => {
+      m.team = i % n;
+    });
   }
 
   /** Host restarts the match with the current config (fresh maze, scores, rounds). */
@@ -331,14 +337,10 @@ export class Lobby {
       this.config.adv.wallThickness,
       minCornerPaths,
       ctf,
-      SPAWN_ZONE_CELLS
+      SPAWN_ZONE_CELLS,
+      ctf ? this.config.teamCount : 2, // bases wired to the centre (2 or 4)
+      centerRoom
     );
-    if (ctf) {
-      // 4-team: wall off straight runs between the corner bases so no two connect
-      // directly (which would gang up on the odd team out).
-      if (this.config.teamCount === 4) maze.addCornerBarriers(SPAWN_ZONE_CELLS);
-      maze.clearCenter(centerRoom); // open contested space at the map centre
-    }
     return maze;
   }
 

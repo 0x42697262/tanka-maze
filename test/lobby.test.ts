@@ -59,3 +59,34 @@ describe("lobby: team roster order", () => {
     assert.equal(lobby.toDTO().teamNames[1], "Bandits");
   });
 });
+
+describe("lobby: team rebalance on team-count change", () => {
+  const counts = (lobby: Lobby, n: number): number[] => {
+    const c = new Array<number>(n).fill(0);
+    for (const p of lobby.toDTO().players) c[p.team]++;
+    return c;
+  };
+
+  it("spreads players evenly when the team count changes (4 → 2 → 4)", () => {
+    const cfg: GameConfig = structuredClone(DEFAULT_GAME_CONFIG);
+    cfg.mode = "teams";
+    cfg.teamCount = 4;
+    const host = client("Host");
+    const lobby = new Lobby("L1", "Room", host, 8, cfg, () => {});
+    lobby.add(host);
+    for (const n of ["B", "C", "D", "E", "F", "G", "H"]) lobby.add(client(n)); // 8 total
+
+    const to = (teamCount: number) => {
+      const next = structuredClone(cfg);
+      next.teamCount = teamCount;
+      lobby.setConfig(host.id, 8, next);
+    };
+
+    to(2);
+    assert.deepEqual(counts(lobby, 2), [4, 4]); // 8 split evenly, no team left empty
+    to(4);
+    assert.deepEqual(counts(lobby, 4), [2, 2, 2, 2]);
+    to(3);
+    assert.deepEqual(counts(lobby, 3).sort(), [2, 3, 3]); // 8 across 3 → 3/3/2
+  });
+});

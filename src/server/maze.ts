@@ -46,13 +46,13 @@ export function ctfPathCount(cols: number, rows: number): number {
 }
 
 /**
- * Side (in cells) of the open room carved at the map centre for CTF: 2×2 on
- * small and normal maps, 3×3 on a large one. Random maps scale by area. Takes the
- * *base* (pre-density) dimensions, like ctfPathCount.
+ * Side (in cells) of the open room carved at the map centre for CTF: a single
+ * cell on a small map, 3×3 on normal and large maps. Random maps scale by area.
+ * Takes the *base* (pre-density) dimensions, like ctfPathCount.
  */
 export function ctfCenterRoom(cols: number, rows: number): number {
   const ratio = (cols * rows) / (MAZE_COLS * MAZE_ROWS);
-  return ratio < 1.5 ? 2 : 3;
+  return ratio < 0.75 ? 1 : 3;
 }
 
 interface Segment {
@@ -309,168 +309,455 @@ export class EnsureConnectedCommand implements MazeCommand {
   }
 }
 
+/** Cells of a `side`×`side` block anchored at top-left cell (cx0, cy0). */
+function blockCells(g: MazeGrid, cx0: number, cy0: number, side: number): number[] {
+  const out: number[] = [];
+  for (let dy = 0; dy < side; dy++)
+    for (let dx = 0; dx < side; dx++) out.push((cy0 + dy) * g.cols + (cx0 + dx));
+  return out;
+}
+
+/** Top-left cell of base corner `idx`, in the spawn-zone order: 0 TL, 1 BR, 2 TR, 3 BL. */
+function cornerAnchor(g: MazeGrid, idx: number, side: number): [number, number] {
+  switch (idx % 4) {
+    case 1:
+      return [g.cols - side, g.rows - side];
+    case 2:
+      return [g.cols - side, 0];
+    case 3:
+      return [0, g.rows - side];
+    default:
+      return [0, 0];
+  }
+}
+
+/** Top-left cell of the centred `side`×`side` block. */
+function centerAnchor(g: MazeGrid, side: number): [number, number] {
+  return [Math.floor((g.cols - side) / 2), Math.floor((g.rows - side) / 2)];
+}
+
+/** Clamp a block side so two opposite blocks can't overlap on a small grid. */
+function clampSide(g: MazeGrid, side: number): number {
+  return Math.max(1, Math.min(side, Math.floor(g.cols / 2), Math.floor(g.rows / 2)));
+}
+
 /**
- * Guarantee at least `minPaths` edge-disjoint routes between the two diagonal
- * base blocks, so no single corridor can be the sole link between them.
- *
- * Solved as a *min-cost* max-flow between a super-source wired to every cell of
- * the top-left base block and a super-sink wired from the bottom-right block.
- * Each grid adjacency is a unit-capacity edge whose cost is 0 if it's already an
- * open passage and 1 if it's a wall (so using it would cost one carve). Pushing
- * `minPaths` units of cheapest flow makes the routes thread through the existing
- * maze corridors and only break the few walls they truly need — the first route
- * reuses the existing maze for free, so the maze keeps its winding character
- * instead of a plain BFS bulldozing whole border corridors open. The walls that
- * end up carrying net flow are carved.
- *
- * Routing to the whole corner block (rather than the single corner cell) is what
- * lets a corner support three routes: a lone corner cell has only two exits, but
- * a 2×2 block has four.
+ * Min-cost max-flow carving: push `minPaths` units of cheapest flow from the
+ * `sources` cells to the `sinks` cells, where crossing an existing passage costs
+ * 0 and carving a wall costs 1. The routes thread through existing corridors and
+ * break only the few walls they must, so the maze keeps its winding character.
+ * Walls that carry net flow are carved and recorded in `onRoute` (so a later 2×2
+ * fill won't wall a route off). Super-source/sink model the cell sets as a unit.
+ */
+function routeMinCost(
+  g: MazeGrid,
+  sources: number[],
+  sinks: number[],
+  minPaths: number,
+  onRoute: Set<number>
+): void {
+  const N = g.cols * g.rows;
+  const S = N;
+  const T = N + 1;
+  const V = N + 2;
+  // Arcs come in (real, residual) pairs so the reverse of arc a is a ^ 1.
+  const head = new Int32Array(V).fill(-1);
+  const to: number[] = [];
+  const nxt: number[] = [];
+  const cap: number[] = [];
+  const cost: number[] = [];
+  const addArc = (u: number, v: number, ca: number, co: number) => {
+    to.push(v);
+    cap.push(ca);
+    cost.push(co);
+    nxt.push(head[u]);
+    head[u] = to.length - 1;
+  };
+  const addEdge = (u: number, v: number, ca: number, co: number): number => {
+    const id = to.length;
+    addArc(u, v, ca, co); // real arc
+    addArc(v, u, 0, -co); // residual
+    return id;
+  };
+  const edges: Array<{ x: number; y: number; nx: number; ny: number; a1: number; a2: number }> = [];
+  for (let y = 0; y < g.rows; y++) {
+    for (let x = 0; x < g.cols; x++) {
+      const u = y * g.cols + x;
+      for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx >= g.cols || ny >= g.rows) continue;
+        const v = ny * g.cols + nx;
+        const co = g.passable(x, y, nx, ny) ? 0 : 1; // open passages free, walls cost a carve
+        const a1 = addEdge(u, v, 1, co);
+        const a2 = addEdge(v, u, 1, co);
+        edges.push({ x, y, nx, ny, a1, a2 });
+      }
+    }
+  }
+  for (const c of sources) addEdge(S, c, minPaths, 0);
+  for (const c of sinks) addEdge(c, T, minPaths, 0);
+
+  // Successive cheapest augmenting paths via SPFA (handles negative residuals).
+  for (let f = 0; f < minPaths; f++) {
+    const dist = new Float64Array(V).fill(Infinity);
+    const inQueue = new Uint8Array(V);
+    const prevArc = new Int32Array(V).fill(-1);
+    dist[S] = 0;
+    const q = [S];
+    inQueue[S] = 1;
+    while (q.length) {
+      const u = q.shift() as number;
+      inQueue[u] = 0;
+      for (let a = head[u]; a !== -1; a = nxt[a]) {
+        if (cap[a] <= 0) continue;
+        const v = to[a];
+        const nd = dist[u] + cost[a];
+        if (nd < dist[v]) {
+          dist[v] = nd;
+          prevArc[v] = a;
+          if (!inQueue[v]) {
+            inQueue[v] = 1;
+            q.push(v);
+          }
+        }
+      }
+    }
+    if (!Number.isFinite(dist[T])) break; // no more edge-disjoint routes
+    for (let v = T; v !== S; ) {
+      const a = prevArc[v];
+      cap[a] -= 1;
+      cap[a ^ 1] += 1;
+      v = to[a ^ 1];
+    }
+  }
+
+  for (const e of edges) {
+    const used1 = cap[e.a1] === 0;
+    const used2 = cap[e.a2] === 0;
+    if (used1 !== used2) {
+      const a = e.y * g.cols + e.x;
+      const b = e.ny * g.cols + e.nx;
+      onRoute.add(a < b ? a * N + b : b * N + a);
+      if (!g.passable(e.x, e.y, e.nx, e.ny)) g.removeWallBetween(e.x, e.y, e.nx, e.ny);
+    }
+  }
+}
+
+/**
+ * Fill any 2×2 open area carving may have opened: restore one of the block's
+ * interior walls, preferring a wall no route uses (so guaranteed routes survive)
+ * and that doesn't strand a dead end. Restoring one edge of the block's loop
+ * keeps every cell connected.
+ */
+function fill2x2Areas(g: MazeGrid, onRoute: Set<number>): void {
+  const N = g.cols * g.rows;
+  const key = (a: number, b: number) => (a < b ? a * N + b : b * N + a);
+  let guard = N;
+  let changed = true;
+  while (changed && guard-- > 0) {
+    changed = false;
+    for (let x = 0; x + 1 < g.cols; x++) {
+      for (let y = 0; y + 1 < g.rows; y++) {
+        if (g.vWalls[x + 1][y] || g.vWalls[x + 1][y + 1] || g.hWalls[x][y + 1] || g.hWalls[x + 1][y + 1]) {
+          continue;
+        }
+        const opts = [
+          { set: () => (g.vWalls[x + 1][y] = true), c1: [x, y], c2: [x + 1, y] },
+          { set: () => (g.vWalls[x + 1][y + 1] = true), c1: [x, y + 1], c2: [x + 1, y + 1] },
+          { set: () => (g.hWalls[x][y + 1] = true), c1: [x, y], c2: [x, y + 1] },
+          { set: () => (g.hWalls[x + 1][y + 1] = true), c1: [x + 1, y], c2: [x + 1, y + 1] },
+        ] as const;
+        const k = (o: (typeof opts)[number]) => key(o.c1[1] * g.cols + o.c1[0], o.c2[1] * g.cols + o.c2[0]);
+        const offRoute = opts.filter((o) => !onRoute.has(k(o)));
+        const cands = offRoute.length ? offRoute : opts;
+        const pick =
+          cands.find((o) => g.cellOpenings(o.c1[0], o.c1[1]) >= 3 && g.cellOpenings(o.c2[0], o.c2[1]) >= 3) ??
+          cands[0];
+        pick.set();
+        changed = true;
+      }
+    }
+  }
+}
+
+/** Edge-disjoint routes between two cell sets (unit-capacity max flow, capped). */
+function countRoutes(g: MazeGrid, sources: number[], sinks: number[], limit: number): number {
+  const N = g.cols * g.rows;
+  const S = N;
+  const T = N + 1;
+  const V = N + 2;
+  const cap = new Map<number, number>();
+  const add = (u: number, v: number, c: number) => cap.set(u * V + v, (cap.get(u * V + v) ?? 0) + c);
+  for (let y = 0; y < g.rows; y++) {
+    for (let x = 0; x < g.cols; x++) {
+      const u = y * g.cols + x;
+      for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx >= g.cols || ny >= g.rows || !g.passable(x, y, nx, ny)) continue;
+        const v = ny * g.cols + nx;
+        add(u, v, 1);
+        add(v, u, 1);
+      }
+    }
+  }
+  for (const c of sources) add(S, c, limit);
+  for (const c of sinks) add(c, T, limit);
+  const srcSet = new Set(sources);
+  const sinkSet = new Set(sinks);
+  const neighbors = (u: number): number[] => {
+    if (u === S) return sources;
+    if (u === T) return [];
+    const ux = u % g.cols;
+    const uy = (u - ux) / g.cols;
+    const out: number[] = [];
+    for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
+      const nx = ux + dx;
+      const ny = uy + dy;
+      if (nx >= 0 && ny >= 0 && nx < g.cols && ny < g.rows) out.push(ny * g.cols + nx);
+    }
+    if (srcSet.has(u)) out.push(S);
+    if (sinkSet.has(u)) out.push(T);
+    return out;
+  };
+  let flow = 0;
+  while (flow < limit) {
+    const prev = new Int32Array(V).fill(-1);
+    prev[S] = S;
+    const q = [S];
+    for (let h = 0; h < q.length && prev[T] === -1; h++) {
+      const u = q[h];
+      for (const v of neighbors(u)) {
+        if (prev[v] !== -1 || (cap.get(u * V + v) ?? 0) <= 0) continue;
+        prev[v] = u;
+        q.push(v);
+      }
+    }
+    if (prev[T] === -1) break;
+    for (let v = T; v !== S; v = prev[v]) {
+      const u = prev[v];
+      cap.set(u * V + v, (cap.get(u * V + v) as number) - 1);
+      cap.set(v * V + u, (cap.get(v * V + u) ?? 0) + 1);
+    }
+    flow++;
+  }
+  return flow;
+}
+
+/** Fewest routes any of the `baseCorners` base blocks has to the centre block. */
+export function minSpokeRoutes(g: MazeGrid, baseCorners: number, centerSide: number, limit: number): number {
+  const bside = clampSide(g, g.baseSize);
+  const cside = clampSide(g, Math.max(1, centerSide));
+  const [ccx, ccy] = centerAnchor(g, cside);
+  const center = blockCells(g, ccx, ccy, cside);
+  let min = Infinity;
+  for (let i = 0; i < baseCorners; i++) {
+    const [cx, cy] = cornerAnchor(g, i, bside);
+    min = Math.min(min, countRoutes(g, blockCells(g, cx, cy, bside), center, limit));
+  }
+  return min === Infinity ? limit : min;
+}
+
+/**
+ * Corner-to-corner route guarantee (used by the non-CTF wall styles): ensure
+ * `minPaths` edge-disjoint routes between the two diagonal corner blocks.
  */
 export class EnsureCornerPathsCommand implements MazeCommand {
-  // `fill2x2` fills any 2×2 open area the routing opens (a true maze wants none);
-  // the open-arena styles leave it off so their layout is untouched.
+  // `fill2x2` fills any 2×2 the routing opens (a true maze wants none); the
+  // open-arena styles leave it off so their layout is untouched.
   constructor(private readonly minPaths: number, private readonly fill2x2 = false) {}
 
   run(g: MazeGrid): void {
-    const minPaths = this.minPaths;
-    if (minPaths < 2 || g.cols < 2 || g.rows < 2) return;
-    const N = g.cols * g.rows;
-    const S = N; // super-source
-    const T = N + 1; // super-sink
-    const V = N + 2;
-    const side = Math.max(1, Math.min(g.baseSize, Math.floor(g.cols / 2), Math.floor(g.rows / 2)));
-
-    // Adjacency-list residual network. Arcs come in (real, residual) pairs so
-    // the reverse of arc a is a ^ 1. Each grid edge is added as two opposing
-    // unit-capacity arcs (the undirected-edge model for edge-disjoint flow).
-    const head = new Int32Array(V).fill(-1);
-    const to: number[] = [];
-    const nxt: number[] = [];
-    const cap: number[] = [];
-    const cost: number[] = [];
-    const addArc = (u: number, v: number, ca: number, co: number) => {
-      to.push(v);
-      cap.push(ca);
-      cost.push(co);
-      nxt.push(head[u]);
-      head[u] = to.length - 1;
-    };
-    const addEdge = (u: number, v: number, ca: number, co: number): number => {
-      const id = to.length;
-      addArc(u, v, ca, co); // real arc
-      addArc(v, u, 0, -co); // residual
-      return id;
-    };
-    // Carvable walls cost 1, existing passages cost 0.
-    const edges: Array<{ x: number; y: number; nx: number; ny: number; a1: number; a2: number }> = [];
-    for (let y = 0; y < g.rows; y++) {
-      for (let x = 0; x < g.cols; x++) {
-        const u = y * g.cols + x;
-        for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx >= g.cols || ny >= g.rows) continue;
-          const v = ny * g.cols + nx;
-          const co = g.passable(x, y, nx, ny) ? 0 : 1;
-          const a1 = addEdge(u, v, 1, co);
-          const a2 = addEdge(v, u, 1, co);
-          edges.push({ x, y, nx, ny, a1, a2 });
-        }
-      }
-    }
-    // Wire the super-source/sink to each cell of the corner blocks (cost 0). The
-    // capacity is generous; the grid edges are the real bottleneck.
-    for (let dy = 0; dy < side; dy++) {
-      for (let dx = 0; dx < side; dx++) {
-        addEdge(S, dy * g.cols + dx, minPaths, 0);
-        addEdge((g.rows - 1 - dy) * g.cols + (g.cols - 1 - dx), T, minPaths, 0);
-      }
-    }
-
-    // Successive shortest (cheapest) augmenting paths via SPFA (Bellman–Ford
-    // queue handles the negative residual-arc costs). Unit grid caps ⇒ routes
-    // stay edge-disjoint.
-    for (let f = 0; f < minPaths; f++) {
-      const dist = new Float64Array(V).fill(Infinity);
-      const inQueue = new Uint8Array(V);
-      const prevArc = new Int32Array(V).fill(-1);
-      dist[S] = 0;
-      const q = [S];
-      inQueue[S] = 1;
-      while (q.length) {
-        const u = q.shift() as number;
-        inQueue[u] = 0;
-        for (let a = head[u]; a !== -1; a = nxt[a]) {
-          if (cap[a] <= 0) continue;
-          const v = to[a];
-          const nd = dist[u] + cost[a];
-          if (nd < dist[v]) {
-            dist[v] = nd;
-            prevArc[v] = a;
-            if (!inQueue[v]) {
-              inQueue[v] = 1;
-              q.push(v);
-            }
-          }
-        }
-      }
-      if (!Number.isFinite(dist[T])) break; // no more edge-disjoint routes
-      for (let v = T; v !== S; ) {
-        const a = prevArc[v];
-        cap[a] -= 1;
-        cap[a ^ 1] += 1;
-        v = to[a ^ 1];
-      }
-    }
-
-    // Carve every wall carrying net flow: exactly one of its two real arcs spent
-    // its unit of capacity (both spent ⇒ the routes cancelled ⇒ nothing to do).
-    // Remember which cell-pairs a route runs through, so the 2×2 cleanup below
-    // never walls one off (which would cut a guaranteed route).
+    if (this.minPaths < 2 || g.cols < 2 || g.rows < 2) return;
+    const side = clampSide(g, g.baseSize);
     const onRoute = new Set<number>();
-    const key = (a: number, b: number) => (a < b ? a * V + b : b * V + a);
-    for (const e of edges) {
-      const used1 = cap[e.a1] === 0;
-      const used2 = cap[e.a2] === 0;
-      if (used1 !== used2) {
-        onRoute.add(key(e.y * g.cols + e.x, e.ny * g.cols + e.nx));
-        if (!g.passable(e.x, e.y, e.nx, e.ny)) g.removeWallBetween(e.x, e.y, e.nx, e.ny);
-      }
-    }
+    routeMinCost(
+      g,
+      blockCells(g, 0, 0, side),
+      blockCells(g, g.cols - side, g.rows - side, side),
+      this.minPaths,
+      onRoute
+    );
+    if (this.fill2x2) fill2x2Areas(g, onRoute);
+  }
+}
 
-    // Routing can leave a 2×2 open area where routes ran side by side. Fill each
-    // by restoring one of the block's interior walls — preferring a wall no route
-    // uses (so routes stay intact) and that doesn't strand a dead end. Restoring
-    // a single edge of the block's loop keeps every cell connected. Only a true
-    // maze wants this; the open-arena styles keep their layout as carved.
-    if (!this.fill2x2) return;
-    let guard = g.cols * g.rows;
-    let changed = true;
-    while (changed && guard-- > 0) {
-      changed = false;
-      for (let x = 0; x + 1 < g.cols; x++) {
-        for (let y = 0; y + 1 < g.rows; y++) {
-          if (g.vWalls[x + 1][y] || g.vWalls[x + 1][y + 1] || g.hWalls[x][y + 1] || g.hWalls[x + 1][y + 1]) {
-            continue;
-          }
-          const opts = [
-            { set: () => (g.vWalls[x + 1][y] = true), c1: [x, y], c2: [x + 1, y] },
-            { set: () => (g.vWalls[x + 1][y + 1] = true), c1: [x, y + 1], c2: [x + 1, y + 1] },
-            { set: () => (g.hWalls[x][y + 1] = true), c1: [x, y], c2: [x, y + 1] },
-            { set: () => (g.hWalls[x + 1][y + 1] = true), c1: [x + 1, y], c2: [x + 1, y + 1] },
-          ] as const;
-          const k = (o: (typeof opts)[number]) => key(o.c1[1] * g.cols + o.c1[0], o.c2[1] * g.cols + o.c2[0]);
-          const offRoute = opts.filter((o) => !onRoute.has(k(o)));
-          const cands = offRoute.length ? offRoute : opts;
-          const pick =
-            cands.find((o) => g.cellOpenings(o.c1[0], o.c1[1]) >= 3 && g.cellOpenings(o.c2[0], o.c2[1]) >= 3) ??
-            cands[0];
-          pick.set();
-          changed = true;
+/**
+ * CTF hub-and-spoke routing: guarantee `minPaths` edge-disjoint routes from each
+ * base corner block to the central block, so every base truly connects to the
+ * centre (rather than the bases being wired to each other). Routes may also link
+ * bases directly — that's fine. Each base is routed independently (spokes may
+ * share corridors), the cheapest-flow carve keeps the maze winding, and any 2×2
+ * opened along the way is filled.
+ */
+export class CenterSpokesCommand implements MazeCommand {
+  constructor(
+    private readonly minPaths: number,
+    private readonly baseCorners: number,
+    private readonly centerSide: number
+  ) {}
+
+  run(g: MazeGrid): void {
+    if (this.minPaths < 1 || g.cols < 2 || g.rows < 2) return;
+    const bside = clampSide(g, g.baseSize);
+    const cside = clampSide(g, Math.max(1, this.centerSide));
+    const [ccx, ccy] = centerAnchor(g, cside);
+    const center = blockCells(g, ccx, ccy, cside);
+    const onRoute = new Set<number>();
+    for (let i = 0; i < this.baseCorners; i++) {
+      const [cx, cy] = cornerAnchor(g, i, bside);
+      routeMinCost(g, blockCells(g, cx, cy, bside), center, this.minPaths, onRoute);
+    }
+    fill2x2Areas(g, onRoute);
+  }
+}
+
+/**
+ * Geometry of the central boxed room: a side×side block walled on its perimeter
+ * with a doorway centred on each side. `walls` are the perimeter wall keys to
+ * protect (doorways excluded); `inside` tests interior cells. Returns null when
+ * there's nothing to box (a 1×1 small-map centre, or no room for an outer ring).
+ */
+function centerBox(
+  g: MazeGrid,
+  side: number
+): {
+  cx0: number;
+  cy0: number;
+  cx1: number;
+  cy1: number;
+  mx: number;
+  my: number;
+  inside: (x: number, y: number) => boolean;
+  walls: Set<string>;
+} | null {
+  if (side < 2) return null;
+  const cs = Math.min(side, g.cols - 2, g.rows - 2);
+  if (cs < 2) return null;
+  const cx0 = Math.floor((g.cols - cs) / 2);
+  const cy0 = Math.floor((g.rows - cs) / 2);
+  const cx1 = cx0 + cs;
+  const cy1 = cy0 + cs;
+  const mx = cx0 + (cs >> 1);
+  const my = cy0 + (cs >> 1);
+  const walls = new Set<string>();
+  for (let y = cy0; y < cy1; y++) {
+    if (y !== my) {
+      walls.add(`v${cx0},${y}`);
+      walls.add(`v${cx1},${y}`);
+    }
+  }
+  for (let x = cx0; x < cx1; x++) {
+    if (x !== mx) {
+      walls.add(`h${x},${cy0}`);
+      walls.add(`h${x},${cy1}`);
+    }
+  }
+  const inside = (x: number, y: number) => x >= cx0 && x < cx1 && y >= cy0 && y < cy1;
+  return { cx0, cy0, cx1, cy1, mx, my, inside, walls };
+}
+
+/**
+ * Reconnect any cell cut off (e.g. by walling the centre box): open a wall to
+ * bridge the gap, preferring a non-protected wall and only falling back to a
+ * protected one (an extra box doorway) when it's the sole bridge. Guarantees
+ * every cell stays reachable.
+ */
+function repairConnectivity(g: MazeGrid, protectedWalls: Set<string>): void {
+  const total = g.cols * g.rows;
+  for (let guard = 0; guard < total; guard++) {
+    const reached = new Uint8Array(total);
+    const stack = [0];
+    reached[0] = 1;
+    let count = 1;
+    while (stack.length) {
+      const cur = stack.pop() as number;
+      const cx = cur % g.cols;
+      const cy = (cur - cx) / g.cols;
+      for (const [dx, dy] of DIRS) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= g.cols || ny >= g.rows) continue;
+        const ni = ny * g.cols + nx;
+        if (!reached[ni] && g.passable(cx, cy, nx, ny)) {
+          reached[ni] = 1;
+          count++;
+          stack.push(ni);
         }
       }
     }
+    if (count === total) return;
+    let fallback: (() => void) | null = null;
+    let opened = false;
+    for (let i = 0; i < total && !opened; i++) {
+      if (!reached[i]) continue;
+      const cx = i % g.cols;
+      const cy = (i - cx) / g.cols;
+      for (const [dx, dy] of DIRS) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= g.cols || ny >= g.rows) continue;
+        if (reached[ny * g.cols + nx] || g.passable(cx, cy, nx, ny)) continue;
+        let key: string;
+        let open: () => void;
+        if (nx === cx + 1) {
+          key = `v${cx + 1},${cy}`;
+          open = () => (g.vWalls[cx + 1][cy] = false);
+        } else if (nx === cx - 1) {
+          key = `v${cx},${cy}`;
+          open = () => (g.vWalls[cx][cy] = false);
+        } else if (ny === cy + 1) {
+          key = `h${cx},${cy + 1}`;
+          open = () => (g.hWalls[cx][cy + 1] = false);
+        } else {
+          key = `h${cx},${cy}`;
+          open = () => (g.hWalls[cx][cy] = false);
+        }
+        if (protectedWalls.has(key)) {
+          fallback ??= open;
+          continue;
+        }
+        open();
+        opened = true;
+        break;
+      }
+    }
+    if (!opened) {
+      if (fallback) fallback();
+      else return;
+    }
+  }
+}
+
+/**
+ * Turn the map centre into a contained room: clear its interior, wall the whole
+ * perimeter, then open a doorway centred on each side — so the centre reads as a
+ * boxed structure with a few entrances instead of a wide-open blob. Runs after
+ * routing/braid; any cell the box cut off is reconnected (preferring non-box
+ * walls). No room for a 1×1 (small-map) centre.
+ */
+export class CenterRoomCommand implements MazeCommand {
+  constructor(private readonly side: number) {}
+
+  run(g: MazeGrid): void {
+    const b = centerBox(g, this.side);
+    if (!b) return;
+    // Open the interior.
+    for (let x = b.cx0 + 1; x < b.cx1; x++)
+      for (let y = b.cy0; y < b.cy1; y++) g.vWalls[x][y] = false;
+    for (let x = b.cx0; x < b.cx1; x++)
+      for (let y = b.cy0 + 1; y < b.cy1; y++) g.hWalls[x][y] = false;
+    // Wall the perimeter, leaving a doorway centred on each side.
+    for (let y = b.cy0; y < b.cy1; y++) {
+      g.vWalls[b.cx0][y] = y !== b.my;
+      g.vWalls[b.cx1][y] = y !== b.my;
+    }
+    for (let x = b.cx0; x < b.cx1; x++) {
+      g.hWalls[x][b.cy0] = x !== b.mx;
+      g.hWalls[x][b.cy1] = x !== b.mx;
+    }
+    repairConnectivity(g, b.walls);
   }
 }
 
@@ -483,25 +770,35 @@ export class EnsureCornerPathsCommand implements MazeCommand {
  * walls, so the arena stays connected.
  */
 export class BraidDeadEndsCommand implements MazeCommand {
-  constructor(private readonly keepRatio: number) {}
+  // `centerSide` (when set) protects the central box: its perimeter walls are
+  // never braided away and its open interior is left alone.
+  constructor(private readonly keepRatio: number, private readonly centerSide = 0) {}
 
   run(g: MazeGrid): void {
     const { cols, rows } = g;
+    const box = centerBox(g, this.centerSide);
     for (let x = 0; x < cols; x++) {
       for (let y = 0; y < rows; y++) {
+        if (box && box.inside(x, y)) continue; // leave the centre room as built
         if (g.cellOpenings(x, y) > 1) continue; // not a dead end
         if (Math.random() < this.keepRatio) continue; // keep some dead ends
-        const cands: Array<{ remove: () => void; ax: number; ay: number; bx: number; by: number }> = [];
+        const cands: Array<{ remove: () => void; key: string; ax: number; ay: number; bx: number; by: number }> = [];
         if (x > 0 && g.vWalls[x][y])
-          cands.push({ remove: () => (g.vWalls[x][y] = false), ax: x, ay: y, bx: x, by: y + 1 });
+          cands.push({ remove: () => (g.vWalls[x][y] = false), key: `v${x},${y}`, ax: x, ay: y, bx: x, by: y + 1 });
         if (x < cols - 1 && g.vWalls[x + 1][y])
-          cands.push({ remove: () => (g.vWalls[x + 1][y] = false), ax: x + 1, ay: y, bx: x + 1, by: y + 1 });
+          cands.push({ remove: () => (g.vWalls[x + 1][y] = false), key: `v${x + 1},${y}`, ax: x + 1, ay: y, bx: x + 1, by: y + 1 });
         if (y > 0 && g.hWalls[x][y])
-          cands.push({ remove: () => (g.hWalls[x][y] = false), ax: x, ay: y, bx: x + 1, by: y });
+          cands.push({ remove: () => (g.hWalls[x][y] = false), key: `h${x},${y}`, ax: x, ay: y, bx: x + 1, by: y });
         if (y < rows - 1 && g.hWalls[x][y + 1])
-          cands.push({ remove: () => (g.hWalls[x][y + 1] = false), ax: x, ay: y + 1, bx: x + 1, by: y + 1 });
+          cands.push({ remove: () => (g.hWalls[x][y + 1] = false), key: `h${x},${y + 1}`, ax: x, ay: y + 1, bx: x + 1, by: y + 1 });
         // Keep ≥1 wall at each endpoint (degree ≥2 before ⇒ ≥1 after): no 2×2.
-        const safe = cands.filter((c) => g.wallDegree(c.ax, c.ay) >= 2 && g.wallDegree(c.bx, c.by) >= 2);
+        // Never tear down a box-perimeter wall.
+        const safe = cands.filter(
+          (c) =>
+            g.wallDegree(c.ax, c.ay) >= 2 &&
+            g.wallDegree(c.bx, c.by) >= 2 &&
+            !(box && box.walls.has(c.key))
+        );
         if (safe.length) safe[Math.floor(Math.random() * safe.length)].remove();
       }
     }
@@ -616,15 +913,18 @@ export class ClearInternalCommand implements MazeCommand {
 
 /**
  * Assemble the ordered generation pipeline for a layout. The arena always ends
- * connected (no walled-off pockets) and, when asked, carries the guaranteed
- * base routes. CTF (`perfectMaze`) carves a true maze, fills any 2×2 the routing
- * opened, then braids most dead ends into flowing loops (never opening a 2×2);
- * other modes braid the carved maze into an open arena with scattered cover.
+ * connected (no walled-off pockets) and, when asked, carries the guaranteed base
+ * routes. CTF (`perfectMaze`) carves a true maze, wires each base to the central
+ * hub (spoke routes), fills any 2×2 the routing opened, then braids most dead
+ * ends into flowing loops (never opening a 2×2); other modes braid the carved
+ * maze into an open arena with scattered cover.
  */
 export function buildPipeline(
   wallStyle: WallStyle,
   minCornerPaths: number,
-  perfectMaze: boolean
+  perfectMaze: boolean,
+  baseCorners = 2,
+  centerRoom = 0
 ): MazeCommand[] {
   const cmds: MazeCommand[] = [];
   switch (wallStyle) {
@@ -654,90 +954,16 @@ export function buildPipeline(
       if (!perfectMaze) cmds.push(new BraidCommand(), new EnsureCoverageCommand());
   }
   cmds.push(new EnsureConnectedCommand()); // no tank ever spawns in a walled-off pocket
-  if (minCornerPaths >= 2) cmds.push(new EnsureCornerPathsCommand(minCornerPaths, perfectMaze));
-  // A true maze: braid most dead ends into flowing loops. The braid never opens
-  // a 2×2 area, and routing already filled any 2×2 it created, so the result has
-  // none. Only the carved style.
   if (perfectMaze && wallStyle === "maze") {
-    cmds.push(new BraidDeadEndsCommand(CTF_DEADEND_KEEP));
+    // CTF: spoke each base to the centre, box the centre into a contained room,
+    // then braid most dead ends into flowing loops (the box stays intact).
+    cmds.push(new CenterSpokesCommand(minCornerPaths, baseCorners, centerRoom));
+    cmds.push(new CenterRoomCommand(centerRoom));
+    cmds.push(new BraidDeadEndsCommand(CTF_DEADEND_KEEP, centerRoom));
+  } else if (minCornerPaths >= 2) {
+    cmds.push(new EnsureCornerPathsCommand(minCornerPaths));
   }
   return cmds;
-}
-
-/**
- * Edge-disjoint routes between the two diagonal base blocks in the finished grid,
- * capped at `limit` (unit-capacity max flow with a super-source/sink over the
- * blocks). Used to confirm a generated maze actually meets its route guarantee —
- * filling a 2×2 can, on rare layouts, sever a route, so generation is retried.
- */
-function countBlockRoutes(g: MazeGrid, limit: number): number {
-  const N = g.cols * g.rows;
-  const S = N;
-  const T = N + 1;
-  const V = N + 2;
-  const side = Math.max(1, Math.min(g.baseSize, Math.floor(g.cols / 2), Math.floor(g.rows / 2)));
-  const cap = new Map<number, number>();
-  const add = (u: number, v: number, c: number) => cap.set(u * V + v, (cap.get(u * V + v) ?? 0) + c);
-  for (let y = 0; y < g.rows; y++) {
-    for (let x = 0; x < g.cols; x++) {
-      const u = y * g.cols + x;
-      for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx >= g.cols || ny >= g.rows || !g.passable(x, y, nx, ny)) continue;
-        const v = ny * g.cols + nx;
-        add(u, v, 1);
-        add(v, u, 1);
-      }
-    }
-  }
-  for (let dy = 0; dy < side; dy++) {
-    for (let dx = 0; dx < side; dx++) {
-      add(S, dy * g.cols + dx, limit);
-      add((g.rows - 1 - dy) * g.cols + (g.cols - 1 - dx), T, limit);
-    }
-  }
-  const neighbors = (u: number): number[] => {
-    if (u === S || u === T) {
-      const out: number[] = [];
-      for (let dy = 0; dy < side; dy++)
-        for (let dx = 0; dx < side; dx++)
-          out.push(u === S ? dy * g.cols + dx : (g.rows - 1 - dy) * g.cols + (g.cols - 1 - dx));
-      return out;
-    }
-    const ux = u % g.cols;
-    const uy = (u - ux) / g.cols;
-    const out: number[] = [];
-    for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
-      const nx = ux + dx;
-      const ny = uy + dy;
-      if (nx >= 0 && ny >= 0 && nx < g.cols && ny < g.rows) out.push(ny * g.cols + nx);
-    }
-    out.push(S, T);
-    return out;
-  };
-  let flow = 0;
-  while (flow < limit) {
-    const prev = new Int32Array(V).fill(-1);
-    prev[S] = S;
-    const q = [S];
-    for (let h = 0; h < q.length && prev[T] === -1; h++) {
-      const u = q[h];
-      for (const v of neighbors(u)) {
-        if (prev[v] !== -1 || (cap.get(u * V + v) ?? 0) <= 0) continue;
-        prev[v] = u;
-        q.push(v);
-      }
-    }
-    if (prev[T] === -1) break;
-    for (let v = T; v !== S; v = prev[v]) {
-      const u = prev[v];
-      cap.set(u * V + v, (cap.get(u * V + v) as number) - 1);
-      cap.set(v * V + u, (cap.get(v * V + u) ?? 0) + 1);
-    }
-    flow++;
-  }
-  return flow;
 }
 
 /**
@@ -777,7 +1003,11 @@ export class Maze {
     // joined to its neighbours) instead of the open arena other modes use.
     perfectMaze: boolean = false,
     // Side (in cells) of each diagonal base block the route guarantee connects.
-    baseSize: number = 1
+    baseSize: number = 1,
+    // CTF: how many corner bases to wire to the centre (2 or 4 teams).
+    baseCorners: number = 2,
+    // CTF: side (in cells) of the central open room / spoke hub (0 = none).
+    centerRoom: number = 0
   ) {
     this.cols = cols;
     this.rows = rows;
@@ -788,14 +1018,19 @@ export class Maze {
     // Clamp so the two corner blocks can never overlap on a small grid.
     this.baseSize = Math.max(1, Math.min(baseSize, Math.floor(cols / 2), Math.floor(rows / 2)));
 
-    // Generate the layout. Filling a 2×2 the routing opened can, on rare carves,
-    // sever a guaranteed route; since carving is randomized, just regenerate when
-    // the finished maze falls short (it succeeds the vast majority of the time).
-    const wantRoutes = perfectMaze && wallStyle === "maze" ? minCornerPaths : 0;
-    const pipeline = () => buildPipeline(wallStyle, minCornerPaths, perfectMaze);
+    // Generate the layout. Every base must reach the boxed centre; the centre's
+    // connectivity repair normally guarantees that, but carving is randomized, so
+    // regenerate on the rare layout where a base can't (e.g. all its doorways got
+    // walled off).
+    const ctf = perfectMaze && wallStyle === "maze";
+    const pipeline = () => buildPipeline(wallStyle, minCornerPaths, perfectMaze, baseCorners, centerRoom);
     let grid = new MazeGrid(cols, rows, this.baseSize);
     for (const cmd of pipeline()) cmd.run(grid);
-    for (let attempt = 0; wantRoutes >= 2 && countBlockRoutes(grid, wantRoutes) < wantRoutes && attempt < 20; attempt++) {
+    for (
+      let attempt = 0;
+      ctf && minSpokeRoutes(grid, baseCorners, centerRoom, 1) < 1 && attempt < 20;
+      attempt++
+    ) {
       grid = new MazeGrid(cols, rows, this.baseSize);
       for (const cmd of pipeline()) cmd.run(grid);
     }
@@ -821,125 +1056,6 @@ export class Maze {
         for (let y = cy0 + 1; y < cy1; y++) this.grid.hWalls[x][y] = false;
     }
     this.walls = this.buildSegments();
-  }
-
-  /**
-   * Carve a `side`×`side` open room at the map centre (CTF free space). It reuses
-   * the existing maze openings as doorways, so it stays connected. No-op for
-   * side < 2.
-   */
-  clearCenter(side: number): void {
-    if (side < 2) return;
-    const s = Math.min(side, this.cols, this.rows);
-    const cx0 = Math.floor((this.cols - s) / 2);
-    const cy0 = Math.floor((this.rows - s) / 2);
-    this.clearZones([
-      { x: cx0 * this.cell, y: cy0 * this.cell, width: s * this.cell, height: s * this.cell },
-    ]);
-  }
-
-  /**
-   * Drop a short wall barrier inward from the middle of each map edge, so no two
-   * corner bases (4-team CTF) connect by a straight run hugging the shared edge —
-   * they must detour through the maze. Each wall is only kept if the arena stays
-   * fully connected, so this never seals anything off.
-   */
-  addCornerBarriers(baseSide: number): void {
-    const g = this.grid;
-    const depth = Math.max(1, Math.min(baseSide + 1, this.rows, this.cols));
-    const midC = Math.floor(this.cols / 2);
-    const midR = Math.floor(this.rows / 2);
-    // Raise the four barrier walls, marking them protected, then restore any lost
-    // connectivity by opening *other* walls — so the barriers themselves stay up.
-    const protectedWalls = new Set<string>();
-    for (let y = 0; y < depth; y++) {
-      g.vWalls[midC][y] = true; // top
-      protectedWalls.add(`v${midC},${y}`);
-      g.vWalls[midC][this.rows - 1 - y] = true; // bottom
-      protectedWalls.add(`v${midC},${this.rows - 1 - y}`);
-    }
-    for (let x = 0; x < depth; x++) {
-      g.hWalls[x][midR] = true; // left
-      protectedWalls.add(`h${x},${midR}`);
-      g.hWalls[this.cols - 1 - x][midR] = true; // right
-      protectedWalls.add(`h${this.cols - 1 - x},${midR}`);
-    }
-    this.repairConnectivity(protectedWalls);
-    this.walls = this.buildSegments();
-  }
-
-  /**
-   * Reconnect any cell cut off by the barriers, opening a non-barrier wall where
-   * possible (only falling back to a barrier wall if it's the sole bridge). Keeps
-   * the barriers standing while guaranteeing every cell is reachable.
-   */
-  private repairConnectivity(protectedWalls: Set<string>): void {
-    const total = this.cols * this.rows;
-    const g = this.grid;
-    for (let guard = 0; guard < total; guard++) {
-      const reached = new Uint8Array(total);
-      const stack = [0];
-      reached[0] = 1;
-      let count = 1;
-      while (stack.length) {
-        const cur = stack.pop() as number;
-        const cx = cur % this.cols;
-        const cy = (cur - cx) / this.cols;
-        for (const [dx, dy] of DIRS) {
-          const nx = cx + dx;
-          const ny = cy + dy;
-          if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
-          const ni = ny * this.cols + nx;
-          if (!reached[ni] && g.passable(cx, cy, nx, ny)) {
-            reached[ni] = 1;
-            count++;
-            stack.push(ni);
-          }
-        }
-      }
-      if (count === total) return;
-      // Bridge the reached region to an unreached neighbour, preferring a
-      // non-barrier wall.
-      let fallback: (() => void) | null = null;
-      let opened = false;
-      for (let i = 0; i < total && !opened; i++) {
-        if (!reached[i]) continue;
-        const cx = i % this.cols;
-        const cy = (i - cx) / this.cols;
-        for (const [dx, dy] of DIRS) {
-          const nx = cx + dx;
-          const ny = cy + dy;
-          if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
-          if (reached[ny * this.cols + nx] || g.passable(cx, cy, nx, ny)) continue;
-          let keyEdge: string;
-          let open: () => void;
-          if (nx === cx + 1) {
-            keyEdge = `v${cx + 1},${cy}`;
-            open = () => (g.vWalls[cx + 1][cy] = false);
-          } else if (nx === cx - 1) {
-            keyEdge = `v${cx},${cy}`;
-            open = () => (g.vWalls[cx][cy] = false);
-          } else if (ny === cy + 1) {
-            keyEdge = `h${cx},${cy + 1}`;
-            open = () => (g.hWalls[cx][cy + 1] = false);
-          } else {
-            keyEdge = `h${cx},${cy}`;
-            open = () => (g.hWalls[cx][cy] = false);
-          }
-          if (protectedWalls.has(keyEdge)) {
-            fallback ??= open;
-            continue;
-          }
-          open();
-          opened = true;
-          break;
-        }
-      }
-      if (!opened) {
-        if (fallback) fallback();
-        else return;
-      }
-    }
   }
 
   /** World point → grid cell indices (clamped to the arena). */
