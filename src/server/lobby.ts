@@ -3,6 +3,7 @@ import {
   DEFAULT_MAX_PLAYERS,
   ROUND_INTERMISSION_SECONDS,
   SNAPSHOT_EVERY_TICKS,
+  snapshotEveryTicksForPlayers,
   SPAWN_ZONE_CELLS,
   TANK_COLORS,
   TEAM_COLORS,
@@ -466,7 +467,8 @@ export class Lobby {
     // unchanged world sends nothing. Force a send on ticks that produced a blast
     // or beam so those transient effects are never dropped on a skipped tick.
     this.tickCount += 1;
-    if (this.tickCount % SNAPSHOT_EVERY_TICKS === 0 || this.game.hasEffects()) {
+    const snapshotEvery = snapshotEveryTicksForPlayers(this.members.length);
+    if (this.tickCount % snapshotEvery === 0 || this.game.hasEffects()) {
       this.broadcastSnapshot();
     }
   }

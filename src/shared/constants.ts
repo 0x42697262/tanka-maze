@@ -6,6 +6,15 @@ export const TICK_MS = 1000 / TICK_RATE;
 // Snapshots are broadcast every Nth sim tick (network rate = TICK_RATE / N).
 // The client interpolates, so a lower send rate saves bandwidth invisibly.
 export const SNAPSHOT_EVERY_TICKS = 2; // 30 Hz sim -> 15 Hz network
+// Large rooms have quadratic snapshot fanout: each larger snapshot is sent to
+// every player. Keep default 8-player feel unchanged, then trade network tick
+// rate for scalability; client interpolation already renders between snapshots.
+export function snapshotEveryTicksForPlayers(players: number): number {
+  if (players <= 8) return SNAPSHOT_EVERY_TICKS;
+  if (players <= 16) return 3; // 10 Hz
+  if (players <= 32) return 4; // 7.5 Hz
+  return 6; // 5 Hz for future larger rooms
+}
 
 // The arena is an open, limited field divided into a grid of cells. Walls are
 // thin line segments placed on the edges between cells; most are removed so the

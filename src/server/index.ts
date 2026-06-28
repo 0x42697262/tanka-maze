@@ -45,6 +45,7 @@ class Hub {
   // Client (preserving lobby membership, tank, and score).
   private sessions = new Map<string, Client>();
   private lobbies = new Map<string, Lobby>();
+  private pingPulseCount = 0;
 
   /** Bind a (re)connecting socket. With a known sessionId, resume that session;
    *  otherwise mint a new one. */
@@ -278,7 +279,12 @@ class Hub {
    * then ping every connected socket so the next tick has fresh measurements.
    */
   pingPulse(): void {
+    this.pingPulseCount += 1;
     for (const lobby of this.lobbies.values()) {
+      // In-game pings are informational UI, not simulation data. During a match,
+      // send them less often so idle/large rooms are not dominated by JSON status
+      // chatter; lobbies still update every pulse while players are forming teams.
+      if (lobby.inGame && this.pingPulseCount % 5 !== 0) continue;
       const pings = lobby.members.map((m) => ({ id: m.id, ms: m.latency }));
       lobby.broadcast({ type: "latencies", pings });
     }
