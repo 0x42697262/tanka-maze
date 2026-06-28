@@ -143,14 +143,14 @@
             <label for="fog-type" class="cfg-fog-on">Type</label>
             <select id="fog-type" class="cfg-fog-on">
               <option value="full">Full area</option>
-              <option value="arc">Arc</option>
+              <option value="flashlight">Flashlight</option>
             </select>
           </div>
           <div class="row two cfg-fog-on">
-            <label for="vision-radius">Vision px</label>
-            <input id="vision-radius" type="number" min="80" max="800" step="20" value="100" />
-            <label for="fog-arc-degrees" class="cfg-fog-arc">Arc degrees</label>
-            <input id="fog-arc-degrees" class="cfg-fog-arc" type="number" min="20" max="360" step="5" value="90" />
+            <label for="vision-radius" class="cfg-fog-full">Vision px</label>
+            <input id="vision-radius" class="cfg-fog-full" type="number" min="80" max="800" step="20" value="100" />
+            <label for="flashlight-degrees" class="cfg-fog-flashlight">Flashlight width</label>
+            <input id="flashlight-degrees" class="cfg-fog-flashlight" type="number" min="20" max="170" step="5" value="90" />
           </div>
 
           <h3 class="cfg-h">Hazards</h3>

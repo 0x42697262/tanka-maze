@@ -99,7 +99,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       fogOfWar: sel("fog-of-war") === "on",
       fogType: sel("fog-type") as FogType,
       visionRadius: num("vision-radius", DEFAULT_GAME_CONFIG.visionRadius),
-      fogArcDegrees: num("fog-arc-degrees", DEFAULT_GAME_CONFIG.fogArcDegrees),
+      flashlightDegrees: num("flashlight-degrees", DEFAULT_GAME_CONFIG.flashlightDegrees),
       hazardDensity: num("hazard-density", 0),
       hazardTypes,
       hazardDamage: num("hazard-damage", 2),
@@ -144,7 +144,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("fog-of-war", c.fogOfWar ? "on" : "off");
   set("fog-type", c.fogType);
   set("vision-radius", c.visionRadius);
-  set("fog-arc-degrees", c.fogArcDegrees);
+  set("flashlight-degrees", c.flashlightDegrees);
   set("hazard-density", c.hazardDensity);
   for (const type of HAZARD_TYPES) set(`hazard-${type}`, c.hazardTypes.includes(type) ? "on" : "off");
   set("hazard-damage", c.hazardDamage);
@@ -183,9 +183,10 @@ export function applyModeVisibility(): void {
   // Carry forces team-carry on (flags only ride tanks), so its toggle is hidden.
   toggle(".cfg-flagcarry", !ctf || scoreMode === "carry");
   const fogOn = ($("fog-of-war") as HTMLSelectElement).value === "on";
-  const arcFog = fogOn && ($("fog-type") as HTMLSelectElement).value === "arc";
+  const flashlightFog = fogOn && ($("fog-type") as HTMLSelectElement).value === "flashlight";
   toggle(".cfg-fog-on", !fogOn);
-  toggle(".cfg-fog-arc", !arcFog);
+  toggle(".cfg-fog-full", !fogOn || flashlightFog);
+  toggle(".cfg-fog-flashlight", !flashlightFog);
 }
 
 // ---- Map (walls) image picker ----

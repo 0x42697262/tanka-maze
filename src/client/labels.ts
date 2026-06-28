@@ -44,7 +44,7 @@ export const SIZE_LABEL: Record<MapSize, string> = {
 
 const FOG_LABEL: Record<FogType, string> = {
   full: "Full area",
-  arc: "Arc",
+  flashlight: "Flashlight",
 };
 
 const HAZARD_LABEL: Record<HazardType, string> = {
@@ -70,7 +70,7 @@ export function configSummary(c: GameConfig): string {
   else if (c.mode === "teams") bits.push(`${c.teamCount} teams · first to ${c.winScore} pts`);
   else bits.push(`first to ${c.winScore} pts`);
   if (c.powerups) bits.push("power-ups");
-  if (c.fogOfWar) bits.push(c.fogType === "arc" ? `fog arc ${c.fogArcDegrees}°` : "fog");
+  if (c.fogOfWar) bits.push(c.fogType === "flashlight" ? `flashlight ${c.flashlightDegrees}°` : "fog");
   if (c.hazardDensity > 0) bits.push("hazards");
   return bits.join(" · ");
 }
@@ -127,8 +127,8 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   const fog: Row[] = [["Fog of war", onOff(c.fogOfWar)]];
   if (c.fogOfWar) {
     fog.push(["Type", FOG_LABEL[c.fogType]]);
-    fog.push(["Radius", `${c.visionRadius}px`]);
-    if (c.fogType === "arc") fog.push(["Arc", `${c.fogArcDegrees}°`]);
+    if (c.fogType === "full") fog.push(["Radius", `${c.visionRadius}px`]);
+    if (c.fogType === "flashlight") fog.push(["Width", `${c.flashlightDegrees}°`]);
   }
   groups.push({ title: "Fog of War", rows: fog });
 

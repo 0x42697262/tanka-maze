@@ -9,7 +9,7 @@ import {
   CELL,
   EXPLOSION_RADIUS,
   FIRE_COOLDOWN,
-  FOG_ARC_DEGREES,
+  FLASHLIGHT_DEGREES,
   HAZARD_DAMAGE,
   HAZARD_HEAL_RATE,
   HAZARD_SLOW_MULT,
@@ -38,7 +38,7 @@ import {
   WALL_THICKNESS,
 } from "./constants.js";
 
-export const FOG_TYPES = ["full", "arc"] as const;
+export const FOG_TYPES = ["full", "flashlight"] as const;
 export type FogType = (typeof FOG_TYPES)[number];
 
 export const HAZARD_TYPES = ["lava", "mud", "ice", "heal"] as const;
@@ -319,13 +319,14 @@ export interface GameConfig {
   ctfRespawnBonus: number;
   adv: AdvancedConfig; // advanced engine tuning
   // Fog of war: non-wall visuals only render inside the local tank's sight
-  // shape. Arc mode is centred on the turret. The scope power-up doubles the
-  // radius and grants x-ray through walls. Client-side only — the server still
-  // broadcasts all tanks (a patched client could see through walls).
+  // shape. Flashlight mode is centred on the turret and casts until a wall/map
+  // edge. The scope power-up doubles full-area radius and grants x-ray through
+  // walls. Client-side only — the server still broadcasts all tanks (a patched
+  // client could see through walls).
   fogOfWar: boolean;
   fogType: FogType;
   visionRadius: number; // px base sight radius (scope doubles this)
-  fogArcDegrees: number; // degrees, only used when fogType = "arc"
+  flashlightDegrees: number; // cone width in degrees, only used when fogType = "flashlight"
   // Hazard zones: lava/mud/ice/heal terrain tiles placed on the map.
   hazardDensity: number; // 0 = off; 1-10 zones placed on round start
   hazardTypes: HazardType[]; // enabled terrain types to include in the spawn pool
@@ -369,7 +370,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   fogOfWar: false,
   fogType: "full",
   visionRadius: VISION_RADIUS,
-  fogArcDegrees: FOG_ARC_DEGREES,
+  flashlightDegrees: FLASHLIGHT_DEGREES,
   hazardDensity: 0,
   hazardTypes: [...HAZARD_TYPES],
   hazardDamage: HAZARD_DAMAGE,

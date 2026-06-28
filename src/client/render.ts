@@ -1,4 +1,4 @@
-import { BULLET_RADIUS, FOG_ARC_DEGREES, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
+import { BULLET_RADIUS, FLASHLIGHT_DEGREES, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
 import { effectiveVisionRadius } from "../shared/fog.js";
 import {
   powerupDef,
@@ -57,11 +57,20 @@ interface Beam {
   start: number;
 }
 
+interface FogPoint {
+  x: number;
+  y: number;
+}
+
 interface FogView {
   local: TankDTO;
   radius: number;
   type: FogType;
-  arcRadians: number;
+  beamRadians: number;
+  haloRadius: number;
+  beamBaseHalf: number;
+  beamBaseCenter: FogPoint;
+  polygon: FogPoint[];
 }
 
 export class Renderer {
@@ -105,7 +114,7 @@ export class Renderer {
   private fogOfWar = false;
   private fogType: FogType = "full";
   private visionRadius = VISION_RADIUS;
-  private fogArcDegrees = FOG_ARC_DEGREES;
+  private flashlightDegrees = FLASHLIGHT_DEGREES;
   // Hazard zones: terrain tiles (lava/mud/ice/heal) drawn under the walls.
   private hazards: HazardZoneDTO[] = [];
   // Destructible walls: per-wall HP array (index matches MazeDTO.walls). Walls
@@ -149,11 +158,11 @@ export class Renderer {
   }
 
   /** Configure fog of war for the current game. */
-  setFog(fogOfWar: boolean, visionRadius: number, fogType: FogType, fogArcDegrees: number): void {
+  setFog(fogOfWar: boolean, visionRadius: number, fogType: FogType, flashlightDegrees: number): void {
     this.fogOfWar = fogOfWar;
     this.fogType = fogType;
     this.visionRadius = visionRadius;
-    this.fogArcDegrees = fogArcDegrees;
+    this.flashlightDegrees = flashlightDegrees;
   }
 
   /** Hazard zones for the current game (lava/mud/ice/heal terrain tiles). */
@@ -330,6 +339,9 @@ export class Renderer {
 
     if (fog) {
       this.drawFogOverlay(fog, maze);
+      // Flashlight fog points forward, but the player should never lose sight
+      // of their own tank when rotating the turret away from the hull.
+      this.drawTank(fog.local, true, nowMs);
       this.drawWalls(maze);
     }
   }
@@ -346,8 +358,23 @@ export class Renderer {
   private fogView(local: TankDTO | null): FogView | null {
     if (!this.fogOfWar || !local || !this.maze) return null;
     const base = effectiveVisionRadius(this.visionRadius, this.maze.width, this.maze.height);
-    const arcRadians = (Math.min(360, Math.max(20, this.fogArcDegrees)) * Math.PI) / 180;
-    return { local, radius: local.scoped ? base * 2 : base, type: this.fogType, arcRadians };
+    const beamRadians = (Math.min(170, Math.max(20, this.flashlightDegrees)) * Math.PI) / 180;
+    const mapReach = Math.hypot(this.maze.width, this.maze.height) * 1.5;
+    const radius = this.fogType === "flashlight" ? mapReach : local.scoped ? base * 2 : base;
+    const ux = Math.cos(local.turretAngle);
+    const uy = Math.sin(local.turretAngle);
+    const fog: FogView = {
+      local,
+      radius,
+      type: this.fogType,
+      beamRadians,
+      haloRadius: this.tankR + 14,
+      beamBaseHalf: Math.max(6, this.tankR * 0.9),
+      beamBaseCenter: { x: local.x + ux * this.tankR * 0.35, y: local.y + uy * this.tankR * 0.35 },
+      polygon: [],
+    };
+    fog.polygon = this.visibilityPolygon(fog);
+    return fog;
   }
 
   private drawVisionClipped(fog: FogView | null, draw: () => void): void {
@@ -358,23 +385,23 @@ export class Renderer {
     const { ctx } = this;
     ctx.save();
     ctx.beginPath();
-    this.addFogShape(fog);
+    this.addFogShape(fog, true);
     ctx.clip();
     draw();
     ctx.restore();
   }
 
-  private addFogShape(fog: FogView): void {
+  private addFogShape(fog: FogView, includeHalo: boolean): void {
     const { ctx } = this;
-    if (fog.type === "full" || fog.arcRadians >= Math.PI * 2) {
-      ctx.moveTo(fog.local.x + fog.radius, fog.local.y);
-      ctx.arc(fog.local.x, fog.local.y, fog.radius, 0, Math.PI * 2);
-      return;
+    if (fog.polygon.length > 0) {
+      ctx.moveTo(fog.polygon[0].x, fog.polygon[0].y);
+      for (let i = 1; i < fog.polygon.length; i++) ctx.lineTo(fog.polygon[i].x, fog.polygon[i].y);
+      ctx.closePath();
     }
-    const half = fog.arcRadians / 2;
-    ctx.moveTo(fog.local.x, fog.local.y);
-    ctx.arc(fog.local.x, fog.local.y, fog.radius, fog.local.turretAngle - half, fog.local.turretAngle + half);
-    ctx.closePath();
+    if (includeHalo) {
+      ctx.moveTo(fog.local.x + fog.haloRadius, fog.local.y);
+      ctx.arc(fog.local.x, fog.local.y, fog.haloRadius, 0, Math.PI * 2);
+    }
   }
 
   private drawFogOverlay(fog: FogView, maze: MazeDTO): void {
@@ -383,9 +410,82 @@ export class Renderer {
     ctx.fillStyle = "#12100e";
     ctx.beginPath();
     ctx.rect(0, 0, maze.width, maze.height);
-    this.addFogShape(fog);
+    this.addFogShape(fog, false);
     ctx.fill("evenodd");
     ctx.restore();
+  }
+
+  /** Build the visible fog shape by casting rays until they hit a blocking wall. */
+  private visibilityPolygon(fog: FogView): FogPoint[] {
+    const full = fog.type === "full";
+    const span = full ? Math.PI * 2 : fog.beamRadians;
+    const start = full ? 0 : fog.local.turretAngle - span / 2;
+    const samples = full ? 96 : Math.max(10, Math.ceil((span * 180) / Math.PI / 4));
+    const angles: number[] = [];
+    const addAngle = (angle: number) => {
+      if (!full && Math.abs(angleDelta(angle, fog.local.turretAngle)) > span / 2 + 0.0001) return;
+      angles.push(angle);
+    };
+
+    for (let i = 0; i < samples; i++) addAngle(start + (span * i) / samples);
+    if (!full) addAngle(start + span);
+
+    if (this.maze && !fog.local.scoped) {
+      const origin = this.fogRayOrigin(fog);
+      const r2 = fog.radius * fog.radius;
+      const eps = 0.0008;
+      for (let i = 0; i < this.maze.walls.length; i++) {
+        if (!this.wallBlocksVision(i)) continue;
+        const w = this.maze.walls[i];
+        for (const p of [[w.x1, w.y1], [w.x2, w.y2]] as const) {
+          const dx = p[0] - origin.x;
+          const dy = p[1] - origin.y;
+          if (dx * dx + dy * dy > r2) continue;
+          const a = Math.atan2(dy, dx);
+          addAngle(a - eps);
+          addAngle(a);
+          addAngle(a + eps);
+        }
+      }
+    }
+
+    const points = angles
+      .map((angle) => ({ angle, order: full ? normalizeAngle(angle) : normalizeAngle(angle - start), point: this.castFogRay(fog, angle) }))
+      .sort((a, b) => a.order - b.order)
+      .map((hit) => hit.point);
+    if (full) return points;
+    return [this.flashlightBasePoint(fog, -1), ...points, this.flashlightBasePoint(fog, 1)];
+  }
+
+  private castFogRay(fog: FogView, angle: number): FogPoint {
+    const origin = this.fogRayOrigin(fog);
+    const ox = origin.x;
+    const oy = origin.y;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    let best = fog.radius;
+    if (this.maze && !fog.local.scoped) {
+      for (let i = 0; i < this.maze.walls.length; i++) {
+        if (!this.wallBlocksVision(i)) continue;
+        const w = this.maze.walls[i];
+        const hit = raySegmentDistance(ox, oy, dx, dy, w.x1, w.y1, w.x2, w.y2);
+        if (hit !== null && hit < best) best = hit;
+      }
+    }
+    return { x: ox + dx * best, y: oy + dy * best };
+  }
+
+  private fogRayOrigin(fog: FogView): FogPoint {
+    return fog.type === "flashlight" ? fog.beamBaseCenter : fog.local;
+  }
+
+  private flashlightBasePoint(fog: FogView, side: -1 | 1): FogPoint {
+    const px = -Math.sin(fog.local.turretAngle);
+    const py = Math.cos(fog.local.turretAngle);
+    return {
+      x: fog.beamBaseCenter.x + px * fog.beamBaseHalf * side,
+      y: fog.beamBaseCenter.y + py * fog.beamBaseHalf * side,
+    };
   }
 
   /**
@@ -399,14 +499,16 @@ export class Renderer {
   }
 
   private isPointVisible(x: number, y: number, fog: FogView): boolean {
-    const dx = x - fog.local.x;
-    const dy = y - fog.local.y;
-    const dist2 = dx * dx + dy * dy;
-    if (dist2 > fog.radius * fog.radius) return false;
-    if (dist2 < 0.0001) return true;
-    if (fog.type === "arc" && fog.arcRadians < Math.PI * 2) {
+    const localDx = x - fog.local.x;
+    const localDy = y - fog.local.y;
+    if (localDx * localDx + localDy * localDy <= fog.haloRadius * fog.haloRadius) return true;
+    const origin = this.fogRayOrigin(fog);
+    const dx = x - origin.x;
+    const dy = y - origin.y;
+    if (dx * dx + dy * dy > fog.radius * fog.radius) return false;
+    if (fog.type === "flashlight") {
       const d = angleDelta(Math.atan2(dy, dx), fog.local.turretAngle);
-      if (Math.abs(d) > fog.arcRadians / 2) return false;
+      if (Math.abs(d) > fog.beamRadians / 2) return false;
     }
     if (fog.local.scoped) return true; // x-ray — see through walls
     if (!this.maze) return true;
@@ -415,7 +517,7 @@ export class Renderer {
     for (let i = 0; i < this.maze.walls.length; i++) {
       if (!this.wallBlocksVision(i)) continue;
       const w = this.maze.walls[i];
-      if (segIntersect(fog.local.x, fog.local.y, x, y, w.x1, w.y1, w.x2, w.y2)) {
+      if (segIntersect(origin.x, origin.y, x, y, w.x1, w.y1, w.x2, w.y2)) {
         return false;
       }
     }
@@ -1091,8 +1193,34 @@ function angleDelta(a: number, b: number): number {
   if (d < -Math.PI) d += Math.PI * 2;
   return d;
 }
+function normalizeAngle(a: number): number {
+  const v = a % (Math.PI * 2);
+  return v < 0 ? v + Math.PI * 2 : v;
+}
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** Distance along a unit ray to its first intersection with a segment. */
+function raySegmentDistance(
+  ox: number,
+  oy: number,
+  rx: number,
+  ry: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number | null {
+  const sx = bx - ax;
+  const sy = by - ay;
+  const denom = rx * sy - ry * sx;
+  if (Math.abs(denom) < 1e-9) return null;
+  const qx = ax - ox;
+  const qy = ay - oy;
+  const t = (qx * sy - qy * sx) / denom;
+  const u = (qx * ry - qy * rx) / denom;
+  return t >= 0 && u >= 0 && u <= 1 ? t : null;
 }
 
 /** Squared distance from point (px,py) to segment (ax,ay)-(bx,by). */

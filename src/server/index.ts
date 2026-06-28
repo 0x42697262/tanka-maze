@@ -441,7 +441,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     fogOfWar: typeof c.fogOfWar === "boolean" ? c.fogOfWar : d.fogOfWar,
     fogType: oneOf(c.fogType, FOG_TYPES, d.fogType),
     visionRadius: clampInt(c.visionRadius, 80, 800, d.visionRadius),
-    fogArcDegrees: clampInt(c.fogArcDegrees, 20, 360, d.fogArcDegrees),
+    flashlightDegrees: clampInt(c.flashlightDegrees, 20, 170, d.flashlightDegrees),
     hazardDensity: clampInt(c.hazardDensity, 0, 10, d.hazardDensity),
     hazardTypes,
     hazardDamage: clampInt(c.hazardDamage, 1, 20, d.hazardDamage),
