@@ -89,6 +89,11 @@ export class Renderer {
   private consumedUntil = 0;
   private pendingEvents: KillEvent[] = [];
   private displayedSnap: SnapshotDTO | null = null;
+  // Fog of war: when on, enemies are culled outside visionRadius or when walls
+  // block the line of sight. The scope power-up doubles the radius and grants
+  // x-ray. Client-side only — the server still broadcasts all tanks.
+  private fogOfWar = false;
+  private visionRadius = 260;
 
   setParams(tankRadius: number, bulletRadius: number): void {
     this.tankR = tankRadius;
@@ -121,6 +126,12 @@ export class Renderer {
   /** Team VS designated spawn areas; empty in other modes / when disabled. */
   setSpawnZones(zones: SpawnZoneDTO[]): void {
     this.spawnZones = zones;
+  }
+
+  /** Configure fog of war for the current game. */
+  setFog(fogOfWar: boolean, visionRadius: number): void {
+    this.fogOfWar = fogOfWar;
+    this.visionRadius = visionRadius;
   }
 
   setMaze(maze: MazeDTO): void {
@@ -250,12 +261,63 @@ export class Renderer {
     // by them, so draw it just before so the dotted line reads clearly.
     this.drawScope(interp);
 
+    // Fog of war: find the local tank (for LOS checks + overlay center), then
+    // cull enemy tanks outside the vision radius or blocked by walls. The scope
+    // power-up doubles the radius and grants x-ray through walls.
+    const localTank = interp.tanks.find((t) => t.id === localId) ?? null;
+
     for (const t of interp.tanks) {
+      if (this.fogOfWar && localTank && t.id !== localId && !this.isVisible(t, localTank)) {
+        continue;
+      }
       this.drawTank(t, t.id === localId, nowMs);
     }
 
     this.drawBeams(nowMs);
     this.drawExplosions(nowMs);
+
+    // Fog of war overlay: a radial gradient that is transparent within the
+    // vision radius (so the world reads clearly) and darkens to near-opaque
+    // outside it. Drawn last so it covers everything — tanks, bullets, flags —
+    // but enemies were already culled above so they never appear in the dark.
+    if (this.fogOfWar && localTank) {
+      const scoped = localTank.scoped;
+      const radius = scoped ? this.visionRadius * 2 : this.visionRadius;
+      const grad = ctx.createRadialGradient(
+        localTank.x, localTank.y, 0,
+        localTank.x, localTank.y, radius
+      );
+      grad.addColorStop(0, "rgba(18,16,14,0)");
+      grad.addColorStop(0.82, "rgba(18,16,14,0)");
+      grad.addColorStop(1, "rgba(18,16,14,0.86)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+  }
+
+  /**
+   * Line-of-sight check for fog of war. An enemy is visible when it's within
+   * the vision radius AND no wall segment blocks the ray from the local tank to
+   * it. The scope power-up doubles the radius and skips the wall check (x-ray).
+   */
+  private isVisible(enemy: TankDTO, local: TankDTO): boolean {
+    if (!enemy.alive) return true; // dead tanks show their respawn overlay
+    const dx = enemy.x - local.x;
+    const dy = enemy.y - local.y;
+    const dist2 = dx * dx + dy * dy;
+    const scoped = local.scoped;
+    const radius = scoped ? this.visionRadius * 2 : this.visionRadius;
+    if (dist2 > radius * radius) return false;
+    if (scoped) return true; // x-ray — see through walls
+    if (!this.maze) return true;
+    // Cast a ray from the local tank to the enemy; if any wall segment
+    // intersects it, the enemy is hidden.
+    for (const w of this.maze.walls) {
+      if (segIntersect(local.x, local.y, enemy.x, enemy.y, w.x1, w.y1, w.x2, w.y2)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -875,6 +937,20 @@ function pointSegDist2(px: number, py: number, ax: number, ay: number, bx: numbe
   const cx = ax + t * dx;
   const cy = ay + t * dy;
   return (px - cx) ** 2 + (py - cy) ** 2;
+}
+
+/** True if segment A-B intersects segment C-D (used for fog-of-war raycasting). */
+function segIntersect(
+  ax: number, ay: number, bx: number, by: number,
+  cx: number, cy: number, dx: number, dy: number
+): boolean {
+  const d1x = bx - ax, d1y = by - ay;
+  const d2x = dx - cx, d2y = dy - cy;
+  const denom = d1x * d2y - d1y * d2x;
+  if (denom === 0) return false; // parallel or collinear
+  const t = ((cx - ax) * d2y - (cy - ay) * d2x) / denom;
+  const u = ((cx - ax) * d1y - (cy - ay) * d1x) / denom;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
 }
 
 function roundRect(

@@ -28,8 +28,10 @@ export function startGame(
 ): void {
   renderer.setMaze(maze);
   renderer.setSpawnZones(spawnZones);
-  const adv = state.currentLobby?.config.adv ?? DEFAULT_GAME_CONFIG.adv;
+  const cfg = state.currentLobby?.config ?? DEFAULT_GAME_CONFIG;
+  const adv = cfg.adv;
   renderer.setParams(adv.tankRadius, adv.bulletRadius);
+  renderer.setFog(cfg.fogOfWar, cfg.visionRadius);
   renderer.setScope({
     bulletSpeed: adv.bulletSpeed,
     bulletLifetime: adv.bulletLifetime,

@@ -29,6 +29,7 @@ import {
   TRACKING_BOUNCES,
   TRACKING_LIFETIME,
   TRACKING_TURN_RATE,
+  VISION_RADIUS,
   WALL_THICKNESS,
 } from "./constants.js";
 
@@ -304,6 +305,12 @@ export interface GameConfig {
   // CTF: extra seconds added to the respawn delay on death (0 = none).
   ctfRespawnBonus: number;
   adv: AdvancedConfig; // advanced engine tuning
+  // Fog of war: enemies only render within visionRadius of the local tank AND
+  // when no wall blocks line of sight. The scope power-up doubles the radius
+  // and grants x-ray through walls. Client-side only — the server still
+  // broadcasts all tanks (a patched client could see through walls).
+  fogOfWar: boolean;
+  visionRadius: number; // px base sight radius (scope doubles this)
   // Power-ups
   powerups: boolean; // spawn pickups on the map
   powerupEverySeconds: number; // spawn cadence
@@ -335,6 +342,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   ctfScoreMode: "deliver",
   ctfRespawnBonus: 3,
   adv: DEFAULT_ADVANCED,
+  fogOfWar: false,
+  visionRadius: VISION_RADIUS,
   powerups: true,
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,

@@ -92,6 +92,8 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       ctfScoreMode: sel("ctf-score-mode") as CtfScoreMode,
       ctfRespawnBonus: num("ctf-respawn-bonus", 3),
       adv: gatherAdvanced(),
+      fogOfWar: sel("fog-of-war") === "on",
+      visionRadius: num("vision-radius", 260),
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
       powerupDespawnSeconds: num("pwr-despawn", 12),
@@ -127,6 +129,8 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("ctf-score-mode", c.ctfScoreMode);
   set("ctf-points", c.winScore); // conquest points-to-win mirrors winScore
   set("ctf-respawn-bonus", c.ctfRespawnBonus);
+  set("fog-of-war", c.fogOfWar ? "on" : "off");
+  set("vision-radius", c.visionRadius);
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
   set("pwr-charges", c.powerupCharges);

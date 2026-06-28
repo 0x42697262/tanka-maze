@@ -104,6 +104,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     rows: [
       ["Walls", WALL_LABEL[c.wallStyle]],
       ["Size", SIZE_LABEL[c.mapSize]],
+      ["Fog of war", c.fogOfWar ? `${c.visionRadius}px` : onOff(c.fogOfWar)],
     ],
   });
 

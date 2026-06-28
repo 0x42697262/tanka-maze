@@ -427,6 +427,8 @@ function sanitizeConfig(raw: unknown): GameConfig {
     ctfScoreMode: oneOf(c.ctfScoreMode, CTF_SCORE_MODES, d.ctfScoreMode),
     ctfRespawnBonus: clampInt(c.ctfRespawnBonus, 0, 60, d.ctfRespawnBonus),
     adv: sanitizeAdvanced(c.adv),
+    fogOfWar: typeof c.fogOfWar === "boolean" ? c.fogOfWar : d.fogOfWar,
+    visionRadius: clampInt(c.visionRadius, 80, 800, d.visionRadius),
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
     powerupDespawnSeconds: clampInt(c.powerupDespawnSeconds, 3, 60, d.powerupDespawnSeconds),

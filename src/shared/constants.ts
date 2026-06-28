@@ -89,6 +89,11 @@ export const SPAWN_ZONE_CELLS = 2;
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;
 
+// Fog of war: enemies are only visible within this radius of the local tank AND
+// when no wall blocks the line of sight. The scope power-up doubles this and
+// grants x-ray through walls. Host-tunable live (GameConfig.fogOfWar / visionRadius).
+export const VISION_RADIUS = 260; // px base sight radius
+
 export const TEAM_COLORS = ["#3f8ce6", "#e6453f", "#46c24f", "#e6c23f"]; // blue, red, green, yellow
 
 export const DEFAULT_MAX_PLAYERS = 8;
