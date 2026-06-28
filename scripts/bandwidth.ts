@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 
 import { DEFAULT_GAME_CONFIG, decode, encode, type ClientMessage, type InputState, type ServerMessage } from "../src/shared/protocol.js";
-import { bytesEqual, encodeInput, MSG_INPUT, MSG_SNAPSHOT } from "../src/shared/wire.js";
+import { bytesEqual, encodeInput, MSG_INPUT, MSG_SNAPSHOT, MSG_SNAPSHOT_SLIM } from "../src/shared/wire.js";
 
 type Scenario = "idle" | "drive" | "drive-fire";
 
@@ -149,7 +149,8 @@ class LoadClient {
     if (isBinary) {
       const bytes = byteLength(data);
       const tag = firstByte(data);
-      this.recordDirectionBinary(this.totals.inbound, bytes, tag === MSG_SNAPSHOT ? `binary:${tag}:snapshot` : `binary:${tag}:unknown`);
+      const type = tag === MSG_SNAPSHOT ? `binary:${tag}:snapshot` : tag === MSG_SNAPSHOT_SLIM ? `binary:${tag}:snapshotSlim` : `binary:${tag}:unknown`;
+      this.recordDirectionBinary(this.totals.inbound, bytes, type);
       return;
     }
 

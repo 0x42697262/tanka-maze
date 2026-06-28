@@ -17,7 +17,7 @@ import {
   type LobbySummaryDTO,
   type ServerMessage,
 } from "../shared/protocol.js";
-import { bytesEqual, encodeSnapshot } from "../shared/wire.js";
+import { bytesEqual, encodeSlimSnapshot, encodeSnapshot } from "../shared/wire.js";
 import { Game } from "./game.js";
 import { Maze, mazeDimensions, ctfPathCount, ctfCenterRoom } from "./maze.js";
 
@@ -30,6 +30,7 @@ import { Maze, mazeDimensions, ctfPathCount, ctfCenterRoom } from "./maze.js";
  * CTF corridors aren't much tighter than the open modes'.
  */
 const CTF_MAZE_DENSITY = 1.3;
+const FULL_SNAPSHOT_EVERY_SENDS = 5;
 
 export interface Client {
   id: string; // public player id (used as tank id)
@@ -76,6 +77,7 @@ export class Lobby {
   private maze: Maze | null = null;
   private lastSnapBytes: Uint8Array | null = null;
   private tickCount = 0;
+  private snapshotSendCount = 0;
   private loop: ReturnType<typeof setInterval> | null = null;
   private lastStep = 0;
   private roundBreak: ReturnType<typeof setTimeout> | null = null;
@@ -269,6 +271,7 @@ export class Lobby {
       this.teamNames
     );
     this.lastSnapBytes = null;
+    this.snapshotSendCount = 0;
     this.lastStep = Date.now();
     this.broadcast({
       type: "gameStart",
@@ -365,8 +368,10 @@ export class Lobby {
   /** Broadcast the current snapshot as binary — only if it changed (gating). */
   private broadcastSnapshot(force = false): void {
     if (!this.game) return;
-    const bytes = encodeSnapshot(this.game.snapshot(Date.now()));
+    const full = force || this.snapshotSendCount % FULL_SNAPSHOT_EVERY_SENDS === 0;
+    const bytes = full ? encodeSnapshot(this.game.snapshot(Date.now())) : encodeSlimSnapshot(this.game.snapshot(Date.now()));
     if (!force && bytesEqual(this.lastSnapBytes, bytes)) return;
+    this.snapshotSendCount += 1;
     this.lastSnapBytes = bytes;
     for (const m of this.members) {
       if (m.ws.readyState === m.ws.OPEN) m.ws.send(bytes);
@@ -480,6 +485,7 @@ export class Lobby {
     this.maze = this.buildMaze();
     this.game.startNextRound(this.maze);
     this.lastSnapBytes = null;
+    this.snapshotSendCount = 0;
     this.lastStep = Date.now();
     this.broadcast({
       type: "gameStart",

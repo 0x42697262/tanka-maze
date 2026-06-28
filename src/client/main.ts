@@ -154,7 +154,7 @@ net.onMessage((msg: ServerMessage) => {
 // interpolation clock, so they line up with the delayed on-screen world.
 net.onBinary((buf) => {
   if (!state.inGame) return;
-  renderer.push(decodeSnapshot(buf, state.roster), performance.now());
+  renderer.push(decodeSnapshot(buf, state.roster, renderer.latest()), performance.now());
 });
 
 // ---------------------------------------------------------------------------

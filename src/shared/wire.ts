@@ -19,6 +19,7 @@ import {
 
 export const MSG_INPUT = 1;
 export const MSG_SNAPSHOT = 2;
+export const MSG_SNAPSHOT_SLIM = 3;
 
 // --- enum <-> code tables (derived from the power-up registry) -------------
 
@@ -94,6 +95,7 @@ export function decodeInput(buf: ArrayBuffer): InputState {
 // --- snapshot --------------------------------------------------------------
 
 const TANK_BYTES = 20;
+const SLIM_TANK_BYTES = 11;
 
 export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
   const size =
@@ -214,10 +216,130 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
   return new Uint8Array(dv.buffer);
 }
 
+/**
+ * Smaller high-frequency snapshot. Tank stats that change slowly (score, ammo,
+ * weapon charges, etc.) are refreshed by periodic full snapshots; this frame
+ * keeps only pose + visual status for smooth interpolation between them.
+ */
+export function encodeSlimSnapshot(s: SnapshotDTO): Uint8Array {
+  const size =
+    2 +
+    s.tanks.length * SLIM_TANK_BYTES +
+    1 +
+    s.bullets.length * 8 +
+    1 +
+    s.powerups.length * 5 +
+    1 +
+    s.flags.length * 7 +
+    1 +
+    s.blasts.length * 4 +
+    1 +
+    s.beams.length * 8 +
+    1 +
+    s.events.length * 7;
+  const dv = new DataView(new ArrayBuffer(size));
+  let o = 0;
+
+  dv.setUint8(o++, MSG_SNAPSHOT_SLIM);
+  dv.setUint8(o++, s.tanks.length);
+  for (const t of s.tanks) {
+    dv.setUint8(o++, t.index);
+    dv.setUint16(o, u16(t.x), true);
+    o += 2;
+    dv.setUint16(o, u16(t.y), true);
+    o += 2;
+    dv.setInt16(o, encAngle(t.bodyAngle), true);
+    o += 2;
+    dv.setInt16(o, encAngle(t.turretAngle), true);
+    o += 2;
+    let flags = 0;
+    if (t.alive) flags |= 1;
+    if (t.boosted) flags |= 2;
+    if (t.shielded) flags |= 4;
+    if (t.charging) flags |= 8;
+    if (t.scoped) flags |= 16;
+    dv.setUint8(o++, flags);
+    dv.setUint8(o++, ds(t.respawnIn));
+  }
+
+  o = encodeSnapshotTail(dv, o, s);
+  return new Uint8Array(dv.buffer.slice(0, o));
+}
+
+function encodeSnapshotTail(dv: DataView, offset: number, s: SnapshotDTO): number {
+  let o = offset;
+  const ownerIndex = new Map(s.tanks.map((t) => [t.id, t.index]));
+  dv.setUint8(o++, s.bullets.length);
+  for (const b of s.bullets) {
+    dv.setUint16(o, b.id & 0xffff, true);
+    o += 2;
+    dv.setUint16(o, u16(b.x), true);
+    o += 2;
+    dv.setUint16(o, u16(b.y), true);
+    o += 2;
+    dv.setUint8(o++, kindCode(b.kind));
+    dv.setUint8(o++, ownerIndex.get(b.ownerId) ?? 255);
+  }
+
+  dv.setUint8(o++, s.powerups.length);
+  for (const p of s.powerups) {
+    dv.setUint8(o++, pupCode(p.type));
+    dv.setUint16(o, u16(p.x), true);
+    o += 2;
+    dv.setUint16(o, u16(p.y), true);
+    o += 2;
+  }
+
+  dv.setUint8(o++, s.flags.length);
+  for (const f of s.flags) {
+    dv.setUint8(o++, f.team);
+    dv.setUint8(o++, flagStateCode(f.state));
+    dv.setUint16(o, u16(f.x), true);
+    o += 2;
+    dv.setUint16(o, u16(f.y), true);
+    o += 2;
+    dv.setUint8(o++, f.carrier & 0xff);
+  }
+
+  dv.setUint8(o++, s.blasts.length);
+  for (const bl of s.blasts) {
+    dv.setUint16(o, u16(bl.x), true);
+    o += 2;
+    dv.setUint16(o, u16(bl.y), true);
+    o += 2;
+  }
+
+  dv.setUint8(o++, s.beams.length);
+  for (const bm of s.beams) {
+    dv.setUint16(o, u16(bm.x1), true);
+    o += 2;
+    dv.setUint16(o, u16(bm.y1), true);
+    o += 2;
+    dv.setUint16(o, u16(bm.x2), true);
+    o += 2;
+    dv.setUint16(o, u16(bm.y2), true);
+    o += 2;
+  }
+
+  dv.setUint8(o++, s.events.length);
+  for (const e of s.events) {
+    dv.setUint8(o++, e.type);
+    dv.setUint8(o++, e.killer);
+    dv.setUint8(o++, e.victim);
+    dv.setInt16(o, Math.max(-32767, Math.min(32767, e.points)), true);
+    o += 2;
+    dv.setUint8(o++, e.streak & 0xff);
+    dv.setUint8(o++, Math.min(255, e.mult));
+  }
+  return o;
+}
+
 /** Rebuild a full SnapshotDTO by joining the packed dynamic fields with the
  *  static roster info. Tanks with no roster entry are skipped. */
-export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry>): SnapshotDTO {
+export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry>, previous?: SnapshotDTO | null): SnapshotDTO {
   const dv = new DataView(buf);
+  const tag = dv.getUint8(0);
+  if (tag === MSG_SNAPSHOT_SLIM) return decodeSlimSnapshot(dv, roster, previous ?? null);
   let o = 1; // skip tag
 
   const tanks: TankDTO[] = [];
@@ -273,6 +395,148 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     });
   }
 
+  const bullets = [];
+  const bulletCount = dv.getUint8(o++);
+  for (let i = 0; i < bulletCount; i++) {
+    const id = dv.getUint16(o, true);
+    o += 2;
+    const x = dv.getUint16(o, true);
+    o += 2;
+    const y = dv.getUint16(o, true);
+    o += 2;
+    const kind = KIND_CODES[dv.getUint8(o++)] ?? "normal";
+    const ownerIndex = dv.getUint8(o++);
+    const ownerId = roster.get(ownerIndex)?.id ?? "";
+    bullets.push({ id, x, y, ownerId, kind });
+  }
+
+  const powerups = [];
+  const powerupCount = dv.getUint8(o++);
+  for (let i = 0; i < powerupCount; i++) {
+    const type = PUP_CODES[dv.getUint8(o++)] ?? "speed";
+    const x = dv.getUint16(o, true);
+    o += 2;
+    const y = dv.getUint16(o, true);
+    o += 2;
+    powerups.push({ id: i, type, x, y });
+  }
+
+  const flags = [];
+  const flagCount = dv.getUint8(o++);
+  for (let i = 0; i < flagCount; i++) {
+    const team = dv.getUint8(o++);
+    const state = FLAG_STATES[dv.getUint8(o++)] ?? "home";
+    const x = dv.getUint16(o, true);
+    o += 2;
+    const y = dv.getUint16(o, true);
+    o += 2;
+    const carrier = dv.getUint8(o++);
+    flags.push({ team, state, x, y, carrier });
+  }
+
+  const blasts = [];
+  const blastCount = dv.getUint8(o++);
+  for (let i = 0; i < blastCount; i++) {
+    const x = dv.getUint16(o, true);
+    o += 2;
+    const y = dv.getUint16(o, true);
+    o += 2;
+    blasts.push({ x, y });
+  }
+
+  const beams = [];
+  const beamCount = dv.getUint8(o++);
+  for (let i = 0; i < beamCount; i++) {
+    const x1 = dv.getUint16(o, true);
+    o += 2;
+    const y1 = dv.getUint16(o, true);
+    o += 2;
+    const x2 = dv.getUint16(o, true);
+    o += 2;
+    const y2 = dv.getUint16(o, true);
+    o += 2;
+    beams.push({ x1, y1, x2, y2 });
+  }
+
+  const events = [];
+  const eventCount = dv.getUint8(o++);
+  for (let i = 0; i < eventCount; i++) {
+    const type = dv.getUint8(o++);
+    const killer = dv.getUint8(o++);
+    const victim = dv.getUint8(o++);
+    const points = dv.getInt16(o, true);
+    o += 2;
+    const streak = dv.getUint8(o++);
+    const mult = dv.getUint8(o++);
+    events.push({ type, killer, victim, points, streak, mult });
+  }
+
+  return { t: 0, tanks, bullets, powerups, flags, blasts, beams, events };
+}
+
+function decodeSlimSnapshot(
+  dv: DataView,
+  roster: Map<number, RosterEntry>,
+  previous: SnapshotDTO | null
+): SnapshotDTO {
+  let o = 1;
+  const previousTanks = new Map(previous?.tanks.map((t) => [t.index, t]) ?? []);
+
+  const tanks: TankDTO[] = [];
+  const tankCount = dv.getUint8(o++);
+  for (let i = 0; i < tankCount; i++) {
+    const index = dv.getUint8(o++);
+    const x = dv.getUint16(o, true);
+    o += 2;
+    const y = dv.getUint16(o, true);
+    o += 2;
+    const bodyAngle = decAngle(dv.getInt16(o, true));
+    o += 2;
+    const turretAngle = decAngle(dv.getInt16(o, true));
+    o += 2;
+    const flags = dv.getUint8(o++);
+    const respawnIn = decDs(dv.getUint8(o++));
+    const r = roster.get(index);
+    const prev = previousTanks.get(index);
+    tanks.push({
+      index,
+      id: r?.id ?? prev?.id ?? String(index),
+      name: r?.name ?? prev?.name ?? "?",
+      color: r?.color ?? prev?.color ?? "#888888",
+      team: r?.team ?? prev?.team ?? 0,
+      maxHp: r?.maxHp ?? prev?.maxHp ?? 1,
+      maxAmmo: r?.maxAmmo ?? prev?.maxAmmo ?? 0,
+      x,
+      y,
+      bodyAngle,
+      turretAngle,
+      alive: (flags & 1) !== 0,
+      boosted: (flags & 2) !== 0,
+      shielded: (flags & 4) !== 0,
+      charging: (flags & 8) !== 0,
+      scoped: (flags & 16) !== 0,
+      hp: prev?.hp ?? r?.maxHp ?? 1,
+      ammo: prev?.ammo ?? r?.maxAmmo ?? 0,
+      score: prev?.score ?? 0,
+      respawnIn,
+      reloadIn: prev?.reloadIn ?? 0,
+      weapon: prev?.weapon ?? null,
+      weaponCharges: prev?.weaponCharges ?? 0,
+      livesLeft: prev?.livesLeft ?? 0,
+      captures: prev?.captures ?? 0,
+    });
+  }
+
+  return decodeSnapshotTail(dv, o, roster, tanks);
+}
+
+function decodeSnapshotTail(
+  dv: DataView,
+  offset: number,
+  roster: Map<number, RosterEntry>,
+  tanks: TankDTO[]
+): SnapshotDTO {
+  let o = offset;
   const bullets = [];
   const bulletCount = dv.getUint8(o++);
   for (let i = 0; i < bulletCount; i++) {

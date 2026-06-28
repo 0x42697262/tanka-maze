@@ -9,7 +9,7 @@ import {
   type SnapshotDTO,
   type TankDTO,
 } from "../src/shared/protocol.js";
-import { decodeInput, decodeSnapshot, encodeInput, encodeSnapshot } from "../src/shared/wire.js";
+import { decodeInput, decodeSnapshot, encodeInput, encodeSlimSnapshot, encodeSnapshot } from "../src/shared/wire.js";
 
 const toAB = (u8: Uint8Array): ArrayBuffer =>
   u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
@@ -145,5 +145,54 @@ describe("wire: snapshot", () => {
     assert.equal(out.flags[1].state, "carried");
     assert.equal(out.flags[1].carrier, 3);
     assert.equal(Math.round(out.flags[1].x), 700);
+  });
+
+  it("slim snapshots update pose/status and inherit slow tank fields", () => {
+    const prev = emptySnap({
+      tanks: [
+        tank({
+          x: 100,
+          y: 200,
+          hp: 3,
+          maxHp: 3,
+          ammo: 4,
+          score: 120,
+          reloadIn: 1.2,
+          weapon: "tracking",
+          weaponCharges: 2,
+          livesLeft: 1,
+          captures: 5,
+        }),
+      ],
+    });
+    const slim = emptySnap({
+      tanks: [
+        tank({
+          x: 140,
+          y: 230,
+          alive: false,
+          boosted: true,
+          shielded: true,
+          respawnIn: 2.4,
+        }),
+      ],
+      bullets: [{ id: 7, x: 11, y: 22, ownerId: "a", kind: "normal" }],
+    });
+
+    const out = decodeSnapshot(toAB(encodeSlimSnapshot(slim)), roster(), prev);
+    const o = out.tanks[0];
+    assert.equal(Math.round(o.x), 140);
+    assert.equal(Math.round(o.y), 230);
+    assert.equal(o.alive, false);
+    assert.equal(o.boosted, true);
+    assert.equal(o.shielded, true);
+    assert.equal(o.score, 120);
+    assert.equal(o.ammo, 4);
+    assert.equal(o.weapon, "tracking");
+    assert.equal(o.weaponCharges, 2);
+    assert.equal(o.livesLeft, 1);
+    assert.equal(o.captures, 5);
+    assert.ok(Math.abs(o.respawnIn - 2.4) < 0.11);
+    assert.equal(out.bullets[0]?.id, 7);
   });
 });
