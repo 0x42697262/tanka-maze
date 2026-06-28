@@ -37,7 +37,7 @@ describe("labels", () => {
     c.powerups = true;
     const s = configSummary(c);
     assert.match(s, /Free-for-all/);
-    assert.match(s, /best of 3/);
+    assert.match(s, /first to 3 rounds/);
     assert.match(s, /power-ups/);
   });
 

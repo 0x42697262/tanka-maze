@@ -267,7 +267,7 @@ export interface GameConfig {
   mode: GameMode;
   wallStyle: WallStyle;
   mapSize: MapSize;
-  rounds: number; // best-of-N; the side with the most round wins takes the match
+  rounds: number; // round wins needed to take the match (first to N, any # of sides)
   allowLateJoin: boolean; // may players join after the match has started?
   tankSpeedPct: number; // 50..200 (% of base speed)
   hp: number; // 1..10 hits to destroy

@@ -40,10 +40,15 @@ export const SIZE_LABEL: Record<MapSize, string> = {
   random: "Random",
 };
 
+/** Round wins needed to take the match (CTF counts captured rounds via maxFlags). */
+export function roundsToWin(c: GameConfig): number {
+  return c.mode === "ctf" ? c.maxFlags : c.rounds;
+}
+
 /** One-line summary shown in the lobby list + waiting room. */
 export function configSummary(c: GameConfig): string {
   const bits = [modeLabel(c.mode), `${WALL_LABEL[c.wallStyle]} · ${SIZE_LABEL[c.mapSize]} map`];
-  if (c.mode !== "ctf" && c.rounds > 1) bits.push(`best of ${c.rounds}`);
+  if (c.mode !== "ctf" && c.rounds > 1) bits.push(`first to ${c.rounds} rounds`);
   if (c.hp > 1) bits.push(`${c.hp} HP`);
   if (c.tankSpeedPct !== 100) bits.push(`${c.tankSpeedPct}% speed`);
   if (c.mode === "ctf") bits.push(`${c.teamCount} teams · first to ${c.maxFlags} rounds`);
@@ -105,7 +110,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   // CTF is a round series: each round is won by capturing flagsPerRound flags,
   // the match by winning maxFlags rounds.
   if (ctf) match.push(["Win", `first to ${c.maxFlags} rounds`]);
-  else match.push(["Rounds", c.rounds > 1 ? `best of ${c.rounds}` : "single round"]);
+  else match.push(["Rounds", c.rounds > 1 ? `first to ${c.rounds} rounds` : "single round"]);
   match.push(["Max players", lobby.maxPlayers]);
   match.push(["Join after start", c.allowLateJoin ? "Allowed" : "Closed"]);
   match.push(["Tank speed", `${c.tankSpeedPct}%`]);

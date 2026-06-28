@@ -774,19 +774,25 @@ describe("scoring / kills", () => {
   });
 });
 
-describe("rounds (best-of-N)", () => {
-  it("ends a round on the score goal, banks cumulative score, and clinches the match", () => {
+describe("rounds (first-to-N)", () => {
+  it("ends a round on the score goal, banks cumulative score, ends at first-to-X", () => {
     const g = makeGame({ cfg: { mode: "ffa", rounds: 3, winScore: 60, killPoints: 60, lives: 0 } });
-    (g as any).kill(tank(g, "b"), "a"); // A hits 60 -> round 1
+    assert.equal(g.roundCount, 5); // 2 players, first to 3 ⇒ 2·2+1
+
+    (g as any).kill(tank(g, "b"), "a"); // A hits 60 → A 1-0
     assert.equal(g.isRoundOver, true);
     assert.equal(g.isFinished, false);
     g.startNextRound(new Maze(10, 8, "open"));
-    assert.equal(g.currentRound, 2);
     assert.equal(tank(g, "a").score, 0); // round score reset
-    (g as any).kill(tank(g, "b"), "a"); // A 2-0 -> rival can't catch up -> clinch
+
+    (g as any).kill(tank(g, "b"), "a"); // A 2-0 — NOT a clinch under first-to-3
+    assert.equal(g.isFinished, false);
+    g.startNextRound(new Maze(10, 8, "open"));
+
+    (g as any).kill(tank(g, "b"), "a"); // A 3-0 → first to 3 → match over
     assert.equal(g.isFinished, true);
     assert.equal(g.getWinnerName(), "A");
-    assert.equal(g.scores().find((s) => s.id === "a")!.score, 120); // cumulative
+    assert.equal(g.scores().find((s) => s.id === "a")!.score, 180); // cumulative (3×60)
   });
 });
 

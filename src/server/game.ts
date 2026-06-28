@@ -56,17 +56,6 @@ interface SpawnZone {
   cells: Array<{ x: number; y: number }>;
 }
 
-/**
- * Max rounds in a CTF "first to maxFlags wins" series. Each round has one
- * winning team, so by pigeonhole the worst case is every team reaching
- * maxFlags-1 before one more round forces a winner: teamCount·(maxFlags−1)+1.
- * (For 2 teams this is the familiar best-of-(2·maxFlags−1); for 4 teams,
- * first-to-3 ⇒ 4·2+1 = 9.)
- */
-function ctfTotalRounds(config: GameConfig): number {
-  return Math.max(1, config.teamCount * (Math.max(1, config.maxFlags) - 1) + 1);
-}
-
 /** 4-neighbour offsets (up, right, down, left) for homing-round pathfinding. */
 const HOMING_DIRS: ReadonlyArray<readonly [number, number]> = [
   [0, -1],
@@ -198,7 +187,6 @@ export class Game {
   private winnerName = ""; // match champion (set once finished)
   // Round series state.
   private round = 1;
-  private totalRounds: number;
   private roundOver = false; // current round decided; match continues
   private roundWinnerName = ""; // who took the round just ended
   private roundWins = new Map<string, number>(); // competitor key -> rounds won
@@ -236,7 +224,6 @@ export class Game {
     this.maze = maze;
     this.cfg = config;
     this.adv = config.adv;
-    this.totalRounds = config.mode === "ctf" ? ctfTotalRounds(config) : Math.max(1, config.rounds);
     this.teamNames = teamNames;
     this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
@@ -322,8 +309,29 @@ export class Game {
     return this.round;
   }
 
+  /** Round wins needed to take the match (CTF: maxFlags; else the rounds setting). */
+  private get roundsToWin(): number {
+    return Math.max(1, this.ctf ? this.cfg.maxFlags : this.cfg.rounds);
+  }
+
+  /** Number of independent sides: teams in team modes, players otherwise. */
+  private get competitorCount(): number {
+    return this.cfg.mode === "teams" || this.ctf ? Math.max(2, this.cfg.teamCount) : Math.max(2, this.tanks.size);
+  }
+
+  /**
+   * Worst-case rounds in a "first to roundsToWin" series for any number of sides:
+   * every side reaching roundsToWin-1 before one more round forces a winner, i.e.
+   * sides·(roundsToWin−1)+1. (2 sides first-to-3 ⇒ 5; 4 sides ⇒ 9.) The match
+   * actually ends the moment a side reaches roundsToWin.
+   */
   get roundCount(): number {
-    return this.totalRounds;
+    return Math.max(1, this.competitorCount * (this.roundsToWin - 1) + 1);
+  }
+
+  /** Alias used internally for the match-over check. */
+  private get totalRounds(): number {
+    return this.roundCount;
   }
 
   /** Name of whoever took the round that just ended. */
@@ -343,9 +351,8 @@ export class Game {
     this.adv = config.adv;
     this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
-    // Mode is structural (applies on restart), so the series length follows the
-    // mode this match was built with — recompute the same way the constructor does.
-    this.totalRounds = this.ctf ? ctfTotalRounds(config) : Math.max(1, config.rounds);
+    // Series length (roundCount) is derived from config on read, so nothing to
+    // cache here — it tracks the new rounds-to-win / team count immediately.
   }
 
   setInput(playerId: string, input: InputState): void {
@@ -1119,17 +1126,11 @@ export class Game {
     this.roundWinnerName = roundWinnerName;
     this.roundOver = true;
 
-    const wins = [...this.roundWins.values()].sort((a, b) => b - a);
-    const best = wins[0] ?? 0;
-    const rivalBest = wins[1] ?? 0;
-    const remaining = this.totalRounds - this.round;
-    // CTF is "first to maxFlags round wins" for any number of teams — end the
-    // instant a team reaches the target (totalRounds is just the pigeonhole cap).
-    // Other modes are best-of-N: a fixed count, ended early once the leader has
-    // clinched more wins than any rival could still reach.
-    const matchOver = this.ctf
-      ? best >= Math.max(1, this.cfg.maxFlags) || this.round >= this.totalRounds
-      : this.round >= this.totalRounds || best > rivalBest + remaining;
+    // Every mode is "first to roundsToWin round wins" for any number of sides:
+    // end the instant a side reaches the target. roundCount is the pigeonhole cap
+    // (reaching it guarantees a winner) and a safety net against endless draws.
+    const best = Math.max(0, ...this.roundWins.values());
+    const matchOver = best >= this.roundsToWin || this.round >= this.totalRounds;
 
     if (matchOver) {
       this.finished = true;

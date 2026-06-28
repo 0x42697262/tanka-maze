@@ -63,7 +63,8 @@ export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multis
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
 export const SCOPE_SECONDS = 10; // duration of the line-of-sight scope buff
 
-// Rounds: a match is best-of-N; the side with the most round wins takes it.
+// Rounds: a match is "first to N round wins" for any number of sides (the
+// worst-case length is sides·(N−1)+1 rounds).
 export const ROUNDS_DEFAULT = 3;
 export const ROUND_INTERMISSION_SECONDS = 5; // break between rounds
 export const SPAWN_SHIELD_SECONDS = 2; // spawn protection whenever a tank (re)spawns

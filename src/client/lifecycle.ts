@@ -14,7 +14,7 @@ import { $, escapeHtml, show } from "./dom.js";
 import { resetAnnouncements } from "./announce.js";
 import { clearKillLog, renderRoundBadge, renderSeriesBoard } from "./hud.js";
 import { Input } from "./input.js";
-import { standingHtml } from "./labels.js";
+import { roundsToWin, standingHtml } from "./labels.js";
 import { closeScoreboard } from "./scoreboard.js";
 import { applyConfigToControls, applyModeVisibility } from "./settings.js";
 import { canvas, IDLE_INPUT, IS_TOUCH, net, renderer, state } from "./state.js";
@@ -121,7 +121,10 @@ export function showRoundOver(
   const countEl = $("ro-count");
   let secs = Math.max(1, Math.round(nextInSeconds));
   countEl.textContent = String(secs);
-  $("ro-sub").textContent = `Round ${round + 1} of ${total} in `;
+  const cfg = state.currentLobby?.config;
+  $("ro-sub").textContent = cfg
+    ? `Round ${round + 1} · first to ${roundsToWin(cfg)} · next in `
+    : `Round ${round + 1} in `;
   $("roundover").classList.remove("hidden");
   if (state.roundCountdown) clearInterval(state.roundCountdown);
   state.roundCountdown = setInterval(() => {

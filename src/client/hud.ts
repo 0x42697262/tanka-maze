@@ -3,7 +3,7 @@
 
 import { powerupDef, type PowerupType } from "../shared/protocol.js";
 import { $, escapeHtml } from "./dom.js";
-import { standingHtml } from "./labels.js";
+import { roundsToWin, standingHtml } from "./labels.js";
 import { renderer, state, TEAM_TINT } from "./state.js";
 
 // ---- Kill / suicide log (icons + colored names + points) ----
@@ -30,18 +30,14 @@ export function clearKillLog(): void {
   $("killlog").innerHTML = "";
 }
 
-/** "Round 2 / 3" pill in the game header (hidden for single-round matches). */
+/** "Round 2 · first to 3" pill in the game header (hidden for single rounds). */
 export function renderRoundBadge(): void {
   const el = $("gh-round");
-  // CTF is a round series: a round is won by capturing flags, the match by
-  // winning rounds — show the current round like other multi-round matches.
-  if (state.currentLobby?.config.mode === "ctf") {
-    el.textContent = `Round ${state.roundInfo.round} / ${state.roundInfo.total}`;
-    el.classList.remove("hidden");
-    return;
-  }
-  if (state.roundInfo.total > 1) {
-    el.textContent = `Round ${state.roundInfo.round} / ${state.roundInfo.total}`;
+  const cfg = state.currentLobby?.config;
+  // A multi-round match is "first to X"; show the current round + that target
+  // rather than a fraction over the (large) worst-case round cap.
+  if (state.roundInfo.total > 1 && cfg) {
+    el.textContent = `Round ${state.roundInfo.round} · first to ${roundsToWin(cfg)}`;
     el.classList.remove("hidden");
   } else {
     el.classList.add("hidden");
