@@ -13,6 +13,8 @@ import {
 const STATIC_ADV_KEYS = [
   "tankRadius",
   "tankTurnSpeed",
+  "tankAccel",
+  "tankDecel",
   "fireCooldown",
   "maxAmmo",
   "reloadSeconds",

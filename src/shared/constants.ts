@@ -32,6 +32,12 @@ export const TANK_RADIUS = 11;
 export const TANK_SPEED = 100; // px / second (forward, at 100% speed)
 export const TANK_REVERSE_SPEED = 60; // px / second (backward, at 100% speed)
 export const TANK_TURN_SPEED = 4.3; // radians / second (steering rate)
+// Momentum: velocity eases toward the input-derived target each tick instead
+// of teleporting to it. Accel applies while a movement key is held; decel
+// (higher, for snappy brakes vs wind-up) applies while idle. Both are host-
+// tunable live (AdvancedConfig.tankAccel / tankDecel).
+export const TANK_ACCEL = 600; // px/s² while input active (reaches 100 px/s in ~0.17s)
+export const TANK_DECEL = 1200; // px/s² while no input (stops in ~0.08s)
 
 // Ammunition: a magazine of MAX_AMMO rounds. Emptying it forces a reload that
 // takes RELOAD_SECONDS, then instantly refills the whole magazine.

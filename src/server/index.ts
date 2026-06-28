@@ -353,6 +353,8 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     ...d,
     tankRadius: f(c.tankRadius, 4, 40, d.tankRadius),
     tankTurnSpeed: f(c.tankTurnSpeed, 0.5, 12, d.tankTurnSpeed),
+    tankAccel: f(c.tankAccel, 50, 4000, d.tankAccel),
+    tankDecel: f(c.tankDecel, 50, 8000, d.tankDecel),
     fireCooldown: f(c.fireCooldown, 0.05, 5, d.fireCooldown),
     maxAmmo: i(c.maxAmmo, 1, 50, d.maxAmmo),
     reloadSeconds: f(c.reloadSeconds, 0.2, 20, d.reloadSeconds),

@@ -144,6 +144,8 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     rows: [
       ["Size", a.tankRadius],
       ["Turn rate", a.tankTurnSpeed],
+      ["Accel", a.tankAccel],
+      ["Decel", a.tankDecel],
       ["Fire cooldown", `${a.fireCooldown}s`],
       ["Magazine", a.maxAmmo],
       ["Reload", `${a.reloadSeconds}s`],

@@ -437,20 +437,25 @@ export class Game {
 
       tank.turretAngle = tank.input.aim;
 
-      const oldX = tank.x;
-      const oldY = tank.y;
       const boost = tank.boostTimer > 0 ? this.adv.speedBoostMult : 1;
+
+      // --- compute target velocity from input (per control scheme) ---
+      // Velocity is authoritative state that eases toward this target each
+      // tick (momentum), instead of being derived from an instant position
+      // teleport. Bullets inherit the tank's actual current velocity, so a
+      // ramping tank's shots ramp along with it.
+      let tx = 0; // target velocity x (px/s)
+      let ty = 0; // target velocity y (px/s)
+      let moving = false; // any movement key held (governs accel vs decel rate)
 
       if (tank.input.joystick) {
         // Mobile joystick: face and drive the full 360° toward the aim angle.
         // The turret already tracks `aim` (set above), so heading == aim == shot.
         tank.bodyAngle = tank.input.aim;
         if (tank.input.forward) {
-          const step = this.forwardSpeed * boost * dt;
-          const nx = tank.x + Math.cos(tank.input.aim) * step;
-          if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
-          const ny = tank.y + Math.sin(tank.input.aim) * step;
-          if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+          tx = Math.cos(tank.input.aim) * this.forwardSpeed * boost;
+          ty = Math.sin(tank.input.aim) * this.forwardSpeed * boost;
+          moving = true;
         }
       } else if (tank.input.eightDir) {
         // 8-directional world movement (MMORPG-style): WASD = up/left/down/right,
@@ -463,14 +468,9 @@ export class Game {
         if (tank.input.turnRight) mx += 1; // D
         if (mx !== 0 || my !== 0) {
           const len = Math.hypot(mx, my);
-          mx /= len;
-          my /= len;
-          tank.bodyAngle = Math.atan2(my, mx);
-          const step = this.forwardSpeed * boost * dt;
-          const nx = tank.x + mx * step;
-          if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
-          const ny = tank.y + my * step;
-          if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+          tx = (mx / len) * this.forwardSpeed * boost;
+          ty = (my / len) * this.forwardSpeed * boost;
+          moving = true;
         }
       } else {
         // Tank-relative: A/D rotate the heading, W/S drive along it.
@@ -484,17 +484,49 @@ export class Game {
         if (tank.input.backward) drive -= 1;
         if (drive !== 0) {
           const base = drive > 0 ? this.forwardSpeed : this.reverseSpeed;
-          const step = drive * base * boost * dt;
-          const dx = Math.cos(tank.bodyAngle) * step;
-          const dy = Math.sin(tank.bodyAngle) * step;
-          const nx = tank.x + dx;
-          if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
-          const ny = tank.y + dy;
-          if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+          tx = Math.cos(tank.bodyAngle) * drive * base * boost;
+          ty = Math.sin(tank.bodyAngle) * drive * base * boost;
+          moving = true;
         }
       }
-      tank.vx = dt > 0 ? (tank.x - oldX) / dt : 0;
-      tank.vy = dt > 0 ? (tank.y - oldY) / dt : 0;
+
+      // --- ease current velocity toward the target (momentum) ---
+      // Vector easing: clamp the magnitude of the delta to the per-tick rate,
+      // so a diagonal reaches max speed at the same rate as a cardinal move.
+      // Decel is higher than accel for snappy brakes vs wind-up.
+      const rate = (moving ? this.adv.tankAccel : this.adv.tankDecel) * dt;
+      const dxv = tx - tank.vx;
+      const dyv = ty - tank.vy;
+      const dlen = Math.hypot(dxv, dyv);
+      if (dlen <= rate || dlen === 0) {
+        tank.vx = tx;
+        tank.vy = ty;
+      } else {
+        const k = rate / dlen;
+        tank.vx += dxv * k;
+        tank.vy += dyv * k;
+      }
+
+      // --- move by velocity, axis-separated (slide along walls) ---
+      // Zeroing the blocked component preserves slide along the wall and stops
+      // the tank from "pushing" into it every tick (which would waste accel
+      // and feel sticky).
+      const nx = tank.x + tank.vx * dt;
+      if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
+      else tank.vx = 0;
+      const ny = tank.y + tank.vy * dt;
+      if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+      else tank.vy = 0;
+
+      // --- body facing follows velocity (8-dir only, for smooth rotation) ---
+      // Joystick sets bodyAngle = aim above (instant). Tank-relative derives
+      // heading from A/D. Only 8-dir benefits from velocity-based facing, so
+      // the body eases through diagonals as momentum ramps. Guard so a tank
+      // at rest keeps its last facing.
+      if (tank.input.eightDir) {
+        const speed = Math.hypot(tank.vx, tank.vy);
+        if (speed > 1) tank.bodyAngle = Math.atan2(tank.vy, tank.vx);
+      }
 
       if (tank.input.fire && tank.fireCooldown === 0) this.fire(tank);
     }

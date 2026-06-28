@@ -22,6 +22,8 @@ import {
   SNIPER_WALL_PIERCE,
   SPEED_BOOST_MULT,
   SPEED_BOOST_SECONDS,
+  TANK_ACCEL,
+  TANK_DECEL,
   TANK_RADIUS,
   TANK_TURN_SPEED,
   TRACKING_BOUNCES,
@@ -37,6 +39,8 @@ import {
 export interface AdvancedConfig {
   tankRadius: number;
   tankTurnSpeed: number; // rad/s
+  tankAccel: number; // px/s² while a movement key is held (momentum wind-up)
+  tankDecel: number; // px/s² while no movement input (momentum slow-down)
   fireCooldown: number; // s between shots
   maxAmmo: number;
   reloadSeconds: number;
@@ -65,6 +69,8 @@ export interface AdvancedConfig {
 export const DEFAULT_ADVANCED: AdvancedConfig = {
   tankRadius: TANK_RADIUS,
   tankTurnSpeed: TANK_TURN_SPEED,
+  tankAccel: TANK_ACCEL,
+  tankDecel: TANK_DECEL,
   fireCooldown: FIRE_COOLDOWN,
   maxAmmo: MAX_AMMO,
   reloadSeconds: RELOAD_SECONDS,
