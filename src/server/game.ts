@@ -29,6 +29,7 @@ import {
   type FlagDTO,
   type FlagState,
 } from "../shared/protocol.js";
+import { ObjectPool } from "../shared/core/ObjectPool.js";
 import { Maze } from "./maze.js";
 
 /** A team's flag in Capture the Flag. Home position is its base (spawn-zone) center. */
@@ -180,6 +181,28 @@ export class Game {
   private adv: AdvancedConfig;
   private tanks = new Map<string, Tank>();
   private bullets: Bullet[] = [];
+  private bulletPool = new ObjectPool<Bullet>(() => ({
+    id: 0,
+    ownerId: "",
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    bounces: 0,
+    maxBounces: 0,
+    life: 0,
+    kind: "normal",
+    wallPierce: 0,
+    pierceTanks: false,
+    wasInWall: false,
+    hitIds: new Set<string>(),
+    repathIn: 0,
+    waypoint: null,
+  }), (bullet) => {
+    bullet.ownerId = "";
+    bullet.hitIds.clear();
+    bullet.waypoint = null;
+  });
   private nextBulletId = 1;
   private nextIndex = 0;
   private spawns: Array<{ x: number; y: number }>;
@@ -374,7 +397,12 @@ export class Game {
 
   removePlayer(playerId: string): void {
     this.tanks.delete(playerId);
-    this.bullets = this.bullets.filter((b) => b.ownerId !== playerId);
+    const survivors: Bullet[] = [];
+    for (const bullet of this.bullets) {
+      if (bullet.ownerId === playerId) this.bulletPool.release(bullet);
+      else survivors.push(bullet);
+    }
+    this.bullets = survivors;
     this.checkElimination();
   }
 
@@ -505,6 +533,27 @@ export class Game {
     this.stepCarry(dt);
   }
 
+  private createBullet(init: Omit<Bullet, "hitIds" | "repathIn" | "waypoint">): Bullet {
+    const bullet = this.bulletPool.acquire();
+    bullet.id = init.id;
+    bullet.ownerId = init.ownerId;
+    bullet.x = init.x;
+    bullet.y = init.y;
+    bullet.vx = init.vx;
+    bullet.vy = init.vy;
+    bullet.bounces = init.bounces;
+    bullet.maxBounces = init.maxBounces;
+    bullet.life = init.life;
+    bullet.kind = init.kind;
+    bullet.wallPierce = init.wallPierce;
+    bullet.pierceTanks = init.pierceTanks;
+    bullet.wasInWall = init.wasInWall;
+    bullet.hitIds.clear();
+    bullet.repathIn = 0;
+    bullet.waypoint = null;
+    return bullet;
+  }
+
   private fire(tank: Tank): void {
     if (tank.laserCharge > 0) return; // can't fire while a laser is winding up
     const weapon = tank.weapon && WEAPON_POWERUPS.includes(tank.weapon) ? tank.weapon : null;
@@ -540,7 +589,7 @@ export class Game {
       const muzzle = this.adv.tankRadius + this.adv.bulletRadius + 2;
       for (let i = 0; i < n; i++) {
         const ang = n > 1 ? start + step * i : a;
-        this.bullets.push({
+        this.bullets.push(this.createBullet({
           id: this.nextBulletId++,
           ownerId: tank.id,
           x: tank.x + Math.cos(ang) * muzzle,
@@ -554,10 +603,7 @@ export class Game {
           wallPierce: 0,
           pierceTanks: false,
           wasInWall: false,
-          hitIds: new Set(),
-          repathIn: 0,
-          waypoint: null,
-        });
+        }));
       }
       tank.weaponCharges -= 1;
       if (tank.weaponCharges <= 0) tank.weapon = null;
@@ -572,7 +618,7 @@ export class Game {
       // Sniper flies straight & fast (no momentum drift); others inherit it.
       const inheritVx = kind === "sniper" ? 0 : tank.vx;
       const inheritVy = kind === "sniper" ? 0 : tank.vy;
-      this.bullets.push({
+      this.bullets.push(this.createBullet({
         id: this.nextBulletId++,
         ownerId: tank.id,
         x: tank.x + Math.cos(a) * muzzle,
@@ -589,10 +635,7 @@ export class Game {
         wallPierce: kind === "sniper" ? this.adv.sniperWallPierce : 0,
         pierceTanks: kind === "sniper",
         wasInWall: false,
-        hitIds: new Set(),
-        repathIn: 0,
-        waypoint: null,
-      });
+      }));
     }
 
     if (usingWeapon) {
@@ -680,6 +723,7 @@ export class Game {
       if (b.life <= 0) {
         // An explosive round detonates wherever it expires, not just on a wall.
         if (b.kind === "explosive") this.explode(b.x, b.y, b.ownerId);
+        this.bulletPool.release(b);
         continue;
       }
 
@@ -739,6 +783,7 @@ export class Game {
       }
 
       if (!dead) survivors.push(b);
+      else this.bulletPool.release(b);
     }
     this.bullets = survivors;
   }
@@ -1163,6 +1208,7 @@ export class Game {
     this.round += 1;
     this.roundOver = false;
     this.roundWinnerName = "";
+    for (const bullet of this.bullets) this.bulletPool.release(bullet);
     this.bullets = [];
     this.powerups = [];
     this.pendingBlasts = [];

@@ -5,6 +5,8 @@
 import "./style.css";
 import { DEFAULT_GAME_CONFIG, type ServerMessage } from "../shared/protocol.js";
 import { bytesEqual, decodeSnapshot, encodeInput } from "../shared/wire.js";
+import { AssetLoader } from "./core/AssetLoader.js";
+import { Engine, type Scene } from "./core/Engine.js";
 import { $, show, toast } from "./dom.js";
 import { announceKill } from "./announce.js";
 import { logKillEvent, renderAmmo, renderLeaderboard, updateRespawnOverlay } from "./hud.js";
@@ -158,8 +160,7 @@ net.onBinary((buf) => {
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
-function frame(): void {
-  const now = performance.now();
+function frame(now: number): void {
   if (state.inGame) {
     const snap = renderer.latest();
     const me = snap?.tanks.find((t) => t.id === state.playerId);
@@ -190,8 +191,12 @@ function frame(): void {
       $("gh-count").textContent = `${snap.tanks.length} players · ${alive} alive`;
     }
   }
-  requestAnimationFrame(frame);
 }
+
+const scene: Scene = {
+  update: () => {},
+  render: (_alpha, now) => frame(now),
+};
 
 // ---------------------------------------------------------------------------
 // Wire up controls
@@ -307,5 +312,20 @@ window.addEventListener("resize", () => {
   if (state.inGame) fitCanvas();
 });
 
-net.connect();
-requestAnimationFrame(frame);
+async function bootstrap(): Promise<void> {
+  const assets = new AssetLoader();
+  // The game is currently vector/canvas-driven. Keeping the preload boundary here
+  // means future sprite/audio/json assets can be registered without changing the
+  // engine startup path or breaking Vite's hashed production asset URLs.
+  await assets.loadAll([]);
+
+  const engine = new Engine();
+  engine.setScene(scene);
+  net.connect();
+  engine.start();
+}
+
+void bootstrap().catch((err) => {
+  console.error(err);
+  toast("Failed to start client.");
+});

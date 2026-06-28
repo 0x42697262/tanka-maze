@@ -57,6 +57,9 @@ interface Beam {
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private maze: MazeDTO | null = null;
+  private worldWidth = 0;
+  private worldHeight = 0;
+  private dpr = 1;
   private spawnZones: SpawnZoneDTO[] = [];
   private buffer: Buffered[] = [];
   private explosions: Explosion[] = [];
@@ -125,8 +128,7 @@ export class Renderer {
 
   setMaze(maze: MazeDTO): void {
     this.maze = maze;
-    this.canvas.width = maze.width;
-    this.canvas.height = maze.height;
+    this.resizeDrawingBuffer(maze.width, maze.height);
     this.buffer = [];
     this.explosions = [];
     this.beams = [];
@@ -204,12 +206,13 @@ export class Renderer {
   render(localId: string, nowMs: number): void {
     const { ctx, maze } = this;
     if (!maze) return;
+    if (this.dpr !== this.currentDpr()) this.resizeDrawingBuffer(this.worldWidth, this.worldHeight);
 
     // Fire any effects the interpolation clock has now reached (delayed in lockstep
     // with the world below), then draw the world ~INTERP_DELAY in the past.
     this.consumeEffects(nowMs - INTERP_DELAY, nowMs);
 
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.clearRect(0, 0, maze.width, maze.height);
     this.drawMaze(maze);
 
     const interp = this.interpolated(nowMs);
@@ -256,6 +259,26 @@ export class Renderer {
 
     this.drawBeams(nowMs);
     this.drawExplosions(nowMs);
+  }
+
+  /**
+   * Backing-store pixels scale with DPR for sharp Retina rendering, but all draw
+   * calls stay in maze/world coordinates through the canvas transform. Input code
+   * reads the stored world size so mouse aiming is not multiplied by DPR.
+   */
+  private resizeDrawingBuffer(worldWidth: number, worldHeight: number): void {
+    this.worldWidth = worldWidth;
+    this.worldHeight = worldHeight;
+    this.dpr = this.currentDpr();
+    this.canvas.width = Math.round(worldWidth * this.dpr);
+    this.canvas.height = Math.round(worldHeight * this.dpr);
+    this.canvas.dataset.worldWidth = String(worldWidth);
+    this.canvas.dataset.worldHeight = String(worldHeight);
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+  }
+
+  private currentDpr(): number {
+    return Math.max(1, window.devicePixelRatio || 1);
   }
 
   /**
