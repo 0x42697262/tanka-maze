@@ -1571,14 +1571,55 @@ export class Game {
     return false;
   }
 
-  /** A carried flag drops where its carrier fell (called from kill). */
+  /**
+   * Carried flags drop where their carrier fell (called from kill). When a tank
+   * was holding several, they scatter to distinct spots around the drop point so
+   * they never stack on top of each other (which would make them un-pickable one
+   * at a time). Spots are kept off walls and inside the map; a flag may land on
+   * the far side of a wall (walls don't block the scatter), just never on one.
+   */
   private dropFlagOf(tankId: string): void {
-    for (const flag of this.flags) {
-      if (flag.carrierId === tankId) {
-        flag.state = "dropped";
-        flag.carrierId = null;
-      }
+    const dropped = this.flags.filter((f) => f.carrierId === tankId);
+    if (dropped.length === 0) return;
+    const cx = dropped[0].x; // a carried flag rides the carrier, so this is where it fell
+    const cy = dropped[0].y;
+    const placed: Array<{ x: number; y: number }> = [];
+    for (const flag of dropped) {
+      const spot = dropped.length === 1 ? { x: cx, y: cy } : this.scatterFlagSpot(cx, cy, placed);
+      flag.state = "dropped";
+      flag.carrierId = null;
+      flag.x = spot.x;
+      flag.y = spot.y;
+      placed.push(spot);
     }
+  }
+
+  /**
+   * Pick a drop spot in a ring around (cx,cy) that is off walls, inside the map,
+   * and at least a flag's clearance from spots already chosen in this drop. Walls
+   * don't block the search (a flag may land beyond a wall), but a wall cell itself
+   * is avoided. Falls back to the last non-overlapping candidate (else the clamped
+   * centre) if no perfect spot turns up within the attempt budget.
+   */
+  private scatterFlagSpot(cx: number, cy: number, taken: Array<{ x: number; y: number }>): { x: number; y: number } {
+    const r = POWERUP_RADIUS;
+    const minGap = r * 2.4; // spacing so dropped flags don't overlap when picked up
+    const minGap2 = minGap * minGap;
+    const margin = r + 1; // keep the whole flag inside the map
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+    const cxIn = clamp(cx, margin, this.maze.width - margin);
+    const cyIn = clamp(cy, margin, this.maze.height - margin);
+    let fallback = { x: cxIn, y: cyIn };
+    for (let i = 0; i < 40; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const dist = minGap + Math.random() * minGap * 3; // a small scatter ring
+      const x = clamp(cx + Math.cos(ang) * dist, margin, this.maze.width - margin);
+      const y = clamp(cy + Math.sin(ang) * dist, margin, this.maze.height - margin);
+      if (!taken.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 >= minGap2)) continue;
+      fallback = { x, y }; // a non-overlapping spot, kept even if it sits on a wall
+      if (!this.circleHitsWall(x, y, r)) return { x, y };
+    }
+    return fallback;
   }
 
   private inRect(x: number, y: number, r: { x: number; y: number; width: number; height: number }): boolean {

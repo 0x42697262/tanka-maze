@@ -548,6 +548,43 @@ describe("capture the flag", () => {
     assert.equal((g as any).roundWins.get("t0"), 1);
   });
 
+  it("carry: flags from a multi-flag carrier scatter (no overlap, off walls, in bounds)", () => {
+    const g = makeCtf({ ctfScoreMode: "carry", winScore: 1000, teamCount: 4 }, new Maze(14, 11, "maze"));
+    const a = tank(g, "a"); // team 0
+    const maze = (g as any).maze;
+    // a grabs the three enemy flags (teams 1, 2, 3) at a central, open spot.
+    for (const team of [1, 2, 3]) {
+      const f = flagOf(g, team);
+      a.x = maze.width / 2;
+      a.y = maze.height / 2;
+      f.x = a.x;
+      f.y = a.y;
+      f.stealCooldown = 0;
+      (g as any).stepFlags(0.1);
+      assert.equal(f.carrierId, "a");
+    }
+    (g as any).kill(a, "b"); // dies holding three flags → they scatter
+
+    const dropped = [1, 2, 3].map((t) => flagOf(g, t));
+    const R = 12; // POWERUP_RADIUS
+    const minGap = R * 2.4;
+    for (const f of dropped) {
+      assert.equal(f.state, "dropped");
+      assert.equal(f.carrierId, null);
+      // Inside the map.
+      assert.ok(f.x >= 0 && f.x <= maze.width && f.y >= 0 && f.y <= maze.height, "in bounds");
+      // Not sitting on a wall.
+      assert.equal(maze.hitsCircle(f.x, f.y, R), false, "off walls");
+    }
+    // No two dropped flags overlap.
+    for (let i = 0; i < dropped.length; i++) {
+      for (let j = i + 1; j < dropped.length; j++) {
+        const d2 = (dropped[i].x - dropped[j].x) ** 2 + (dropped[i].y - dropped[j].y) ** 2;
+        assert.ok(d2 >= minGap * minGap, "dropped flags are spaced apart");
+      }
+    }
+  });
+
   it("uses spawn-zone bases (2 teams by default)", () => {
     const g = makeCtf();
     assert.equal((g as any).spawnZones.length, 2);
