@@ -56,6 +56,17 @@ interface SpawnZone {
   cells: Array<{ x: number; y: number }>;
 }
 
+/**
+ * Max rounds in a CTF "first to maxFlags wins" series. Each round has one
+ * winning team, so by pigeonhole the worst case is every team reaching
+ * maxFlags-1 before one more round forces a winner: teamCount·(maxFlags−1)+1.
+ * (For 2 teams this is the familiar best-of-(2·maxFlags−1); for 4 teams,
+ * first-to-3 ⇒ 4·2+1 = 9.)
+ */
+function ctfTotalRounds(config: GameConfig): number {
+  return Math.max(1, config.teamCount * (Math.max(1, config.maxFlags) - 1) + 1);
+}
+
 /** 4-neighbour offsets (up, right, down, left) for homing-round pathfinding. */
 const HOMING_DIRS: ReadonlyArray<readonly [number, number]> = [
   [0, -1],
@@ -225,12 +236,7 @@ export class Game {
     this.maze = maze;
     this.cfg = config;
     this.adv = config.adv;
-    // CTF is "first to maxFlags captures" — modeled as a best-of-(2N-1) series so
-    // the existing clinch logic resolves the match exactly when a team hits N.
-    this.totalRounds =
-      config.mode === "ctf"
-        ? Math.max(1, config.maxFlags * 2 - 1)
-        : Math.max(1, config.rounds);
+    this.totalRounds = config.mode === "ctf" ? ctfTotalRounds(config) : Math.max(1, config.rounds);
     this.teamNames = teamNames;
     this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
@@ -339,9 +345,7 @@ export class Game {
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
     // Mode is structural (applies on restart), so the series length follows the
     // mode this match was built with — recompute the same way the constructor does.
-    this.totalRounds = this.ctf
-      ? Math.max(1, config.maxFlags * 2 - 1)
-      : Math.max(1, config.rounds);
+    this.totalRounds = this.ctf ? ctfTotalRounds(config) : Math.max(1, config.rounds);
   }
 
   setInput(playerId: string, input: InputState): void {
@@ -1115,14 +1119,19 @@ export class Game {
     this.roundWinnerName = roundWinnerName;
     this.roundOver = true;
 
-    // Clinch check: leader's wins vs the best any rival could still reach.
     const wins = [...this.roundWins.values()].sort((a, b) => b - a);
     const best = wins[0] ?? 0;
     const rivalBest = wins[1] ?? 0;
     const remaining = this.totalRounds - this.round;
-    const clinched = best > rivalBest + remaining;
+    // CTF is "first to maxFlags round wins" for any number of teams — end the
+    // instant a team reaches the target (totalRounds is just the pigeonhole cap).
+    // Other modes are best-of-N: a fixed count, ended early once the leader has
+    // clinched more wins than any rival could still reach.
+    const matchOver = this.ctf
+      ? best >= Math.max(1, this.cfg.maxFlags) || this.round >= this.totalRounds
+      : this.round >= this.totalRounds || best > rivalBest + remaining;
 
-    if (this.round >= this.totalRounds || clinched) {
+    if (matchOver) {
       this.finished = true;
       this.winnerName = this.roundStandings()[0]?.name ?? roundWinnerName;
     }

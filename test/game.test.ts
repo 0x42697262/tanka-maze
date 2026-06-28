@@ -522,6 +522,39 @@ describe("capture the flag", () => {
     assert.equal((g as any).roundWins.get("t0"), 1);
   });
 
+  it("series length scales with team count (first to maxFlags)", () => {
+    assert.equal(makeCtf({ teamCount: 2 }).roundCount, 5); // 2·(3−1)+1 = old best-of-5
+    assert.equal(makeCtf({ teamCount: 4 }).roundCount, 9); // 4·(3−1)+1
+    assert.equal(makeCtf({ teamCount: 4, maxFlags: 1 }).roundCount, 1);
+  });
+
+  it("4-team first-to-3 runs past round 5 and ends only when a team reaches 3", () => {
+    const g = makeGame({
+      cfg: { mode: "ctf", maxFlags: 3, hp: 3, teamCount: 4 },
+      players: [
+        { id: "a", name: "A", team: 0 },
+        { id: "b", name: "B", team: 1 },
+        { id: "c", name: "C", team: 2 },
+        { id: "d", name: "D", team: 3 },
+      ],
+      maze: new Maze(14, 11, "maze"),
+    });
+    assert.equal(g.roundCount, 9);
+    const win = (key: string) => {
+      (g as any).endRound(key, key);
+      if (!g.isFinished) {
+        (g as any).roundOver = false;
+        (g as any).round += 1;
+      }
+    };
+    // Three teams each reach 2 wins over 6 rounds — well past the old cap of 5.
+    for (const k of ["t0", "t1", "t2", "t0", "t1", "t2"]) win(k);
+    assert.equal(g.isFinished, false); // pre-fix this wrongly ended at round 5
+    win("t0"); // t0's third → first to 3 → match over
+    assert.equal(g.isFinished, true);
+    assert.equal((g as any).roundWins.get("t0"), 3);
+  });
+
   it("needs flagsPerRound captures to win a round", () => {
     const g = makeCtf({ flagsPerRound: 2 });
     const a = tank(g, "a"); // team 0
