@@ -384,6 +384,10 @@ function sanitizeConfig(raw: unknown): GameConfig {
     const n = Math.floor(Number(v));
     return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
   };
+  const clampFloat = (v: unknown, lo: number, hi: number, dflt: number): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+  };
   const mode = oneOf(c.mode, ["ffa", "lms", "teams", "ctf"] as const, d.mode);
   const ctf = mode === "ctf";
   let lives = clampInt(c.lives, 0, 99, d.lives);
@@ -429,6 +433,10 @@ function sanitizeConfig(raw: unknown): GameConfig {
     adv: sanitizeAdvanced(c.adv),
     fogOfWar: typeof c.fogOfWar === "boolean" ? c.fogOfWar : d.fogOfWar,
     visionRadius: clampInt(c.visionRadius, 80, 800, d.visionRadius),
+    hazardDensity: clampInt(c.hazardDensity, 0, 10, d.hazardDensity),
+    hazardDamage: clampInt(c.hazardDamage, 1, 20, d.hazardDamage),
+    hazardSlowMult: clampFloat(c.hazardSlowMult, 0, 1, d.hazardSlowMult),
+    hazardHealRate: clampFloat(c.hazardHealRate, 0.5, 10, d.hazardHealRate),
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
     powerupDespawnSeconds: clampInt(c.powerupDespawnSeconds, 3, 60, d.powerupDespawnSeconds),

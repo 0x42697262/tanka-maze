@@ -1028,3 +1028,94 @@ describe("live config update", () => {
     assert.equal(tank(g, "a").score, 160);
   });
 });
+
+describe("hazards", () => {
+  it("hazardDensity=0 produces no zones", () => {
+    const g = makeGame({ cfg: { hazardDensity: 0 }, players: [{ id: "a", name: "A" }] });
+    assert.equal((g as any).hazards.length, 0);
+    assert.deepEqual(g.hazardZoneDTOs(), []);
+  });
+
+  it("places the requested number of zones avoiding spawn zones", () => {
+    const g = makeGame({
+      cfg: { hazardDensity: 5, mode: "teams", teamSpawnZones: true, teamCount: 2 },
+      players: [{ id: "a", name: "A" }, { id: "b", name: "B" }],
+    });
+    const zones = (g as any).hazards;
+    assert.equal(zones.length, 5);
+    const spawnZones = (g as any).spawnZones;
+    for (const h of zones) {
+      for (const sz of spawnZones) {
+        const overlaps = h.x < sz.x + sz.width && h.x + h.width > sz.x && h.y < sz.y + sz.height && h.y + h.height > sz.y;
+        assert.ok(!overlaps, "hazard zone overlaps a spawn zone");
+      }
+    }
+  });
+
+  it("lava damages an unshielded tank over time and kills at 0 hp", () => {
+    const g = makeGame({ cfg: { hazardDensity: 1, hazardDamage: 10, hp: 1 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    // Force a lava zone onto the tank's position.
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 20, height: 20, type: "lava" }];
+    g.step(0.1);
+    assert.ok(a.hp < 1, "lava dealt damage");
+    assert.ok(!a.alive, "tank died from lava");
+  });
+
+  it("shields block lava damage", () => {
+    const g = makeGame({ cfg: { hazardDensity: 1, hazardDamage: 10, hp: 5 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 5;
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 20, height: 20, type: "lava" }];
+    g.step(0.1);
+    assert.equal(a.hp, 5, "shielded tank took no lava damage");
+  });
+
+  it("heal restores HP up to maxHp", () => {
+    const g = makeGame({ cfg: { hazardDensity: 1, hazardHealRate: 5, hp: 3 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    a.hp = 1;
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 20, height: 20, type: "heal" }];
+    g.step(0.2);
+    assert.ok(a.hp > 1, "heal restored HP");
+    assert.ok(a.hp <= 3, "heal capped at maxHp");
+  });
+
+  it("mud slows the target velocity", () => {
+    const g = makeGame({
+      cfg: { hazardDensity: 1, hazardSlowMult: 0.5 },
+      adv: { tankAccel: 10000 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 20, height: 20, type: "mud" }];
+    a.input = input({ forward: true, aim: 0 });
+    g.step(0.5);
+    // With slowMult 0.5, max velocity should be ~50 px/s instead of 100.
+    assert.ok(Math.abs(a.vx) < 70, "mud slowed the tank");
+    assert.ok(Math.abs(a.vx) > 20, "tank still moved");
+  });
+
+  it("ice preserves momentum when no input is held (slide)", () => {
+    const g = makeGame({
+      cfg: { hazardDensity: 1 },
+      adv: { tankAccel: 10000, tankDecel: 10000 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    // Build up speed first.
+    a.input = input({ forward: true, aim: 0 });
+    g.step(0.5);
+    const fastVx = a.vx;
+    assert.ok(fastVx > 50, "tank got up to speed");
+    // Place ice and release input — tank should keep sliding.
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 30, height: 30, type: "ice" }];
+    a.input = input({ forward: false });
+    g.step(0.1);
+    assert.ok(a.vx > fastVx * 0.9, "ice preserved most of the momentum (no friction)");
+  });
+});

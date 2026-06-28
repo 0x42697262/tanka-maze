@@ -4,6 +4,7 @@
 
 import {
   DEFAULT_GAME_CONFIG,
+  type HazardZoneDTO,
   type MazeDTO,
   type RoundStanding,
   type ScoreDTO,
@@ -22,12 +23,14 @@ import { canvas, IDLE_INPUT, IS_TOUCH, net, renderer, state } from "./state.js";
 export function startGame(
   maze: MazeDTO,
   spawnZones: SpawnZoneDTO[] = [],
+  hazardZones: HazardZoneDTO[] = [],
   round = 1,
   totalRounds = 1,
   standing: RoundStanding[] = []
 ): void {
   renderer.setMaze(maze);
   renderer.setSpawnZones(spawnZones);
+  renderer.setHazards(hazardZones);
   const cfg = state.currentLobby?.config ?? DEFAULT_GAME_CONFIG;
   const adv = cfg.adv;
   renderer.setParams(adv.tankRadius, adv.bulletRadius);

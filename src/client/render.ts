@@ -3,6 +3,7 @@ import {
   powerupDef,
   type BulletKind,
   type FlagDTO,
+  type HazardZoneDTO,
   type KillEvent,
   type MazeDTO,
   type PowerupDTO,
@@ -94,6 +95,8 @@ export class Renderer {
   // x-ray. Client-side only — the server still broadcasts all tanks.
   private fogOfWar = false;
   private visionRadius = 260;
+  // Hazard zones: terrain tiles (lava/mud/ice/heal) drawn under the walls.
+  private hazards: HazardZoneDTO[] = [];
 
   setParams(tankRadius: number, bulletRadius: number): void {
     this.tankR = tankRadius;
@@ -132,6 +135,11 @@ export class Renderer {
   setFog(fogOfWar: boolean, visionRadius: number): void {
     this.fogOfWar = fogOfWar;
     this.visionRadius = visionRadius;
+  }
+
+  /** Hazard zones for the current game (lava/mud/ice/heal terrain tiles). */
+  setHazards(zones: HazardZoneDTO[]): void {
+    this.hazards = zones;
   }
 
   setMaze(maze: MazeDTO): void {
@@ -221,7 +229,7 @@ export class Renderer {
     this.consumeEffects(nowMs - INTERP_DELAY, nowMs);
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    this.drawMaze(maze);
+    this.drawMaze(maze, nowMs);
 
     const interp = this.interpolated(nowMs);
     this.displayedSnap = interp;
@@ -714,7 +722,7 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  private drawMaze(maze: MazeDTO): void {
+  private drawMaze(maze: MazeDTO, nowMs: number): void {
     const { ctx } = this;
     // Parchment arena floor.
     ctx.fillStyle = "#e7d9b8";
@@ -730,6 +738,23 @@ export class Renderer {
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 5]);
       ctx.strokeRect(z.x + 1, z.y + 1, z.width - 2, z.height - 2);
+      ctx.restore();
+    }
+
+    // Hazard zones: animated terrain tints, drawn under the walls.
+    for (const h of this.hazards) {
+      const pulse = 0.12 + 0.06 * Math.abs(Math.sin(nowMs / 400));
+      let color = "#c24f2f"; // lava — red-orange
+      if (h.type === "mud") color = "#6b4a2f";
+      else if (h.type === "ice") color = "#5a8cb8";
+      else if (h.type === "heal") color = "#3f9e4f";
+      ctx.fillStyle = hexToRgba(color, pulse);
+      ctx.fillRect(h.x, h.y, h.width, h.height);
+      ctx.save();
+      ctx.strokeStyle = hexToRgba(color, 0.55);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(h.x + 1, h.y + 1, h.width - 2, h.height - 2);
       ctx.restore();
     }
 

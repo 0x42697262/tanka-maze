@@ -94,6 +94,13 @@ export const LASER_RANGE = 15 * CELL;
 // grants x-ray through walls. Host-tunable live (GameConfig.fogOfWar / visionRadius).
 export const VISION_RADIUS = 260; // px base sight radius
 
+// Hazard zones: terrain tiles that affect tanks inside them each tick.
+// Lava deals damage; mud slows; ice removes friction (slide); heal restores HP.
+export const HAZARD_ZONE_CELLS = 2; // side in cells of each hazard zone
+export const HAZARD_DAMAGE = 2; // lava damage per second
+export const HAZARD_SLOW_MULT = 0.5; // mud speed multiplier
+export const HAZARD_HEAL_RATE = 1; // heal HP per second
+
 export const TEAM_COLORS = ["#3f8ce6", "#e6453f", "#46c24f", "#e6c23f"]; // blue, red, green, yellow
 
 export const DEFAULT_MAX_PLAYERS = 8;

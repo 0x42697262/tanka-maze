@@ -105,6 +105,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Walls", WALL_LABEL[c.wallStyle]],
       ["Size", SIZE_LABEL[c.mapSize]],
       ["Fog of war", c.fogOfWar ? `${c.visionRadius}px` : onOff(c.fogOfWar)],
+      ["Hazards", c.hazardDensity > 0 ? `${c.hazardDensity} zones` : "Off"],
     ],
   });
 

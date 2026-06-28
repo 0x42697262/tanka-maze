@@ -9,6 +9,9 @@ import {
   CELL,
   EXPLOSION_RADIUS,
   FIRE_COOLDOWN,
+  HAZARD_DAMAGE,
+  HAZARD_HEAL_RATE,
+  HAZARD_SLOW_MULT,
   LASER_DELAY,
   LASER_RANGE,
   MAX_AMMO,
@@ -311,6 +314,11 @@ export interface GameConfig {
   // broadcasts all tanks (a patched client could see through walls).
   fogOfWar: boolean;
   visionRadius: number; // px base sight radius (scope doubles this)
+  // Hazard zones: lava/mud/ice/heal terrain tiles placed on the map.
+  hazardDensity: number; // 0 = off; 1-10 zones placed on round start
+  hazardDamage: number; // lava DPS
+  hazardSlowMult: number; // mud speed multiplier (0-1)
+  hazardHealRate: number; // heal HP per second
   // Power-ups
   powerups: boolean; // spawn pickups on the map
   powerupEverySeconds: number; // spawn cadence
@@ -344,6 +352,10 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   adv: DEFAULT_ADVANCED,
   fogOfWar: false,
   visionRadius: VISION_RADIUS,
+  hazardDensity: 0,
+  hazardDamage: HAZARD_DAMAGE,
+  hazardSlowMult: HAZARD_SLOW_MULT,
+  hazardHealRate: HAZARD_HEAL_RATE,
   powerups: true,
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,
@@ -404,6 +416,16 @@ export interface SpawnZoneDTO {
   width: number;
   height: number;
   color: string; // the team's color (rendered faintly)
+}
+
+/** A terrain hazard zone: lava (DPS), mud (slow), ice (slide), heal (restore HP). */
+export type HazardType = "lava" | "mud" | "ice" | "heal";
+export interface HazardZoneDTO {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: HazardType;
 }
 
 export interface MazeDTO {
@@ -618,6 +640,7 @@ export type ServerMessage =
       type: "gameStart";
       maze: MazeDTO;
       spawnZones: SpawnZoneDTO[];
+      hazardZones: HazardZoneDTO[];
       roster: RosterEntry[];
       round: number;
       totalRounds: number;
