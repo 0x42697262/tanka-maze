@@ -4,13 +4,16 @@
 
 import {
   DEFAULT_GAME_CONFIG,
+  HAZARD_TYPES,
   POWERUP_DEFS,
   WALL_STYLES,
   type AdvancedConfig,
   type CtfScoreMode,
   type FlagStealMode,
+  type FogType,
   type GameConfig,
   type GameMode,
+  type HazardType,
   type MapSize,
   type WallStyle,
 } from "../shared/protocol.js";
@@ -60,6 +63,7 @@ export function gatherAdvanced(): AdvancedConfig {
 export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
   const sel = (id: string) => ($(id) as HTMLSelectElement).value;
   const num = (id: string, d: number) => Number(($(id) as HTMLInputElement).value) || d;
+  const hazardTypes = HAZARD_TYPES.filter((t) => sel(`hazard-${t}`) === "on") as HazardType[];
   return {
     maxPlayers: num("max-players", 8),
     config: {
@@ -93,8 +97,11 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       ctfRespawnBonus: num("ctf-respawn-bonus", 3),
       adv: gatherAdvanced(),
       fogOfWar: sel("fog-of-war") === "on",
+      fogType: sel("fog-type") as FogType,
       visionRadius: num("vision-radius", DEFAULT_GAME_CONFIG.visionRadius),
+      fogArcDegrees: num("fog-arc-degrees", DEFAULT_GAME_CONFIG.fogArcDegrees),
       hazardDensity: num("hazard-density", 0),
+      hazardTypes,
       hazardDamage: num("hazard-damage", 2),
       hazardSlowMult: num("hazard-slow-mult", 0.5),
       hazardHealRate: num("hazard-heal-rate", 1),
@@ -135,8 +142,11 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("ctf-points", c.winScore); // conquest points-to-win mirrors winScore
   set("ctf-respawn-bonus", c.ctfRespawnBonus);
   set("fog-of-war", c.fogOfWar ? "on" : "off");
+  set("fog-type", c.fogType);
   set("vision-radius", c.visionRadius);
+  set("fog-arc-degrees", c.fogArcDegrees);
   set("hazard-density", c.hazardDensity);
+  for (const type of HAZARD_TYPES) set(`hazard-${type}`, c.hazardTypes.includes(type) ? "on" : "off");
   set("hazard-damage", c.hazardDamage);
   set("hazard-slow-mult", c.hazardSlowMult);
   set("hazard-heal-rate", c.hazardHealRate);
@@ -172,6 +182,10 @@ export function applyModeVisibility(): void {
   toggle(".cfg-conquest", !points);
   // Carry forces team-carry on (flags only ride tanks), so its toggle is hidden.
   toggle(".cfg-flagcarry", !ctf || scoreMode === "carry");
+  const fogOn = ($("fog-of-war") as HTMLSelectElement).value === "on";
+  const arcFog = fogOn && ($("fog-type") as HTMLSelectElement).value === "arc";
+  toggle(".cfg-fog-on", !fogOn);
+  toggle(".cfg-fog-arc", !arcFog);
 }
 
 // ---- Map (walls) image picker ----

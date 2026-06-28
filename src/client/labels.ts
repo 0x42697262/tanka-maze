@@ -3,8 +3,10 @@
 
 import {
   POWERUP_DEFS,
+  type FogType,
   type GameConfig,
   type GameMode,
+  type HazardType,
   type LobbyDTO,
   type MapSize,
   type RoundStanding,
@@ -40,6 +42,18 @@ export const SIZE_LABEL: Record<MapSize, string> = {
   random: "Random",
 };
 
+const FOG_LABEL: Record<FogType, string> = {
+  full: "Full area",
+  arc: "Arc",
+};
+
+const HAZARD_LABEL: Record<HazardType, string> = {
+  lava: "Lava",
+  mud: "Mud",
+  ice: "Ice",
+  heal: "Heal",
+};
+
 /** Round wins needed to take the match (CTF counts captured rounds via maxFlags). */
 export function roundsToWin(c: GameConfig): number {
   return c.mode === "ctf" ? c.maxFlags : c.rounds;
@@ -56,6 +70,8 @@ export function configSummary(c: GameConfig): string {
   else if (c.mode === "teams") bits.push(`${c.teamCount} teams · first to ${c.winScore} pts`);
   else bits.push(`first to ${c.winScore} pts`);
   if (c.powerups) bits.push("power-ups");
+  if (c.fogOfWar) bits.push(c.fogType === "arc" ? `fog arc ${c.fogArcDegrees}°` : "fog");
+  if (c.hazardDensity > 0) bits.push("hazards");
   return bits.join(" · ");
 }
 
@@ -104,11 +120,29 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     rows: [
       ["Walls", WALL_LABEL[c.wallStyle]],
       ["Size", SIZE_LABEL[c.mapSize]],
-      ["Fog of war", c.fogOfWar ? `${c.visionRadius}px` : onOff(c.fogOfWar)],
-      ["Hazards", c.hazardDensity > 0 ? `${c.hazardDensity} zones` : "Off"],
       ["Destructible walls", onOff(c.destructibleWalls)],
     ],
   });
+
+  const fog: Row[] = [["Fog of war", onOff(c.fogOfWar)]];
+  if (c.fogOfWar) {
+    fog.push(["Type", FOG_LABEL[c.fogType]]);
+    fog.push(["Radius", `${c.visionRadius}px`]);
+    if (c.fogType === "arc") fog.push(["Arc", `${c.fogArcDegrees}°`]);
+  }
+  groups.push({ title: "Fog of War", rows: fog });
+
+  const hazards: Row[] = [["Hazards", c.hazardDensity > 0 ? `${c.hazardDensity} zones` : "Off"]];
+  if (c.hazardDensity > 0) {
+    hazards.push([
+      "Types",
+      c.hazardTypes.length > 0 ? c.hazardTypes.map((t) => HAZARD_LABEL[t]).join(", ") : "None",
+    ]);
+    if (c.hazardTypes.includes("lava")) hazards.push(["Lava DPS", c.hazardDamage]);
+    if (c.hazardTypes.includes("mud")) hazards.push(["Mud slow", c.hazardSlowMult]);
+    if (c.hazardTypes.includes("heal")) hazards.push(["Heal HP/s", c.hazardHealRate]);
+  }
+  groups.push({ title: "Hazards", rows: hazards });
 
   const match: Row[] = [];
   // CTF is a round series: each round is won by capturing flagsPerRound flags,

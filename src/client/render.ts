@@ -1,8 +1,9 @@
-import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
+import { BULLET_RADIUS, FOG_ARC_DEGREES, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
 import { effectiveVisionRadius } from "../shared/fog.js";
 import {
   powerupDef,
   type BulletKind,
+  type FogType,
   type FlagDTO,
   type HazardZoneDTO,
   type KillEvent,
@@ -59,6 +60,8 @@ interface Beam {
 interface FogView {
   local: TankDTO;
   radius: number;
+  type: FogType;
+  arcRadians: number;
 }
 
 export class Renderer {
@@ -100,7 +103,9 @@ export class Renderer {
   // Enemy tanks also need line of sight unless scope grants x-ray. Client-side
   // only — the server still broadcasts all entities.
   private fogOfWar = false;
+  private fogType: FogType = "full";
   private visionRadius = VISION_RADIUS;
+  private fogArcDegrees = FOG_ARC_DEGREES;
   // Hazard zones: terrain tiles (lava/mud/ice/heal) drawn under the walls.
   private hazards: HazardZoneDTO[] = [];
   // Destructible walls: per-wall HP array (index matches MazeDTO.walls). Walls
@@ -144,9 +149,11 @@ export class Renderer {
   }
 
   /** Configure fog of war for the current game. */
-  setFog(fogOfWar: boolean, visionRadius: number): void {
+  setFog(fogOfWar: boolean, visionRadius: number, fogType: FogType, fogArcDegrees: number): void {
     this.fogOfWar = fogOfWar;
+    this.fogType = fogType;
     this.visionRadius = visionRadius;
+    this.fogArcDegrees = fogArcDegrees;
   }
 
   /** Hazard zones for the current game (lava/mud/ice/heal terrain tiles). */
@@ -280,7 +287,7 @@ export class Renderer {
     this.drawVisionClipped(fog, () => {
       const tankColors = new Map(interp.tanks.map((t) => [t.id, t.color]));
       for (const b of interp.bullets) {
-        if (fog && !this.isPointVisible(b.x, b.y, fog.local, fog.radius)) continue;
+        if (fog && !this.isPointVisible(b.x, b.y, fog)) continue;
         const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
         const rad = Math.max(1, this.bulletR + style.dr);
         ctx.fillStyle = bulletColor(tankColors.get(b.ownerId));
@@ -311,7 +318,7 @@ export class Renderer {
 
     this.drawVisionClipped(fog, () => {
       for (const t of interp.tanks) {
-        if (fog && t.id !== localId && !this.isVisible(t, fog.local, fog.radius)) {
+        if (fog && t.id !== localId && !this.isVisible(t, fog)) {
           continue;
         }
         this.drawTank(t, t.id === localId, nowMs);
@@ -339,7 +346,8 @@ export class Renderer {
   private fogView(local: TankDTO | null): FogView | null {
     if (!this.fogOfWar || !local || !this.maze) return null;
     const base = effectiveVisionRadius(this.visionRadius, this.maze.width, this.maze.height);
-    return { local, radius: local.scoped ? base * 2 : base };
+    const arcRadians = (Math.min(360, Math.max(20, this.fogArcDegrees)) * Math.PI) / 180;
+    return { local, radius: local.scoped ? base * 2 : base, type: this.fogType, arcRadians };
   }
 
   private drawVisionClipped(fog: FogView | null, draw: () => void): void {
@@ -350,10 +358,23 @@ export class Renderer {
     const { ctx } = this;
     ctx.save();
     ctx.beginPath();
-    ctx.arc(fog.local.x, fog.local.y, fog.radius, 0, Math.PI * 2);
+    this.addFogShape(fog);
     ctx.clip();
     draw();
     ctx.restore();
+  }
+
+  private addFogShape(fog: FogView): void {
+    const { ctx } = this;
+    if (fog.type === "full" || fog.arcRadians >= Math.PI * 2) {
+      ctx.moveTo(fog.local.x + fog.radius, fog.local.y);
+      ctx.arc(fog.local.x, fog.local.y, fog.radius, 0, Math.PI * 2);
+      return;
+    }
+    const half = fog.arcRadians / 2;
+    ctx.moveTo(fog.local.x, fog.local.y);
+    ctx.arc(fog.local.x, fog.local.y, fog.radius, fog.local.turretAngle - half, fog.local.turretAngle + half);
+    ctx.closePath();
   }
 
   private drawFogOverlay(fog: FogView, maze: MazeDTO): void {
@@ -362,7 +383,7 @@ export class Renderer {
     ctx.fillStyle = "#12100e";
     ctx.beginPath();
     ctx.rect(0, 0, maze.width, maze.height);
-    ctx.arc(fog.local.x, fog.local.y, fog.radius, 0, Math.PI * 2, true);
+    this.addFogShape(fog);
     ctx.fill("evenodd");
     ctx.restore();
   }
@@ -372,23 +393,29 @@ export class Renderer {
    * the vision radius AND no wall segment blocks the ray from the local tank to
    * it. The scope power-up doubles the radius and skips the wall check (x-ray).
    */
-  private isVisible(enemy: TankDTO, local: TankDTO, radius: number): boolean {
-    if (!this.isPointVisible(enemy.x, enemy.y, local, radius)) return false;
+  private isVisible(enemy: TankDTO, fog: FogView): boolean {
+    if (!this.isPointVisible(enemy.x, enemy.y, fog)) return false;
     return true;
   }
 
-  private isPointVisible(x: number, y: number, local: TankDTO, radius: number): boolean {
-    const dx = x - local.x;
-    const dy = y - local.y;
-    if (dx * dx + dy * dy > radius * radius) return false;
-    if (local.scoped) return true; // x-ray — see through walls
+  private isPointVisible(x: number, y: number, fog: FogView): boolean {
+    const dx = x - fog.local.x;
+    const dy = y - fog.local.y;
+    const dist2 = dx * dx + dy * dy;
+    if (dist2 > fog.radius * fog.radius) return false;
+    if (dist2 < 0.0001) return true;
+    if (fog.type === "arc" && fog.arcRadians < Math.PI * 2) {
+      const d = angleDelta(Math.atan2(dy, dx), fog.local.turretAngle);
+      if (Math.abs(d) > fog.arcRadians / 2) return false;
+    }
+    if (fog.local.scoped) return true; // x-ray — see through walls
     if (!this.maze) return true;
     // Cast a ray from the local tank to the enemy; if any wall segment
     // intersects it, the enemy is hidden.
     for (let i = 0; i < this.maze.walls.length; i++) {
       if (!this.wallBlocksVision(i)) continue;
       const w = this.maze.walls[i];
-      if (segIntersect(local.x, local.y, x, y, w.x1, w.y1, w.x2, w.y2)) {
+      if (segIntersect(fog.local.x, fog.local.y, x, y, w.x1, w.y1, w.x2, w.y2)) {
         return false;
       }
     }
@@ -407,7 +434,7 @@ export class Renderer {
     const { ctx } = this;
     for (const t of interp.tanks) {
       if (!t.alive || !t.scoped) continue;
-      if (fog && t.id !== localId && !this.isVisible(t, fog.local, fog.radius)) continue;
+      if (fog && t.id !== localId && !this.isVisible(t, fog)) continue;
       const paths = this.scopePaths(t, this.tankVelocity(t.id));
       ctx.save();
       ctx.lineCap = "round";
@@ -633,7 +660,7 @@ export class Renderer {
     this.beams = this.beams.filter((b) => nowMs - b.start < BEAM_MS);
     ctx.lineCap = "round";
     for (const b of this.beams) {
-      if (fog && !this.isPointVisible((b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, fog.local, fog.radius)) continue;
+      if (fog && !this.isPointVisible((b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, fog)) continue;
       const alpha = 1 - (nowMs - b.start) / BEAM_MS;
       // Layered beam: violet glow → blue → white core.
       ctx.globalAlpha = alpha * 0.3;
@@ -664,7 +691,7 @@ export class Renderer {
     const { ctx } = this;
     const bob = Math.sin(nowMs / 300) * 1.5;
     for (const p of powerups) {
-      if (fog && !this.isPointVisible(p.x, p.y, fog.local, fog.radius)) continue;
+      if (fog && !this.isPointVisible(p.x, p.y, fog)) continue;
       const def = powerupDef(p.type);
       const s = POWERUP_RADIUS;
       ctx.save();
@@ -723,7 +750,7 @@ export class Renderer {
 
     const PENNANT_GAP = 9; // vertical spacing between stacked pennants
     for (const fl of interp.flags) {
-      if (fog && !this.isPointVisible(fl.x, fl.y, fog.local, fog.radius)) continue;
+      if (fog && !this.isPointVisible(fl.x, fl.y, fog)) continue;
       const color = teamColor.get(fl.team) ?? "#888888";
       const bob = fl.state === "carried" ? 0 : Math.sin(nowMs / 300) * 1.5;
       const tier = stackIndex.get(fl) ?? 0;
@@ -758,7 +785,7 @@ export class Renderer {
     const { ctx } = this;
     this.explosions = this.explosions.filter((e) => nowMs - e.start < EXPLOSION_MS);
     for (const e of this.explosions) {
-      if (fog && !this.isPointVisible(e.x, e.y, fog.local, fog.radius)) continue;
+      if (fog && !this.isPointVisible(e.x, e.y, fog)) continue;
       const age = (nowMs - e.start) / EXPLOSION_MS; // 0..1
       ctx.save();
       ctx.translate(e.x, e.y);
@@ -818,7 +845,7 @@ export class Renderer {
 
     // Hazard zones: animated terrain tints, drawn under the walls.
     for (const h of this.hazards) {
-      if (fog && !this.isRectVisible(h.x, h.y, h.width, h.height, fog.local, fog.radius)) continue;
+      if (fog && !this.isRectVisible(h.x, h.y, h.width, h.height, fog)) continue;
       const pulse = 0.28 + 0.1 * Math.abs(Math.sin(nowMs / 400));
       let color = "#c24f2f"; // lava — red-orange
       if (h.type === "mud") color = "#6b4a2f";
@@ -871,7 +898,7 @@ export class Renderer {
     return !this.destructibleWalls || this.wallHp[index] > 0;
   }
 
-  private isRectVisible(x: number, y: number, width: number, height: number, local: TankDTO, radius: number): boolean {
+  private isRectVisible(x: number, y: number, width: number, height: number, fog: FogView): boolean {
     const points = [
       [x + width / 2, y + height / 2],
       [x, y],
@@ -879,7 +906,7 @@ export class Renderer {
       [x, y + height],
       [x + width, y + height],
     ] as const;
-    return points.some(([px, py]) => this.isPointVisible(px, py, local, radius));
+    return points.some(([px, py]) => this.isPointVisible(px, py, fog));
   }
 
   private drawTank(t: TankDTO, isLocal: boolean, nowMs: number): void {
@@ -1058,6 +1085,11 @@ function angleLerp(a: number, b: number, f: number): number {
   let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * f;
+}
+function angleDelta(a: number, b: number): number {
+  let d = ((a - b + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
 }
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;

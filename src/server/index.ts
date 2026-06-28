@@ -12,6 +12,8 @@ import {
   DEFAULT_ADVANCED,
   DEFAULT_GAME_CONFIG,
   encode,
+  FOG_TYPES,
+  HAZARD_TYPES,
   POWERUP_DEFS,
   type AdvancedConfig,
   type ClientMessage,
@@ -391,6 +393,10 @@ function sanitizeConfig(raw: unknown): GameConfig {
   };
   const mode = oneOf(c.mode, ["ffa", "lms", "teams", "ctf"] as const, d.mode);
   const ctf = mode === "ctf";
+  const rawHazardTypes = c.hazardTypes;
+  const hazardTypes = Array.isArray(rawHazardTypes)
+    ? HAZARD_TYPES.filter((t) => rawHazardTypes.includes(t))
+    : d.hazardTypes;
   let lives = clampInt(c.lives, 0, 99, d.lives);
   // Last Man Standing needs finite lives, or it could never end.
   if (mode === "lms" && lives < 1) lives = 3;
@@ -433,8 +439,11 @@ function sanitizeConfig(raw: unknown): GameConfig {
     ctfRespawnBonus: clampInt(c.ctfRespawnBonus, 0, 60, d.ctfRespawnBonus),
     adv: sanitizeAdvanced(c.adv),
     fogOfWar: typeof c.fogOfWar === "boolean" ? c.fogOfWar : d.fogOfWar,
+    fogType: oneOf(c.fogType, FOG_TYPES, d.fogType),
     visionRadius: clampInt(c.visionRadius, 80, 800, d.visionRadius),
+    fogArcDegrees: clampInt(c.fogArcDegrees, 20, 360, d.fogArcDegrees),
     hazardDensity: clampInt(c.hazardDensity, 0, 10, d.hazardDensity),
+    hazardTypes,
     hazardDamage: clampInt(c.hazardDamage, 1, 20, d.hazardDamage),
     hazardSlowMult: clampFloat(c.hazardSlowMult, 0, 1, d.hazardSlowMult),
     hazardHealRate: clampFloat(c.hazardHealRate, 0.5, 10, d.hazardHealRate),

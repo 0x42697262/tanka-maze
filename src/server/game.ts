@@ -1421,7 +1421,8 @@ export class Game {
     if (density <= 0) return;
     const { cols, rows, cell } = this.maze;
     const sidePx = Math.max(1, Math.round(cell * HAZARD_ZONE_FRACTION));
-    const types: HazardType[] = ["lava", "mud", "ice", "heal"];
+    const types = this.cfg.hazardTypes;
+    if (types.length === 0) return;
     // Candidate cells: avoid the arena border and spawn zones.
     const candidates: Array<{ cx: number; cy: number }> = [];
     for (let cy = 1; cy < rows - 1; cy++) {

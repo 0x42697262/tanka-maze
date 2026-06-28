@@ -1055,6 +1055,18 @@ describe("hazards", () => {
     }
   });
 
+  it("uses only the configured hazard type pool", () => {
+    const g = makeGame({ cfg: { hazardDensity: 6, hazardTypes: ["lava"] }, players: [{ id: "a", name: "A" }] });
+    const zones = (g as any).hazards;
+    assert.equal(zones.length, 6);
+    assert.deepEqual(new Set(zones.map((h: any) => h.type)), new Set(["lava"]));
+  });
+
+  it("spawns no zones when all hazard types are disabled", () => {
+    const g = makeGame({ cfg: { hazardDensity: 6, hazardTypes: [] }, players: [{ id: "a", name: "A" }] });
+    assert.equal((g as any).hazards.length, 0);
+  });
+
   it("lava damages an unshielded tank over time and kills at 0 hp", () => {
     const g = makeGame({ cfg: { hazardDensity: 1, hazardDamage: 10, hp: 1 }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
