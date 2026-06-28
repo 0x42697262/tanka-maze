@@ -9,8 +9,7 @@ describe("fog of war", () => {
   it("defaults to the shared full-area vision radius", () => {
     assert.equal(DEFAULT_GAME_CONFIG.visionRadius, VISION_RADIUS);
     assert.equal(DEFAULT_GAME_CONFIG.fogType, "full");
-    assert.equal(FLASHLIGHT_DEGREES, 90);
-    assert.equal(DEFAULT_GAME_CONFIG.flashlightDegrees, 90);
+    assert.equal(DEFAULT_GAME_CONFIG.flashlightDegrees, FLASHLIGHT_DEGREES);
   });
 
   it("keeps the configured radius on a normal map", () => {

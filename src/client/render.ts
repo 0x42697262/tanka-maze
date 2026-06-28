@@ -75,6 +75,8 @@ interface FogView {
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
+  private fogOverlay: HTMLCanvasElement | null = null;
+  private fogOverlayCtx: CanvasRenderingContext2D | null = null;
   private maze: MazeDTO | null = null;
   private spawnZones: SpawnZoneDTO[] = [];
   private buffer: Buffered[] = [];
@@ -368,7 +370,7 @@ export class Renderer {
       radius,
       type: this.fogType,
       beamRadians,
-      haloRadius: this.tankR + 14,
+      haloRadius: this.tankR + 9,
       beamBaseHalf: Math.max(6, this.tankR * 0.9),
       beamBaseCenter: { x: local.x + ux * this.tankR * 0.35, y: local.y + uy * this.tankR * 0.35 },
       polygon: [],
@@ -391,8 +393,7 @@ export class Renderer {
     ctx.restore();
   }
 
-  private addFogShape(fog: FogView, includeHalo: boolean): void {
-    const { ctx } = this;
+  private addFogShape(fog: FogView, includeHalo: boolean, ctx: CanvasRenderingContext2D = this.ctx): void {
     if (fog.polygon.length > 0) {
       ctx.moveTo(fog.polygon[0].x, fog.polygon[0].y);
       for (let i = 1; i < fog.polygon.length; i++) ctx.lineTo(fog.polygon[i].x, fog.polygon[i].y);
@@ -406,13 +407,32 @@ export class Renderer {
 
   private drawFogOverlay(fog: FogView, maze: MazeDTO): void {
     const { ctx } = this;
+    const { canvas: overlay, ctx: overlayCtx } = this.fogOverlayTarget(maze.width, maze.height);
+    overlayCtx.clearRect(0, 0, maze.width, maze.height);
+    overlayCtx.globalCompositeOperation = "source-over";
+    overlayCtx.fillStyle = "#12100e";
+    overlayCtx.fillRect(0, 0, maze.width, maze.height);
+    overlayCtx.globalCompositeOperation = "destination-out";
+    overlayCtx.beginPath();
+    this.addFogShape(fog, true, overlayCtx);
+    overlayCtx.fill();
+    overlayCtx.globalCompositeOperation = "source-over";
     ctx.save();
-    ctx.fillStyle = "#12100e";
-    ctx.beginPath();
-    ctx.rect(0, 0, maze.width, maze.height);
-    this.addFogShape(fog, false);
-    ctx.fill("evenodd");
+    ctx.drawImage(overlay, 0, 0);
     ctx.restore();
+  }
+
+  private fogOverlayTarget(width: number, height: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+    if (!this.fogOverlay) {
+      this.fogOverlay = document.createElement("canvas");
+      this.fogOverlayCtx = this.fogOverlay.getContext("2d");
+      if (!this.fogOverlayCtx) throw new Error("2D canvas context unavailable");
+    }
+    if (this.fogOverlay.width !== width || this.fogOverlay.height !== height) {
+      this.fogOverlay.width = width;
+      this.fogOverlay.height = height;
+    }
+    return { canvas: this.fogOverlay, ctx: this.fogOverlayCtx! };
   }
 
   /** Build the visible fog shape by casting rays until they hit a blocking wall. */
