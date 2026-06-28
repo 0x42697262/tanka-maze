@@ -97,12 +97,13 @@ export function renderLeaderboard(): void {
   const ol = $("leaderboard-rows");
   ol.innerHTML = "";
 
-  // Capture the Flag: rank teams — by flags captured (deliver) or points held
-  // (conquest), live from the tanks in the snapshot.
+  // Capture the Flag: rank teams — by flags captured (deliver) or points earned
+  // (conquest/carry), live from the tanks in the snapshot.
   if (state.currentLobby?.config.mode === "ctf") {
     const names = state.currentLobby?.teamNames ?? [];
     const colors = state.currentLobby?.teamColors ?? [];
-    const conquest = state.currentLobby?.config.ctfScoreMode === "conquest";
+    const sm = state.currentLobby?.config.ctfScoreMode;
+    const conquest = sm === "conquest" || sm === "carry";
     const myTeam = snap.tanks.find((t) => t.id === state.playerId)?.team;
     const byTeam = new Map<number, number>();
     const memberN = new Map<number, number>();

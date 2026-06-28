@@ -74,10 +74,10 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       respawnSeconds: num("cfg-respawn", 3),
       killPoints: num("kill-points", 60),
       deathPenaltyPct: Number(($("death-penalty") as HTMLInputElement).value) || 0,
-      // Conquest reuses winScore as its points-to-win (its own field); other
-      // modes use the standard score-to-win.
+      // Conquest/carry reuse winScore as their points-to-win (their own field);
+      // other modes use the standard score-to-win.
       winScore:
-        sel("mode") === "ctf" && sel("ctf-score-mode") === "conquest"
+        sel("mode") === "ctf" && (sel("ctf-score-mode") === "conquest" || sel("ctf-score-mode") === "carry")
           ? num("ctf-points", 300)
           : num("win-score", 300),
       // CTF picks 2 or 4 from its own selector; Team VS uses the 2–4 spinner.
@@ -150,11 +150,14 @@ export function applyModeVisibility(): void {
   // CTF-only (flags to win) vs the point-scoring/rounds controls it replaces.
   toggle(".cfg-ctf", !ctf);
   toggle(".cfg-nctf", ctf);
-  // Within CTF, deliver vs conquest each have their own row (captures-per-round
-  // vs points-to-win).
-  const conquest = ctf && ($("ctf-score-mode") as HTMLSelectElement).value === "conquest";
-  toggle(".cfg-deliver", !ctf || conquest);
-  toggle(".cfg-conquest", !conquest);
+  // Within CTF, "deliver" shows captures-per-round while the points-scoring modes
+  // (conquest/carry) show points-to-win.
+  const scoreMode = ctf ? ($("ctf-score-mode") as HTMLSelectElement).value : "";
+  const points = scoreMode === "conquest" || scoreMode === "carry";
+  toggle(".cfg-deliver", !ctf || scoreMode !== "deliver");
+  toggle(".cfg-conquest", !points);
+  // Carry forces team-carry on (flags only ride tanks), so its toggle is hidden.
+  toggle(".cfg-flagcarry", !ctf || scoreMode === "carry");
 }
 
 // ---- Map (walls) image picker ----

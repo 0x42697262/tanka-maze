@@ -464,6 +464,90 @@ describe("capture the flag", () => {
     assert.equal(enemyFlag.carrierId, "b");
   });
 
+  it("carry: a tank scores per enemy flag carried (×3 while also carrying its own)", () => {
+    const g = makeCtf({ ctfScoreMode: "carry", winScore: 1000 });
+    const a = tank(g, "a"); // team 0
+    const enemyFlag = flagOf(g, 1);
+    a.x = enemyFlag.x;
+    a.y = enemyFlag.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(enemyFlag.carrierId, "a"); // a carries team 1's enemy flag
+
+    a.score = 0;
+    (g as any).stepCarry(1); // 1 enemy flag, no own flag → 1/s
+    assert.equal(Math.round(a.score), 1);
+
+    // Grab a's own flag (from home) too → multiplier kicks in.
+    const ownFlag = flagOf(g, 0);
+    a.x = ownFlag.x;
+    a.y = ownFlag.y;
+    ownFlag.stealCooldown = 0;
+    (g as any).stepFlags(0.1);
+    assert.equal(ownFlag.carrierId, "a");
+    assert.equal(ownFlag.state, "carried");
+
+    a.score = 0;
+    (g as any).stepCarry(1); // 1 enemy flag × own-flag bonus → 3/s
+    assert.equal(Math.round(a.score), 3);
+  });
+
+  it("carry: the multiplier is per-tank — own-flag carrier outscores a 2-flag teammate", () => {
+    const g = makeCtf({ ctfScoreMode: "carry", winScore: 1000, teamCount: 4 });
+    const a = tank(g, "a"); // team 0
+    const b = tank(g, "b"); // team 1 — repurposed as a's teammate via flag assignment
+    // a carries two enemy flags (teams 1 and 2); teammate-style tank carries one
+    // enemy flag plus team 0's own flag. Drive each tank onto the relevant flags.
+    const f1 = flagOf(g, 1);
+    const f2 = flagOf(g, 2);
+    const f3 = flagOf(g, 3);
+    const own = flagOf(g, 0);
+    // a (team 0) grabs flags of teams 1 and 2.
+    for (const f of [f1, f2]) {
+      a.x = f.x; a.y = f.y; f.stealCooldown = 0;
+      (g as any).stepFlags(0.1);
+    }
+    assert.equal(f1.carrierId, "a");
+    assert.equal(f2.carrierId, "a");
+    // b is on team 1 — make it a team-0 carrier holding team 3's flag + team 0's own flag.
+    b.team = 0;
+    for (const f of [f3, own]) {
+      b.x = f.x; b.y = f.y; f.stealCooldown = 0;
+      (g as any).stepFlags(0.1);
+    }
+    assert.equal(f3.carrierId, "b");
+    assert.equal(own.carrierId, "b");
+
+    a.score = 0;
+    b.score = 0;
+    (g as any).stepCarry(1);
+    assert.equal(Math.round(a.score), 2); // 2 enemy flags, no own flag → 2/s
+    assert.equal(Math.round(b.score), 3); // 1 enemy flag × own-flag bonus → 3/s
+    assert.ok(b.score > a.score);
+  });
+
+  it("carry: flags never plant at a base and reaching winScore wins the round", () => {
+    const g = makeCtf({ ctfScoreMode: "carry", winScore: 5 });
+    const a = tank(g, "a"); // team 0
+    const enemyFlag = flagOf(g, 1);
+    a.x = enemyFlag.x;
+    a.y = enemyFlag.y;
+    (g as any).stepFlags(0.1);
+    // Sit on a's own base — in carry mode nothing is planted/captured there.
+    const base = zoneOf(g, 0);
+    a.x = base.x + base.width / 2;
+    a.y = base.y + base.height / 2;
+    enemyFlag.x = a.x;
+    enemyFlag.y = a.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(enemyFlag.state, "carried");
+    assert.equal(enemyFlag.carrierId, "a");
+
+    a.score = 4;
+    (g as any).stepCarry(1); // +1 → 5 ≥ winScore
+    assert.equal(g.isRoundOver, true);
+    assert.equal((g as any).roundWins.get("t0"), 1);
+  });
+
   it("uses spawn-zone bases (2 teams by default)", () => {
     const g = makeCtf();
     assert.equal((g as any).spawnZones.length, 2);

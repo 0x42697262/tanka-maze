@@ -96,9 +96,11 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
 
 export type GameMode = "ffa" | "lms" | "teams" | "ctf";
 /** How CTF is scored. "deliver" = bring an enemy flag into your own base for a
- *  capture; "conquest" = hold enemy flags for points/second over time. */
-export type CtfScoreMode = "deliver" | "conquest";
-export const CTF_SCORE_MODES: CtfScoreMode[] = ["deliver", "conquest"];
+ *  capture; "conquest" = hold enemy flags at your base for points/second over
+ *  time; "carry" = a tank earns points/second for every enemy flag it personally
+ *  carries (flags never sit at a base — they only drop when their carrier dies). */
+export type CtfScoreMode = "deliver" | "conquest" | "carry";
+export const CTF_SCORE_MODES: CtfScoreMode[] = ["deliver", "conquest", "carry"];
 /** How a flag can change hands by touch (besides being dropped on a kill).
  *  "any" = anyone who touches the carrier takes it; "team" = only teammates
  *  (relay) — enemies must kill the carrier; "off" = only a kill drops it. */
@@ -290,7 +292,8 @@ export interface GameConfig {
   // team count: 1 for 2 teams, 3 for 4 teams — i.e. one per rival).
   flagsPerRound: number;
   // CTF: "deliver" = carry an enemy flag home to capture; "conquest" = hold enemy
-  // flags for points/sec, first to winScore points takes the round.
+  // flags at your base for points/sec; "carry" = a tank scores points/sec per
+  // enemy flag it carries. First to winScore points takes the round (conquest/carry).
   ctfScoreMode: CtfScoreMode;
   // CTF: extra seconds added to the respawn delay on death (0 = none).
   ctfRespawnBonus: number;

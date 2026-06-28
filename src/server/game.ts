@@ -56,6 +56,10 @@ interface SpawnZone {
   cells: Array<{ x: number; y: number }>;
 }
 
+/** CTF points scoring (conquest/carry): the bonus multiplier applied while your
+ *  own flag is also secured — at home (conquest) or carried (carry). */
+const OWN_FLAG_MULT = 3;
+
 /** 4-neighbour offsets (up, right, down, left) for homing-round pathfinding. */
 const HOMING_DIRS: ReadonlyArray<readonly [number, number]> = [
   [0, -1],
@@ -498,6 +502,7 @@ export class Game {
     this.stepBullets(dt);
     this.stepFlags(dt);
     this.stepConquest(dt);
+    this.stepCarry(dt);
   }
 
   private fire(tank: Tank): void {
@@ -1348,7 +1353,10 @@ export class Game {
     const pickupR = this.adv.tankRadius + POWERUP_RADIUS;
     const pickupR2 = pickupR * pickupR;
     const stealMode = this.cfg.flagStealMode; // "any" | "team" | "off"
-    const teamCarry = this.cfg.flagTeamCarry;
+    // "carry" scoring: flags live on tanks and only drop on a kill — they're never
+    // returned/planted at a base, and your own flag is grabbable so you can hoard it.
+    const carry = this.cfg.ctfScoreMode === "carry";
+    const teamCarry = this.cfg.flagTeamCarry || carry;
 
     for (const flag of this.flags) {
       if (flag.stealCooldown > 0) flag.stealCooldown = Math.max(0, flag.stealCooldown - dt);
@@ -1398,7 +1406,9 @@ export class Game {
           break;
         }
         if (t.team === flag.team) {
-          if (flag.state === "dropped") {
+          // In carry mode you can pick up your own flag (even at home) to hoard it
+          // for the multiplier; otherwise only a dropped own flag can be recovered.
+          if (flag.state === "dropped" || (carry && flag.state === "home")) {
             if (teamCarry) {
               // Recover the flag by carrying it (it returns home from your base).
               flag.state = "carried";
@@ -1426,9 +1436,11 @@ export class Game {
       }
     }
 
-    // At a base: a team's own flag carried back simply returns home (both modes).
-    // In "deliver", an enemy flag brought into your base captures it; in
+    // At a base: a team's own flag carried back simply returns home (deliver/
+    // conquest). In "deliver", an enemy flag brought into your base captures it; in
     // "conquest" the enemy flag is planted/stacked at the base, where it scores.
+    // "carry" has no base interaction at all — flags only ride tanks and drop on death.
+    if (carry) return;
     const deliver = this.cfg.ctfScoreMode === "deliver";
     for (const base of this.spawnZones) {
       for (const flag of this.flags) {
@@ -1482,11 +1494,38 @@ export class Game {
     for (let team = 0; team < this.cfg.teamCount; team++) {
       const flags = held.get(team) ?? 0;
       if (flags === 0) continue;
-      const gain = flags * (ownHome.get(team) ? 3 : 1) * dt;
+      const gain = flags * (ownHome.get(team) ? OWN_FLAG_MULT : 1) * dt;
       const members = [...this.tanks.values()].filter((t) => t.team === team);
       if (members.length === 0) continue;
       const share = gain / members.length; // split so the team total = Σ members
       for (const m of members) m.score += share;
+    }
+    this.checkConquestWin();
+  }
+
+  /**
+   * Carry scoring: each second a tank earns 1 point per ENEMY flag it personally
+   * carries, multiplied (×OWN_FLAG_MULT) while it also carries its own team's flag.
+   * The multiplier is per-tank, so of two teammates each holding two flags, the one
+   * also carrying its own flag outscores the one holding two enemy flags. Points
+   * accrue into the tank (the leaderboard sums them per team); the first team to
+   * reach winScore points takes the round.
+   */
+  private stepCarry(dt: number): void {
+    if (!this.ctf || this.cfg.ctfScoreMode !== "carry" || this.roundOver) return;
+    const enemyFlags = new Map<string, number>(); // carrierId -> enemy flags carried
+    const hasOwnFlag = new Set<string>(); // carriers also carrying their own flag
+    for (const f of this.flags) {
+      if (f.state !== "carried" || !f.carrierId) continue;
+      const carrier = this.tanks.get(f.carrierId);
+      if (!carrier || !carrier.alive) continue;
+      if (f.team === carrier.team) hasOwnFlag.add(carrier.id);
+      else enemyFlags.set(carrier.id, (enemyFlags.get(carrier.id) ?? 0) + 1);
+    }
+    for (const [id, flags] of enemyFlags) {
+      const tank = this.tanks.get(id);
+      if (!tank) continue;
+      tank.score += flags * (hasOwnFlag.has(id) ? OWN_FLAG_MULT : 1) * dt;
     }
     this.checkConquestWin();
   }

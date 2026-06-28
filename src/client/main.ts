@@ -220,15 +220,22 @@ $("lobby-config").addEventListener("change", (e) => {
   // points-to-win are one/100 per rival (1/100 for 2 teams, 3/300 for 4).
   const target = e.target as HTMLElement | null;
   const ctfTeams = () => Number(($("ctf-team-count") as HTMLSelectElement).value) || 2;
-  const conquest = () => ($("ctf-score-mode") as HTMLSelectElement).value === "conquest";
+  const scoreMode = () => ($("ctf-score-mode") as HTMLSelectElement).value;
+  const usesPoints = () => scoreMode() === "conquest" || scoreMode() === "carry";
   if (target?.id === "ctf-team-count") {
     const teams = ctfTeams();
     ($("flags-per-round") as HTMLInputElement).value = String(Math.max(1, teams - 1));
-    if (conquest()) ($("ctf-points") as HTMLInputElement).value = String(100 * Math.max(1, teams - 1));
+    if (usesPoints()) ($("ctf-points") as HTMLInputElement).value = String(100 * Math.max(1, teams - 1));
   }
-  // Switching to conquest seeds a sensible points target (100 per rival team).
-  if (target?.id === "ctf-score-mode" && conquest()) {
-    ($("ctf-points") as HTMLInputElement).value = String(100 * Math.max(1, ctfTeams() - 1));
+  // Switching to a points-scoring mode seeds a sensible target (100 per rival team).
+  // Carry defaults steal-on-touch off (kill to drop) and pins team-carry on (flags
+  // only ride tanks, never returning to a base), since both ride the carrier.
+  if (target?.id === "ctf-score-mode") {
+    if (usesPoints()) ($("ctf-points") as HTMLInputElement).value = String(100 * Math.max(1, ctfTeams() - 1));
+    if (scoreMode() === "carry") {
+      ($("flag-steal") as HTMLSelectElement).value = "off";
+      ($("flag-team-carry") as HTMLSelectElement).value = "on";
+    }
   }
   applyModeVisibility();
   const { maxPlayers, config } = gatherConfig();

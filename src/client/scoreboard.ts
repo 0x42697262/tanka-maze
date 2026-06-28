@@ -9,7 +9,8 @@ export function renderScoreboard(): void {
   if (!state.currentLobby) return;
   const lobby = state.currentLobby;
   const ctf = lobby.config.mode === "ctf";
-  const conquest = ctf && lobby.config.ctfScoreMode === "conquest";
+  const sm = lobby.config.ctfScoreMode;
+  const conquest = ctf && (sm === "conquest" || sm === "carry");
   const teams = lobby.config.mode === "teams" || ctf;
   const lms = lobby.config.mode === "lms"; // rank by survival (lives), not points
   const isHost = lobby.hostId === state.playerId;
