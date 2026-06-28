@@ -33,6 +33,7 @@ import {
   TRACKING_LIFETIME,
   TRACKING_TURN_RATE,
   VISION_RADIUS,
+  WALL_HP,
   WALL_THICKNESS,
 } from "./constants.js";
 
@@ -54,6 +55,7 @@ export interface AdvancedConfig {
   bulletLifetime: number; // s
   cellSize: number; // px per maze cell
   wallThickness: number; // px
+  wallHp: number; // hits to destroy an internal wall (destructibleWalls only)
   speedBoostMult: number;
   speedBoostSeconds: number;
   shieldSeconds: number;
@@ -84,6 +86,7 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
   bulletLifetime: BULLET_LIFETIME,
   cellSize: CELL,
   wallThickness: WALL_THICKNESS,
+  wallHp: WALL_HP,
   speedBoostMult: SPEED_BOOST_MULT,
   speedBoostSeconds: SPEED_BOOST_SECONDS,
   shieldSeconds: SHIELD_SECONDS,
@@ -319,6 +322,9 @@ export interface GameConfig {
   hazardDamage: number; // lava DPS
   hazardSlowMult: number; // mud speed multiplier (0-1)
   hazardHealRate: number; // heal HP per second
+  // Destructible walls: internal walls have HP and can be breached by bullets.
+  // Border walls are always indestructible.
+  destructibleWalls: boolean;
   // Power-ups
   powerups: boolean; // spawn pickups on the map
   powerupEverySeconds: number; // spawn cadence
@@ -356,6 +362,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   hazardDamage: HAZARD_DAMAGE,
   hazardSlowMult: HAZARD_SLOW_MULT,
   hazardHealRate: HAZARD_HEAL_RATE,
+  destructibleWalls: false,
   powerups: true,
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,
@@ -560,6 +567,9 @@ export interface SnapshotDTO {
   beams: BeamDTO[];
   /** Kill/suicide/team-kill events this tick (transient; for the log). */
   events: KillEvent[];
+  /** Damaged walls (destructibleWalls only): index into MazeDTO.walls + current HP.
+   *  Walls at full HP or indestructible are omitted. Empty when destructibleWalls is off. */
+  wallHp: Array<{ index: number; hp: number }>;
 }
 
 export interface ScoreDTO {

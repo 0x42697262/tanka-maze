@@ -14,6 +14,8 @@ import {
   TANK_REVERSE_SPEED,
   TANK_SPEED,
   TRACKING_REPATH,
+  WALL_DAMAGE,
+  WALL_EXPLOSION_DAMAGE,
 } from "../shared/constants.js";
 import {
   POWERUP_TYPES,
@@ -253,6 +255,7 @@ export class Game {
     this.buildSpawnZones(players.map((p) => p.team ?? 0));
     this.maze.clearZones(this.spawnZones); // bases are open rooms (no inner walls)
     this.buildHazardZones();
+    if (this.cfg.destructibleWalls) this.maze.setWallHp(this.adv.wallHp);
     this.buildFlags();
 
     // Initial players take sequential spawn points around the arena.
@@ -767,6 +770,11 @@ export class Game {
           } else {
             const inWall = this.circleHitsWall(b.x, b.y, this.adv.bulletRadius);
             if (inWall && !b.wasInWall) {
+              // Destructible walls: damage on pierce before checking wallPierce.
+              if (this.cfg.destructibleWalls) {
+                const w = this.maze.hitWall(b.x, b.y, this.adv.bulletRadius);
+                if (w) this.maze.damageWall(w, WALL_DAMAGE);
+              }
               if (b.wallPierce <= 0) dead = true;
               else b.wallPierce -= 1;
             }
@@ -779,6 +787,11 @@ export class Game {
               this.explode(b.x, b.y, b.ownerId);
               dead = true;
             } else {
+              // Destructible walls: damage on bounce.
+              if (this.cfg.destructibleWalls) {
+                const w = this.maze.hitWall(nx, b.y, this.adv.bulletRadius);
+                if (w) this.maze.damageWall(w, WALL_DAMAGE);
+              }
               b.vx = -b.vx;
               if (++b.bounces > b.maxBounces) dead = true;
             }
@@ -792,6 +805,10 @@ export class Game {
                 this.explode(b.x, b.y, b.ownerId);
                 dead = true;
               } else {
+                if (this.cfg.destructibleWalls) {
+                  const w = this.maze.hitWall(b.x, ny, this.adv.bulletRadius);
+                  if (w) this.maze.damageWall(w, WALL_DAMAGE);
+                }
                 b.vy = -b.vy;
                 if (++b.bounces > b.maxBounces) dead = true;
               }
@@ -934,6 +951,10 @@ export class Game {
   /** Area damage from an explosive round; emits a blast for clients to render. */
   private explode(x: number, y: number, ownerId: string): void {
     this.pendingBlasts.push({ x, y });
+    // Destructible walls: AoE damage to nearby walls.
+    if (this.cfg.destructibleWalls) {
+      this.maze.damageWallsInRadius(x, y, this.adv.explosionRadius, WALL_EXPLOSION_DAMAGE);
+    }
     if (this.roundOver) return; // between rounds: blast shows, but no damage
     const r2 = this.adv.explosionRadius * this.adv.explosionRadius;
     for (const tank of this.tanks.values()) {
@@ -1221,6 +1242,7 @@ export class Game {
     this.buildSpawnZones([...this.tanks.values()].map((t) => t.team));
     this.maze.clearZones(this.spawnZones); // bases are open rooms (no inner walls)
     this.buildHazardZones();
+    if (this.cfg.destructibleWalls) this.maze.setWallHp(this.adv.wallHp);
     this.buildFlags();
     this.teamRoundCaptures.clear();
     // Fresh fight, fresh streaks (a new First Blood is up for grabs).
@@ -1874,6 +1896,7 @@ export class Game {
         y2: round(b.y2),
       })),
       events: this.pendingEvents.slice(),
+      wallHp: this.cfg.destructibleWalls ? this.maze.damagedWalls() : [],
     };
   }
 

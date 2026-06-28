@@ -60,6 +60,10 @@ interface Segment {
   y1: number;
   x2: number;
   y2: number;
+  /** Current HP (Infinity = indestructible border wall; 0 = destroyed). */
+  hp: number;
+  /** Max HP (Infinity = indestructible). Equal to `hp` when undamaged. */
+  maxHp: number;
 }
 
 /** 4-neighbour offsets (up, right, down, left) used throughout generation. */
@@ -1117,6 +1121,8 @@ export class Maze {
   private buildSegments(): Segment[] {
     const segs: Segment[] = [];
     const { vWalls, hWalls } = this.grid;
+    // Walls start indestructible (Infinity HP); setWallHp overrides internal walls.
+    const indestructible = { hp: Infinity, maxHp: Infinity };
 
     // Vertical walls: merge consecutive present cells down each column.
     for (let x = 0; x <= this.cols; x++) {
@@ -1125,7 +1131,7 @@ export class Maze {
         const present = y < this.rows && vWalls[x][y];
         if (present && runStart === -1) runStart = y;
         if (!present && runStart !== -1) {
-          segs.push({ x1: x * this.cell, y1: runStart * this.cell, x2: x * this.cell, y2: y * this.cell });
+          segs.push({ x1: x * this.cell, y1: runStart * this.cell, x2: x * this.cell, y2: y * this.cell, ...indestructible });
           runStart = -1;
         }
       }
@@ -1138,7 +1144,7 @@ export class Maze {
         const present = x < this.cols && hWalls[x][y];
         if (present && runStart === -1) runStart = x;
         if (!present && runStart !== -1) {
-          segs.push({ x1: runStart * this.cell, y1: y * this.cell, x2: x * this.cell, y2: y * this.cell });
+          segs.push({ x1: runStart * this.cell, y1: y * this.cell, x2: x * this.cell, y2: y * this.cell, ...indestructible });
           runStart = -1;
         }
       }
@@ -1163,9 +1169,67 @@ export class Maze {
     const reach = r + this.thickness / 2;
     const reach2 = reach * reach;
     for (const w of this.walls) {
+      if (w.hp <= 0) continue; // destroyed — no collision
       if (pointSegDist2(x, y, w.x1, w.y1, w.x2, w.y2) <= reach2) return true;
     }
     return false;
+  }
+
+  /** Make all non-border walls destructible with the given HP. Border walls
+   *  (on the arena boundary) stay indestructible. Called when destructibleWalls
+   *  is enabled. */
+  setWallHp(hp: number): void {
+    for (const w of this.walls) {
+      const onBorder =
+        (w.x1 === 0 && w.x2 === 0) ||
+        (w.x1 === this.width && w.x2 === this.width) ||
+        (w.y1 === 0 && w.y2 === 0) ||
+        (w.y1 === this.height && w.y2 === this.height);
+      if (!onBorder) {
+        w.hp = hp;
+        w.maxHp = hp;
+      }
+    }
+  }
+
+  /** Find the first non-destroyed wall overlapping a circle at (x,y,r). */
+  hitWall(x: number, y: number, r: number): Segment | null {
+    const reach = r + this.thickness / 2;
+    const reach2 = reach * reach;
+    for (const w of this.walls) {
+      if (w.hp <= 0) continue;
+      if (pointSegDist2(x, y, w.x1, w.y1, w.x2, w.y2) <= reach2) return w;
+    }
+    return null;
+  }
+
+  /** Damage a wall by `amount`; at 0 HP it's destroyed (removed from collision). */
+  damageWall(w: Segment, amount: number): void {
+    if (w.maxHp === Infinity) return; // indestructible
+    w.hp = Math.max(0, w.hp - amount);
+  }
+
+  /** Damage all non-destroyed, destructible walls within `radius` of (x,y). */
+  damageWallsInRadius(x: number, y: number, radius: number, amount: number): void {
+    const r2 = radius * radius;
+    for (const w of this.walls) {
+      if (w.hp <= 0 || w.maxHp === Infinity) continue;
+      if (pointSegDist2(x, y, w.x1, w.y1, w.x2, w.y2) <= r2) {
+        w.hp = Math.max(0, w.hp - amount);
+      }
+    }
+  }
+
+  /** Damaged walls (hp < maxHp and hp > 0), as index+hp pairs for the snapshot. */
+  damagedWalls(): Array<{ index: number; hp: number }> {
+    const out: Array<{ index: number; hp: number }> = [];
+    for (let i = 0; i < this.walls.length; i++) {
+      const w = this.walls[i];
+      if (w.maxHp !== Infinity && w.hp < w.maxHp && w.hp > 0) {
+        out.push({ index: i, hp: Math.floor(w.hp) });
+      }
+    }
+    return out;
   }
 
   toDTO(): MazeDTO {

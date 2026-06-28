@@ -1119,3 +1119,111 @@ describe("hazards", () => {
     assert.ok(a.vx > fastVx * 0.9, "ice preserved most of the momentum (no friction)");
   });
 });
+
+describe("destructible walls", () => {
+  it("walls have Infinity HP when destructibleWalls is off", () => {
+    const g = makeGame({ players: [{ id: "a", name: "A" }] });
+    for (const w of (g as any).maze.walls) {
+      assert.equal(w.hp, Infinity);
+      assert.equal(w.maxHp, Infinity);
+    }
+  });
+
+  it("internal walls get HP when destructibleWalls is on; borders stay indestructible", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 3 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const maze = (g as any).maze;
+    let internal = 0;
+    let border = 0;
+    for (const w of maze.walls) {
+      const onBorder = (w.x1 === 0 && w.x2 === 0) || (w.x1 === maze.width && w.x2 === maze.width) ||
+        (w.y1 === 0 && w.y2 === 0) || (w.y1 === maze.height && w.y2 === maze.height);
+      if (onBorder) {
+        assert.equal(w.maxHp, Infinity, "border wall indestructible");
+        border++;
+      } else {
+        assert.equal(w.hp, 3, "internal wall has HP");
+        assert.equal(w.maxHp, 3);
+        internal++;
+      }
+    }
+    assert.ok(internal > 0, "there are internal walls");
+    assert.ok(border > 0, "there are border walls");
+  });
+
+  it("bullets damage walls and destroyed walls no longer block movement", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 1, fireCooldown: 0, bulletBounces: 0 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    const maze = (g as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    assert.ok(internal, "found an internal wall");
+    a.x = internal.x1 - 20;
+    a.y = internal.y1;
+    a.bodyAngle = 0;
+    a.turretAngle = 0;
+    a.ammo = 5;
+    a.input = input({ fire: true, aim: 0 });
+    const hpBefore = internal.hp;
+    g.step(1 / 30);
+    g.step(1 / 30);
+    g.step(1 / 30);
+    assert.ok(internal.hp < hpBefore || internal.hp === 0, "wall was damaged by the bullet");
+  });
+
+  it("explosive rounds deal AoE damage to nearby walls", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 5, fireCooldown: 0 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    a.weapon = "explosive";
+    a.weaponCharges = 5;
+    a.ammo = 5;
+    const maze = (g as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    assert.ok(internal);
+    a.x = internal.x1 - 15;
+    a.y = internal.y1;
+    a.input = input({ fire: true, aim: 0 });
+    const hpBefore = internal.hp;
+    g.step(1 / 30);
+    g.step(1 / 30);
+    g.step(1 / 30);
+    assert.ok(internal.hp < hpBefore, "explosive round damaged the wall (AoE)");
+  });
+
+  it("snapshot includes wallHp only when destructibleWalls is on", () => {
+    const g1 = makeGame({
+      cfg: { destructibleWalls: false },
+      players: [{ id: "a", name: "A" }],
+    });
+    assert.deepEqual(g1.snapshot(0).wallHp, []);
+
+    const g2 = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 3 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    assert.deepEqual(g2.snapshot(0).wallHp, []);
+    const maze = (g2 as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    maze.damageWall(internal, 1);
+    const wallHp = g2.snapshot(0).wallHp;
+    assert.equal(wallHp.length, 1);
+    assert.equal(wallHp[0].hp, 2);
+  });
+});

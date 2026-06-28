@@ -101,6 +101,12 @@ export const HAZARD_DAMAGE = 2; // lava damage per second
 export const HAZARD_SLOW_MULT = 0.5; // mud speed multiplier
 export const HAZARD_HEAL_RATE = 1; // heal HP per second
 
+// Destructible walls: internal walls have HP and can be breached by bullets.
+// Border walls are always indestructible. Explosive rounds deal AoE wall damage.
+export const WALL_HP = 3; // hits to destroy an internal wall
+export const WALL_DAMAGE = 1; // HP removed per bullet bounce
+export const WALL_EXPLOSION_DAMAGE = 2; // HP removed by explosive AoE per wall
+
 export const TEAM_COLORS = ["#3f8ce6", "#e6453f", "#46c24f", "#e6c23f"]; // blue, red, green, yellow
 
 export const DEFAULT_MAX_PLAYERS = 8;

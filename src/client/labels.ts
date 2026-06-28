@@ -106,6 +106,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Size", SIZE_LABEL[c.mapSize]],
       ["Fog of war", c.fogOfWar ? `${c.visionRadius}px` : onOff(c.fogOfWar)],
       ["Hazards", c.hazardDensity > 0 ? `${c.hazardDensity} zones` : "Off"],
+      ["Destructible walls", onOff(c.destructibleWalls)],
     ],
   });
 
@@ -167,6 +168,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     rows: [
       ["Cell size", a.cellSize],
       ["Wall thickness", a.wallThickness],
+      ["Wall HP", a.wallHp],
     ],
   });
   // Power-up tuning — generated from the registry so every power-up's config

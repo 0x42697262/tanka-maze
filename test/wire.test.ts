@@ -60,7 +60,7 @@ const roster = (): Map<number, RosterEntry> =>
   new Map([[0, { index: 0, id: "a", name: "A", color: "#fff", team: 0, maxHp: 1, maxAmmo: 5 }]]);
 
 function emptySnap(over: Partial<SnapshotDTO> = {}): SnapshotDTO {
-  return { t: 0, tanks: [], bullets: [], powerups: [], flags: [], blasts: [], beams: [], events: [], ...over };
+  return { t: 0, tanks: [], bullets: [], powerups: [], flags: [], blasts: [], beams: [], events: [], wallHp: [], ...over };
 }
 
 describe("wire: input", () => {
@@ -145,5 +145,18 @@ describe("wire: snapshot", () => {
     assert.equal(out.flags[1].state, "carried");
     assert.equal(out.flags[1].carrier, 3);
     assert.equal(Math.round(out.flags[1].x), 700);
+  });
+
+  it("round-trips damaged walls (index + hp)", () => {
+    const snap = emptySnap({
+      wallHp: [
+        { index: 3, hp: 2 },
+        { index: 7, hp: 1 },
+      ],
+    });
+    const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
+    assert.equal(out.wallHp.length, 2);
+    assert.deepEqual(out.wallHp[0], { index: 3, hp: 2 });
+    assert.deepEqual(out.wallHp[1], { index: 7, hp: 1 });
   });
 });

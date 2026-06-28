@@ -110,7 +110,9 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     1 +
     s.beams.length * 8 +
     1 +
-    s.events.length * 7;
+    s.events.length * 7 +
+    1 +
+    s.wallHp.length * 2; // u8 index + u8 hp per damaged wall
   const dv = new DataView(new ArrayBuffer(size));
   let o = 0;
 
@@ -209,6 +211,13 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     o += 2;
     dv.setUint8(o++, e.streak & 0xff);
     dv.setUint8(o++, Math.min(255, e.mult));
+  }
+
+  // Damaged walls (destructibleWalls only): index + current HP.
+  dv.setUint8(o++, s.wallHp.length);
+  for (const w of s.wallHp) {
+    dv.setUint8(o++, Math.min(255, w.index));
+    dv.setUint8(o++, Math.min(255, w.hp));
   }
 
   return new Uint8Array(dv.buffer);
@@ -349,7 +358,15 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     events.push({ type, killer, victim, points, streak, mult });
   }
 
-  return { t: 0, tanks, bullets, powerups, flags, blasts, beams, events };
+  const wallHp: Array<{ index: number; hp: number }> = [];
+  const wallHpCount = dv.getUint8(o++);
+  for (let i = 0; i < wallHpCount; i++) {
+    const index = dv.getUint8(o++);
+    const hp = dv.getUint8(o++);
+    wallHp.push({ index, hp });
+  }
+
+  return { t: 0, tanks, bullets, powerups, flags, blasts, beams, events, wallHp };
 }
 
 /** Byte-equality check for snapshot change-gating. */

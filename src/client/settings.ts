@@ -98,6 +98,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       hazardDamage: num("hazard-damage", 2),
       hazardSlowMult: num("hazard-slow-mult", 0.5),
       hazardHealRate: num("hazard-heal-rate", 1),
+      destructibleWalls: sel("destructible-walls") === "on",
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
       powerupDespawnSeconds: num("pwr-despawn", 12),
@@ -139,6 +140,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("hazard-damage", c.hazardDamage);
   set("hazard-slow-mult", c.hazardSlowMult);
   set("hazard-heal-rate", c.hazardHealRate);
+  set("destructible-walls", c.destructibleWalls ? "on" : "off");
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
   set("pwr-charges", c.powerupCharges);

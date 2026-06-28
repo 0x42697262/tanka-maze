@@ -24,6 +24,7 @@ const STATIC_ADV_KEYS = [
   "bulletLifetime",
   "cellSize",
   "wallThickness",
+  "wallHp",
 ];
 
 describe("power-up registry", () => {

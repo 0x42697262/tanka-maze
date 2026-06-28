@@ -97,6 +97,12 @@ export class Renderer {
   private visionRadius = 260;
   // Hazard zones: terrain tiles (lava/mud/ice/heal) drawn under the walls.
   private hazards: HazardZoneDTO[] = [];
+  // Destructible walls: per-wall HP array (index matches MazeDTO.walls). Walls
+  // at 0 HP are destroyed (skipped in draw + collision). Updated from snapshot
+  // `wallHp` deltas. Empty when destructibleWalls is off.
+  private wallHp: number[] = [];
+  private wallMaxHp = Infinity;
+  private destructibleWalls = false;
 
   setParams(tankRadius: number, bulletRadius: number): void {
     this.tankR = tankRadius;
@@ -142,6 +148,18 @@ export class Renderer {
     this.hazards = zones;
   }
 
+  /** Configure destructible walls. Initializes the per-wall HP array from the
+   *  maze if one is already set; otherwise stores the config for setMaze. */
+  setDestructibleWalls(enabled: boolean, wallHp: number): void {
+    this.destructibleWalls = enabled;
+    this.wallMaxHp = enabled ? wallHp : Infinity;
+    if (enabled && this.maze) {
+      this.wallHp = new Array(this.maze.walls.length).fill(wallHp);
+    } else if (!enabled) {
+      this.wallHp = [];
+    }
+  }
+
   setMaze(maze: MazeDTO): void {
     this.maze = maze;
     this.canvas.width = maze.width;
@@ -153,6 +171,10 @@ export class Renderer {
     this.consumedUntil = 0;
     this.pendingEvents = [];
     this.displayedSnap = null;
+    // Initialize per-wall HP from the destructible-walls config.
+    this.wallHp = this.destructibleWalls
+      ? new Array(maze.walls.length).fill(this.wallMaxHp)
+      : [];
   }
 
   /** Buffer a snapshot. Effects are NOT fired here — they're applied later, when
@@ -229,6 +251,16 @@ export class Renderer {
     this.consumeEffects(nowMs - INTERP_DELAY, nowMs);
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    // Apply wall HP updates from the latest snapshot (wall destruction is a
+    // binary state — no interpolation needed, same as powerups).
+    if (this.destructibleWalls) {
+      const latest = this.latest();
+      if (latest) {
+        for (const w of latest.wallHp) {
+          if (w.index < this.wallHp.length) this.wallHp[w.index] = w.hp;
+        }
+      }
+    }
     this.drawMaze(maze, nowMs);
 
     const interp = this.interpolated(nowMs);
@@ -758,17 +790,34 @@ export class Renderer {
       ctx.restore();
     }
 
-    // Inked wall lines.
+    // Inked wall lines. Destroyed walls (hp <= 0) are skipped; damaged walls
+    // are drawn with reduced alpha to show they're weakening.
     ctx.strokeStyle = "#352f25";
     ctx.lineWidth = maze.thickness;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
-    for (const w of maze.walls) {
+    for (let i = 0; i < maze.walls.length; i++) {
+      if (this.destructibleWalls && this.wallHp[i] <= 0) continue; // destroyed
+      const w = maze.walls[i];
       ctx.moveTo(w.x1, w.y1);
       ctx.lineTo(w.x2, w.y2);
     }
     ctx.stroke();
+    // Damaged walls get a second, lighter pass to show cracking.
+    if (this.destructibleWalls) {
+      ctx.strokeStyle = "#a89878";
+      ctx.lineWidth = maze.thickness * 0.5;
+      ctx.beginPath();
+      for (let i = 0; i < maze.walls.length; i++) {
+        const hp = this.wallHp[i];
+        if (hp <= 0 || hp >= this.wallMaxHp) continue; // destroyed or undamaged
+        const w = maze.walls[i];
+        ctx.moveTo(w.x1, w.y1);
+        ctx.lineTo(w.x2, w.y2);
+      }
+      ctx.stroke();
+    }
   }
 
   private drawTank(t: TankDTO, isLocal: boolean, nowMs: number): void {
@@ -936,7 +985,7 @@ export class Renderer {
       return { ...fb, x: lerp(fa.x, fb.x, f), y: lerp(fa.y, fb.y, f) };
     });
 
-    return { t: target, tanks, bullets, powerups: [], flags, blasts: [], beams: [], events: [] };
+    return { t: target, tanks, bullets, powerups: [], flags, blasts: [], beams: [], events: [], wallHp: [] };
   }
 }
 

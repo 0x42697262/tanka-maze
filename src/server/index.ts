@@ -364,6 +364,7 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     bulletLifetime: f(c.bulletLifetime, 0.5, 20, d.bulletLifetime),
     cellSize: i(c.cellSize, 40, 200, d.cellSize),
     wallThickness: f(c.wallThickness, 2, 30, d.wallThickness),
+    wallHp: i(c.wallHp, 1, 50, d.wallHp),
   };
   for (const def of POWERUP_DEFS) {
     for (const field of def.config) {
@@ -437,6 +438,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     hazardDamage: clampInt(c.hazardDamage, 1, 20, d.hazardDamage),
     hazardSlowMult: clampFloat(c.hazardSlowMult, 0, 1, d.hazardSlowMult),
     hazardHealRate: clampFloat(c.hazardHealRate, 0.5, 10, d.hazardHealRate),
+    destructibleWalls: typeof c.destructibleWalls === "boolean" ? c.destructibleWalls : d.destructibleWalls,
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
     powerupDespawnSeconds: clampInt(c.powerupDespawnSeconds, 3, 60, d.powerupDespawnSeconds),
