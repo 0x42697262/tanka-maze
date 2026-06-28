@@ -258,7 +258,7 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
       id: r?.id ?? String(index),
       name: r?.name ?? "?",
       color: r?.color ?? "#888888",
-      team: r?.team ?? 0,
+      team: r?.team ?? -1,
       maxHp: r?.maxHp ?? hp,
       maxAmmo: r?.maxAmmo ?? ammo,
       x,

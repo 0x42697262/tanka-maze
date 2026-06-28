@@ -61,6 +61,7 @@ export function gatherAdvanced(): AdvancedConfig {
 }
 
 export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
+  const d = DEFAULT_GAME_CONFIG;
   const sel = (id: string) => ($(id) as HTMLSelectElement).value;
   const num = (id: string, d: number) => Number(($(id) as HTMLInputElement).value) || d;
   const hazardTypes = HAZARD_TYPES.filter((t) => sel(`hazard-${t}`) === "on") as HazardType[];
@@ -98,13 +99,13 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       adv: gatherAdvanced(),
       fogOfWar: sel("fog-of-war") === "on",
       fogType: sel("fog-type") as FogType,
-      visionRadius: num("vision-radius", DEFAULT_GAME_CONFIG.visionRadius),
-      flashlightDegrees: num("flashlight-degrees", DEFAULT_GAME_CONFIG.flashlightDegrees),
-      hazardDensity: num("hazard-density", 0),
+      visionRadius: num("vision-radius", d.visionRadius),
+      flashlightDegrees: num("flashlight-degrees", d.flashlightDegrees),
+      hazardDensity: num("hazard-density", d.hazardDensity),
       hazardTypes,
-      hazardDamage: num("hazard-damage", 2),
-      hazardSlowMult: num("hazard-slow-mult", 0.5),
-      hazardHealRate: num("hazard-heal-rate", 1),
+      hazardDamage: num("hazard-damage", d.hazardDamage),
+      hazardSlowMult: num("hazard-slow-mult", d.hazardSlowMult),
+      hazardHealRate: num("hazard-heal-rate", d.hazardHealRate),
       destructibleWalls: sel("destructible-walls") === "on",
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),

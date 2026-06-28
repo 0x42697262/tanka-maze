@@ -62,7 +62,7 @@ interface FogPoint {
   y: number;
 }
 
-interface FogView {
+interface FogSource {
   local: TankDTO;
   radius: number;
   type: FogType;
@@ -71,6 +71,11 @@ interface FogView {
   beamBaseHalf: number;
   beamBaseCenter: FogPoint;
   polygon: FogPoint[];
+}
+
+interface FogView {
+  local: TankDTO;
+  sources: FogSource[];
 }
 
 export class Renderer {
@@ -160,7 +165,12 @@ export class Renderer {
   }
 
   /** Configure fog of war for the current game. */
-  setFog(fogOfWar: boolean, visionRadius: number, fogType: FogType, flashlightDegrees: number): void {
+  setFog(
+    fogOfWar: boolean,
+    visionRadius: number,
+    fogType: FogType,
+    flashlightDegrees: number
+  ): void {
     this.fogOfWar = fogOfWar;
     this.fogType = fogType;
     this.visionRadius = visionRadius;
@@ -278,7 +288,7 @@ export class Renderer {
     const interp = this.interpolated(nowMs);
     this.displayedSnap = interp;
     const localTank = interp?.tanks.find((t) => t.id === localId) ?? null;
-    const fog = this.fogView(localTank);
+    const fog = this.fogView(localTank, interp?.tanks ?? []);
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.applyWallHp();
@@ -357,15 +367,29 @@ export class Renderer {
     }
   }
 
-  private fogView(local: TankDTO | null): FogView | null {
+  private fogView(local: TankDTO | null, tanks: TankDTO[]): FogView | null {
     if (!this.fogOfWar || !local || !this.maze) return null;
+    const visionTanks = [
+      local,
+      ...(
+        local.team >= 0
+          ? tanks.filter((t) => t.id !== local.id && t.alive && t.team === local.team)
+          : []
+      ),
+    ];
+    const sources = visionTanks.map((t) => this.fogSource(t));
+    return { local, sources };
+  }
+
+  private fogSource(local: TankDTO): FogSource {
+    if (!this.maze) throw new Error("maze unavailable");
     const base = effectiveVisionRadius(this.visionRadius, this.maze.width, this.maze.height);
     const beamRadians = (Math.min(170, Math.max(20, this.flashlightDegrees)) * Math.PI) / 180;
     const mapReach = Math.hypot(this.maze.width, this.maze.height) * 1.5;
     const radius = this.fogType === "flashlight" ? mapReach : local.scoped ? base * 2 : base;
     const ux = Math.cos(local.turretAngle);
     const uy = Math.sin(local.turretAngle);
-    const fog: FogView = {
+    const fog: FogSource = {
       local,
       radius,
       type: this.fogType,
@@ -394,14 +418,16 @@ export class Renderer {
   }
 
   private addFogShape(fog: FogView, includeHalo: boolean, ctx: CanvasRenderingContext2D = this.ctx): void {
-    if (fog.polygon.length > 0) {
-      ctx.moveTo(fog.polygon[0].x, fog.polygon[0].y);
-      for (let i = 1; i < fog.polygon.length; i++) ctx.lineTo(fog.polygon[i].x, fog.polygon[i].y);
-      ctx.closePath();
-    }
-    if (includeHalo) {
-      ctx.moveTo(fog.local.x + fog.haloRadius, fog.local.y);
-      ctx.arc(fog.local.x, fog.local.y, fog.haloRadius, 0, Math.PI * 2);
+    for (const source of fog.sources) {
+      if (source.polygon.length > 0) {
+        ctx.moveTo(source.polygon[0].x, source.polygon[0].y);
+        for (let i = 1; i < source.polygon.length; i++) ctx.lineTo(source.polygon[i].x, source.polygon[i].y);
+        ctx.closePath();
+      }
+      if (includeHalo) {
+        ctx.moveTo(source.local.x + source.haloRadius, source.local.y);
+        ctx.arc(source.local.x, source.local.y, source.haloRadius, 0, Math.PI * 2);
+      }
     }
   }
 
@@ -436,7 +462,7 @@ export class Renderer {
   }
 
   /** Build the visible fog shape by casting rays until they hit a blocking wall. */
-  private visibilityPolygon(fog: FogView): FogPoint[] {
+  private visibilityPolygon(fog: FogSource): FogPoint[] {
     const full = fog.type === "full";
     const span = full ? Math.PI * 2 : fog.beamRadians;
     const start = full ? 0 : fog.local.turretAngle - span / 2;
@@ -477,7 +503,7 @@ export class Renderer {
     return [this.flashlightBasePoint(fog, -1), ...points, this.flashlightBasePoint(fog, 1)];
   }
 
-  private castFogRay(fog: FogView, angle: number): FogPoint {
+  private castFogRay(fog: FogSource, angle: number): FogPoint {
     const origin = this.fogRayOrigin(fog);
     const ox = origin.x;
     const oy = origin.y;
@@ -495,11 +521,11 @@ export class Renderer {
     return { x: ox + dx * best, y: oy + dy * best };
   }
 
-  private fogRayOrigin(fog: FogView): FogPoint {
+  private fogRayOrigin(fog: FogSource): FogPoint {
     return fog.type === "flashlight" ? fog.beamBaseCenter : fog.local;
   }
 
-  private flashlightBasePoint(fog: FogView, side: -1 | 1): FogPoint {
+  private flashlightBasePoint(fog: FogSource, side: -1 | 1): FogPoint {
     const px = -Math.sin(fog.local.turretAngle);
     const py = Math.cos(fog.local.turretAngle);
     return {
@@ -514,11 +540,16 @@ export class Renderer {
    * it. The scope power-up doubles the radius and skips the wall check (x-ray).
    */
   private isVisible(enemy: TankDTO, fog: FogView): boolean {
+    if (fog.local.team >= 0 && enemy.team === fog.local.team) return true;
     if (!this.isPointVisible(enemy.x, enemy.y, fog)) return false;
     return true;
   }
 
   private isPointVisible(x: number, y: number, fog: FogView): boolean {
+    return fog.sources.some((source) => this.isPointVisibleFromSource(x, y, source));
+  }
+
+  private isPointVisibleFromSource(x: number, y: number, fog: FogSource): boolean {
     const localDx = x - fog.local.x;
     const localDy = y - fog.local.y;
     if (localDx * localDx + localDy * localDy <= fog.haloRadius * fog.haloRadius) return true;

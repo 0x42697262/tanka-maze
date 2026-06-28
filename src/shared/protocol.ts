@@ -393,6 +393,7 @@ export interface LobbyPlayerDTO {
   color: string;
   isHost: boolean;
   connected: boolean;
+  /** Team index, or -1 when the match has no team identity. */
   team: number;
 }
 
@@ -504,7 +505,7 @@ export interface TankDTO {
   charging: boolean;
   /** Whether the line-of-sight scope (aiming guide) is active. */
   scoped: boolean;
-  /** Team index (Team VS); 0 in other modes. */
+  /** Team index in team modes, or -1 when the match has no team identity. */
   team: number;
   /** Flags this tank has captured so far this match (Capture the Flag). */
   captures: number;
@@ -635,7 +636,7 @@ export type ClientMessage =
   | { type: "setTeamName"; team: number; name: string }
   | { type: "setTeamColor"; team: number; color: string }
   | { type: "listLobbies" }
-  | { type: "createLobby"; name: string; maxPlayers: number; config: GameConfig }
+  | { type: "createLobby"; name: string; maxPlayers: number; config: Partial<GameConfig> }
   | { type: "updateConfig"; maxPlayers: number; config: GameConfig }
   | { type: "joinLobby"; lobbyId: string }
   | { type: "leaveLobby" }

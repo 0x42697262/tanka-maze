@@ -29,6 +29,7 @@ import {
 import { closeScoreboard, openScoreboard, renderScoreboard } from "./scoreboard.js";
 import {
   applyModeVisibility,
+  applyConfigToControls,
   applyMoveSetting,
   buildPowerupAdvInputs,
   gatherConfig,
@@ -209,13 +210,14 @@ $("refresh").onclick = () => net.send({ type: "listLobbies" });
 $("create").onclick = () => {
   commitName();
   const name = ($("lobby-name") as HTMLInputElement).value.trim();
-  net.send({ type: "createLobby", name, maxPlayers: 8, config: DEFAULT_GAME_CONFIG });
+  net.send({ type: "createLobby", name, maxPlayers: 8, config: {} });
 };
 
 $("start").onclick = () => net.send({ type: "startGame" });
 
 // In-lobby game settings (host).
 buildPowerupAdvInputs();
+applyConfigToControls(DEFAULT_GAME_CONFIG, 8);
 $("lobby-config").addEventListener("change", (e) => {
   if (!state.currentLobby || state.currentLobby.hostId !== state.playerId) return;
   // CTF: defaults scale with rival count — captures-per-round and conquest

@@ -344,6 +344,11 @@ export class Game {
     return this.cfg.mode === "teams" || this.ctf ? Math.max(2, this.cfg.teamCount) : Math.max(2, this.tanks.size);
   }
 
+  /** Team identity exposed to clients; -1 means this match has no teams. */
+  private dtoTeam(t: Tank): number {
+    return this.cfg.mode === "teams" || this.ctf ? t.team : -1;
+  }
+
   /**
    * Worst-case rounds in a "first to roundsToWin" series for any number of sides:
    * every side reaching roundsToWin-1 before one more round forces a winner, i.e.
@@ -1874,7 +1879,7 @@ export class Game {
           shielded: t.shieldTimer > 0,
           charging: t.laserCharge > 0,
           scoped: t.scopeTimer > 0 && t.scopeShots > 0,
-          team: t.team,
+          team: this.dtoTeam(t),
           captures: t.captures,
         })),
       bullets: this.bullets.map((b) => ({
@@ -1920,7 +1925,7 @@ export class Game {
       id: t.id,
       name: t.name,
       color: t.color,
-      team: t.team,
+      team: this.dtoTeam(t),
       maxHp: t.maxHp,
       maxAmmo: this.adv.maxAmmo,
     }));
