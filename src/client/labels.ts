@@ -83,8 +83,10 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   // Friendly fire governs self-damage in every mode (and teammate damage in Team VS).
   mode.push(["Friendly fire", onOff(c.friendlyFire)]);
   if (ctf) {
+    const conquest = c.ctfScoreMode === "conquest";
+    mode.push(["Scoring", conquest ? "Conquest" : "Deliver"]);
     mode.push(["Rounds to win", c.maxFlags]);
-    mode.push(["Captures/round", c.flagsPerRound]);
+    mode.push(conquest ? ["Points to win", c.winScore] : ["Captures/round", c.flagsPerRound]);
     mode.push(["Respawn +/death", `${c.ctfRespawnBonus}s`]);
   }
   if (teams) mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);

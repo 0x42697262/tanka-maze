@@ -147,19 +147,25 @@
           <div class="row cfg-ctf">
             <label for="flag-steal">Steal flag on touch</label>
             <select id="flag-steal">
-              <option value="on">On (touch steals)</option>
+              <option value="any">On (touch steals)</option>
+              <option value="team">Teammate only</option>
               <option value="off">Off (kill to drop)</option>
             </select>
-          </div>
-          <div class="row cfg-ctf">
-            <label for="flags-per-round">Captures per round</label>
-            <input id="flags-per-round" type="number" min="1" max="50" value="1" />
           </div>
           <div class="row cfg-ctf">
             <label for="ctf-score-mode">Scoring method</label>
             <select id="ctf-score-mode">
               <option value="deliver">Deliver to base</option>
+              <option value="conquest">Conquest (hold flags)</option>
             </select>
+          </div>
+          <div class="row cfg-ctf cfg-deliver">
+            <label for="flags-per-round">Captures per round</label>
+            <input id="flags-per-round" type="number" min="1" max="50" value="1" />
+          </div>
+          <div class="row cfg-ctf cfg-conquest">
+            <label for="ctf-points">Points to win</label>
+            <input id="ctf-points" type="number" min="10" max="10000" step="10" value="100" />
           </div>
           <div class="row cfg-ctf">
             <label for="ctf-respawn-bonus">Respawn +s per death</label>

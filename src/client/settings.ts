@@ -8,6 +8,7 @@ import {
   WALL_STYLES,
   type AdvancedConfig,
   type CtfScoreMode,
+  type FlagStealMode,
   type GameConfig,
   type GameMode,
   type MapSize,
@@ -73,7 +74,12 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       respawnSeconds: num("cfg-respawn", 3),
       killPoints: num("kill-points", 60),
       deathPenaltyPct: Number(($("death-penalty") as HTMLInputElement).value) || 0,
-      winScore: num("win-score", 300),
+      // Conquest reuses winScore as its points-to-win (its own field); other
+      // modes use the standard score-to-win.
+      winScore:
+        sel("mode") === "ctf" && sel("ctf-score-mode") === "conquest"
+          ? num("ctf-points", 300)
+          : num("win-score", 300),
       // CTF picks 2 or 4 from its own selector; Team VS uses the 2–4 spinner.
       teamCount: sel("mode") === "ctf" ? num("ctf-team-count", 2) : num("team-count", 2),
       friendlyFire: sel("friendly-fire") === "on",
@@ -81,7 +87,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       teamSpawnZones: sel("team-spawn-zones") === "on",
       maxFlags: num("max-flags", 3),
       flagTeamCarry: sel("flag-team-carry") === "on",
-      flagStealOnContact: sel("flag-steal") === "on",
+      flagStealMode: sel("flag-steal") as FlagStealMode,
       flagsPerRound: num("flags-per-round", 1),
       ctfScoreMode: sel("ctf-score-mode") as CtfScoreMode,
       ctfRespawnBonus: num("ctf-respawn-bonus", 3),
@@ -116,9 +122,10 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("team-spawn-zones", c.teamSpawnZones ? "on" : "off");
   set("max-flags", c.maxFlags);
   set("flag-team-carry", c.flagTeamCarry ? "on" : "off");
-  set("flag-steal", c.flagStealOnContact ? "on" : "off");
+  set("flag-steal", c.flagStealMode);
   set("flags-per-round", c.flagsPerRound);
   set("ctf-score-mode", c.ctfScoreMode);
+  set("ctf-points", c.winScore); // conquest points-to-win mirrors winScore
   set("ctf-respawn-bonus", c.ctfRespawnBonus);
   set("powerups", c.powerups ? "on" : "off");
   set("pwr-every", c.powerupEverySeconds);
@@ -143,6 +150,11 @@ export function applyModeVisibility(): void {
   // CTF-only (flags to win) vs the point-scoring/rounds controls it replaces.
   toggle(".cfg-ctf", !ctf);
   toggle(".cfg-nctf", ctf);
+  // Within CTF, deliver vs conquest each have their own row (captures-per-round
+  // vs points-to-win).
+  const conquest = ctf && ($("ctf-score-mode") as HTMLSelectElement).value === "conquest";
+  toggle(".cfg-deliver", !ctf || conquest);
+  toggle(".cfg-conquest", !conquest);
 }
 
 // ---- Map (walls) image picker ----

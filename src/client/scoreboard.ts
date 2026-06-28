@@ -9,15 +9,16 @@ export function renderScoreboard(): void {
   if (!state.currentLobby) return;
   const lobby = state.currentLobby;
   const ctf = lobby.config.mode === "ctf";
+  const conquest = ctf && lobby.config.ctfScoreMode === "conquest";
   const teams = lobby.config.mode === "teams" || ctf;
   const lms = lobby.config.mode === "lms"; // rank by survival (lives), not points
   const isHost = lobby.hostId === state.playerId;
   const snap = renderer.latest();
-  // Metric column: flags captured (per player) in CTF, lives in LMS, score otherwise.
+  // Metric column: conquest points / flags captured (CTF), lives (LMS), else score.
   const metricById = new Map<string, number>();
   if (snap) {
     for (const t of snap.tanks) {
-      metricById.set(t.id, ctf ? t.captures : lms ? t.livesLeft : t.score);
+      metricById.set(t.id, conquest ? Math.round(t.score) : ctf ? t.captures : lms ? t.livesLeft : t.score);
     }
   }
 
@@ -50,7 +51,7 @@ export function renderScoreboard(): void {
 
   $("sb-table-wrap").innerHTML =
     `<table class="sb-table"><thead><tr>` +
-    `<th>Player</th>${teamHead}<th>${ctf ? "Flags" : lms ? "Lives" : "Score"}</th><th>Ping</th><th></th>` +
+    `<th>Player</th>${teamHead}<th>${conquest ? "Points" : ctf ? "Flags" : lms ? "Lives" : "Score"}</th><th>Ping</th><th></th>` +
     `</tr></thead><tbody>${body}</tbody></table>`;
 
   $("sb-table-wrap")

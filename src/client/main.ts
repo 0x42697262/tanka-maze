@@ -216,11 +216,19 @@ $("start").onclick = () => net.send({ type: "startGame" });
 buildPowerupAdvInputs();
 $("lobby-config").addEventListener("change", (e) => {
   if (!state.currentLobby || state.currentLobby.hostId !== state.playerId) return;
-  // CTF: default captures-per-round to one per rival team (1 for 2, 3 for 4).
+  // CTF: defaults scale with rival count — captures-per-round and conquest
+  // points-to-win are one/100 per rival (1/100 for 2 teams, 3/300 for 4).
   const target = e.target as HTMLElement | null;
+  const ctfTeams = () => Number(($("ctf-team-count") as HTMLSelectElement).value) || 2;
+  const conquest = () => ($("ctf-score-mode") as HTMLSelectElement).value === "conquest";
   if (target?.id === "ctf-team-count") {
-    const teams = Number(($("ctf-team-count") as HTMLSelectElement).value) || 2;
+    const teams = ctfTeams();
     ($("flags-per-round") as HTMLInputElement).value = String(Math.max(1, teams - 1));
+    if (conquest()) ($("ctf-points") as HTMLInputElement).value = String(100 * Math.max(1, teams - 1));
+  }
+  // Switching to conquest seeds a sensible points target (100 per rival team).
+  if (target?.id === "ctf-score-mode" && conquest()) {
+    ($("ctf-points") as HTMLInputElement).value = String(100 * Math.max(1, ctfTeams() - 1));
   }
   applyModeVisibility();
   const { maxPlayers, config } = gatherConfig();

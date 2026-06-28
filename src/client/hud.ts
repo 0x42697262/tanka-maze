@@ -101,21 +101,23 @@ export function renderLeaderboard(): void {
   const ol = $("leaderboard-rows");
   ol.innerHTML = "";
 
-  // Capture the Flag: rank teams by flags captured this match (live from tanks).
+  // Capture the Flag: rank teams — by flags captured (deliver) or points held
+  // (conquest), live from the tanks in the snapshot.
   if (state.currentLobby?.config.mode === "ctf") {
     const names = state.currentLobby?.teamNames ?? [];
     const colors = state.currentLobby?.teamColors ?? [];
+    const conquest = state.currentLobby?.config.ctfScoreMode === "conquest";
     const myTeam = snap.tanks.find((t) => t.id === state.playerId)?.team;
-    const capByTeam = new Map<number, number>();
+    const byTeam = new Map<number, number>();
     const memberN = new Map<number, number>();
     for (const t of snap.tanks) {
-      capByTeam.set(t.team, (capByTeam.get(t.team) ?? 0) + t.captures);
+      byTeam.set(t.team, (byTeam.get(t.team) ?? 0) + (conquest ? t.score : t.captures));
       memberN.set(t.team, (memberN.get(t.team) ?? 0) + 1);
     }
     [...memberN.keys()]
-      .map((team) => ({ team, caps: capByTeam.get(team) ?? 0 }))
-      .sort((a, b) => b.caps - a.caps || a.team - b.team)
-      .forEach(({ team, caps }, i) => {
+      .map((team) => ({ team, val: byTeam.get(team) ?? 0 }))
+      .sort((a, b) => b.val - a.val || a.team - b.team)
+      .forEach(({ team, val }, i) => {
         const li = document.createElement("li");
         if (team === myTeam) li.className = "me";
         const tint = colors[team] ?? TEAM_TINT[team % TEAM_TINT.length];
@@ -124,7 +126,7 @@ export function renderLeaderboard(): void {
           `<span class="rank">${i + 1}</span>` +
           `<span class="swatch" style="background:${tint}"></span>` +
           `<span class="nm">${escapeHtml(tname)} (${memberN.get(team) ?? 0})</span>` +
-          `<span class="pts">⚑ ${caps}</span>`;
+          `<span class="pts">${conquest ? val : `⚑ ${val}`}</span>`;
         ol.appendChild(li);
       });
     return;

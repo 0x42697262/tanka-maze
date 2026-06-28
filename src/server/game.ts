@@ -40,6 +40,8 @@ interface Flag {
   y: number;
   state: FlagState;
   carrierId: string | null;
+  /** Team whose base this flag is placed at while "held" (conquest), else -1. */
+  heldTeam: number;
   /** Seconds before this flag can change hands again (anti ping-pong). */
   stealCooldown: number;
 }
@@ -484,6 +486,7 @@ export class Game {
 
     this.stepBullets(dt);
     this.stepFlags(dt);
+    this.stepConquest(dt);
   }
 
   private fire(tank: Tank): void {
@@ -1316,24 +1319,25 @@ export class Game {
       // centre — a tank can drive right onto it.
       const hx = z.x + z.width / 2;
       const hy = z.y + z.height / 2;
-      this.flags.push({ team: z.team, homeX: hx, homeY: hy, x: hx, y: hy, state: "home", carrierId: null, stealCooldown: 0 });
+      this.flags.push({ team: z.team, homeX: hx, homeY: hy, x: hx, y: hy, state: "home", carrierId: null, heldTeam: -1, stealCooldown: 0 });
     }
   }
 
   /**
-   * Capture the Flag step. A flag rides its carrier. With flagStealOnContact
-   * (default), touching a carrier takes the flag (enemies steal, teammates relay);
-   * otherwise the flag only drops when the carrier is killed. An idle enemy flag
-   * is picked up on contact. A dropped own flag is either carried back by your
-   * team (flagTeamCarry, default) or instantly teleported home on touch. Bringing
-   * an enemy flag into your base scores a capture; bringing your own flag back
-   * into your base returns it home.
+   * Capture the Flag step. A flag rides its carrier. flagStealMode decides who
+   * can take it by touch: "any" (enemies steal, teammates relay), "team" (only
+   * teammates relay — enemies must kill the carrier), or "off" (kill to drop).
+   * An idle enemy flag is picked up on contact. A dropped own flag is either
+   * carried back by your team (flagTeamCarry, default) or instantly teleported
+   * home on touch. Bringing your own flag back into your base returns it home. An
+   * enemy flag brought into your base is captured ("deliver") or planted on the
+   * base to score over time ("conquest"); a planted flag can be reclaimed/raided.
    */
   private stepFlags(dt: number): void {
     if (!this.ctf || this.roundOver) return;
     const pickupR = this.adv.tankRadius + POWERUP_RADIUS;
     const pickupR2 = pickupR * pickupR;
-    const steal = this.cfg.flagStealOnContact;
+    const stealMode = this.cfg.flagStealMode; // "any" | "team" | "off"
     const teamCarry = this.cfg.flagTeamCarry;
 
     for (const flag of this.flags) {
@@ -1346,10 +1350,12 @@ export class Game {
           flag.state = "dropped";
           flag.carrierId = null;
         } else {
-          // Steal/transfer on contact: another tank touching the carrier takes it.
-          if (steal && flag.stealCooldown === 0) {
+          // Take on contact: anyone (any), only the carrier's teammates (team),
+          // or no one — kill required (off).
+          if (stealMode !== "off" && flag.stealCooldown === 0) {
             for (const t of this.tanks.values()) {
               if (!t.alive || t.id === carrier.id) continue;
+              if (stealMode === "team" && t.team !== carrier.team) continue; // enemies must kill
               if ((t.x - carrier.x) ** 2 + (t.y - carrier.y) ** 2 > pickupR2) continue;
               flag.carrierId = t.id;
               flag.stealCooldown = FLAG_STEAL_COOLDOWN;
@@ -1365,10 +1371,22 @@ export class Game {
         }
       }
 
-      // Idle flag (home or dropped): the first tank to touch it acts.
+      // Idle flag (home, dropped, or held at a base): first tank to touch it acts.
       for (const t of this.tanks.values()) {
         if (!t.alive) continue;
         if ((t.x - flag.x) ** 2 + (t.y - flag.y) ** 2 > pickupR2) continue;
+        // A flag placed at a base (conquest) is taken by anyone not on the holding
+        // team — the owner reclaiming it, or a rival raiding the stack.
+        if (flag.state === "held") {
+          if (t.team === flag.heldTeam) continue;
+          flag.state = "carried";
+          flag.carrierId = t.id;
+          flag.heldTeam = -1;
+          flag.x = t.x;
+          flag.y = t.y;
+          flag.stealCooldown = FLAG_STEAL_COOLDOWN;
+          break;
+        }
         if (t.team === flag.team) {
           if (flag.state === "dropped") {
             if (teamCarry) {
@@ -1398,21 +1416,80 @@ export class Game {
       }
     }
 
-    // Scoring is per base: only the team that owns the spawn point can capture
-    // there. A teammate standing in their own base with an enemy flag scores it
-    // for that base's team; their own flag carried back simply returns home.
+    // At a base: a team's own flag carried back simply returns home (both modes).
+    // In "deliver", an enemy flag brought into your base captures it; in
+    // "conquest" the enemy flag is planted/stacked at the base, where it scores.
+    const deliver = this.cfg.ctfScoreMode === "deliver";
     for (const base of this.spawnZones) {
       for (const flag of this.flags) {
         if (flag.state !== "carried" || !flag.carrierId) continue;
         const carrier = this.tanks.get(flag.carrierId);
-        if (!carrier || carrier.team !== base.team) continue; // only the base's team scores here
+        if (!carrier || carrier.team !== base.team) continue; // only the base's team acts here
         if (!this.inRect(carrier.x, carrier.y, base)) continue;
         if (flag.team === base.team) {
           // Own flag brought home → returns to base, ready to grab again.
           this.sendFlagHome(flag);
-        } else if (this.captureFlag(carrier, flag)) {
-          return; // round ended
+        } else if (deliver) {
+          if (this.captureFlag(carrier, flag)) return; // round ended
+        } else {
+          this.placeFlagAtBase(flag, base); // conquest: drop it on the stack
         }
+      }
+    }
+  }
+
+  /** Conquest: plant a carried enemy flag on the captor's base, where it scores
+   *  until reclaimed/raided. Stacks beside the home flag so multiples stay clear. */
+  private placeFlagAtBase(flag: Flag, base: SpawnZone): void {
+    const cx = base.x + base.width / 2;
+    const cy = base.y + base.height / 2;
+    const already = this.flags.filter((f) => f.state === "held" && f.heldTeam === base.team).length;
+    const spacing = this.adv.tankRadius * 2.4;
+    const col = already % 3;
+    flag.state = "held";
+    flag.heldTeam = base.team;
+    flag.carrierId = null;
+    flag.x = cx + (col - 1) * spacing; // a short row offset below the home flag
+    flag.y = cy + spacing * (1 + Math.floor(already / 3));
+    flag.stealCooldown = FLAG_STEAL_COOLDOWN;
+  }
+
+  /**
+   * Conquest scoring: each second a team earns 1 point per ENEMY flag planted on
+   * its base ("held"), tripled while its own flag sits safe at home. Its own flag
+   * is never a point — it's only the ×3 multiplier. Carrying a flag scores
+   * nothing; it must be delivered to the base. Points accrue into the team's tanks
+   * (so the leaderboard sums them); the first team to winScore takes the round.
+   */
+  private stepConquest(dt: number): void {
+    if (!this.ctf || this.cfg.ctfScoreMode !== "conquest" || this.roundOver) return;
+    const ownHome = new Map<number, boolean>();
+    for (const f of this.flags) ownHome.set(f.team, f.state === "home");
+    const held = new Map<number, number>(); // team -> enemy flags planted on its base
+    for (const f of this.flags) {
+      if (f.state === "held" && f.heldTeam >= 0) held.set(f.heldTeam, (held.get(f.heldTeam) ?? 0) + 1);
+    }
+    for (let team = 0; team < this.cfg.teamCount; team++) {
+      const flags = held.get(team) ?? 0;
+      if (flags === 0) continue;
+      const gain = flags * (ownHome.get(team) ? 3 : 1) * dt;
+      const members = [...this.tanks.values()].filter((t) => t.team === team);
+      if (members.length === 0) continue;
+      const share = gain / members.length; // split so the team total = Σ members
+      for (const m of members) m.score += share;
+    }
+    this.checkConquestWin();
+  }
+
+  /** Conquest: the first team whose total points reach winScore wins the round. */
+  private checkConquestWin(): void {
+    if (this.finished || this.roundOver) return;
+    const totals = new Map<number, number>();
+    for (const t of this.tanks.values()) totals.set(t.team, (totals.get(t.team) ?? 0) + t.score);
+    for (const [team, total] of totals) {
+      if (total >= this.cfg.winScore) {
+        this.endRound(`t${team}`, this.teamNames[team] ?? `Team ${team + 1}`);
+        return;
       }
     }
   }
@@ -1423,6 +1500,7 @@ export class Game {
     flag.x = flag.homeX;
     flag.y = flag.homeY;
     flag.carrierId = null;
+    flag.heldTeam = -1;
     flag.stealCooldown = 0;
   }
 

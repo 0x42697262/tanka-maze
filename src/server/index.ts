@@ -7,6 +7,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import {
   CTF_SCORE_MODES,
+  FLAG_STEAL_MODES,
   decode,
   DEFAULT_ADVANCED,
   DEFAULT_GAME_CONFIG,
@@ -418,8 +419,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     teamSpawnZones: ctf ? true : typeof c.teamSpawnZones === "boolean" ? c.teamSpawnZones : d.teamSpawnZones,
     maxFlags: clampInt(c.maxFlags, 1, 20, d.maxFlags),
     flagTeamCarry: typeof c.flagTeamCarry === "boolean" ? c.flagTeamCarry : d.flagTeamCarry,
-    flagStealOnContact:
-      typeof c.flagStealOnContact === "boolean" ? c.flagStealOnContact : d.flagStealOnContact,
+    flagStealMode: oneOf(c.flagStealMode, FLAG_STEAL_MODES, d.flagStealMode),
     // Captures to win a round; defaults to one per rival team (1 for 2, 3 for 4).
     flagsPerRound: clampInt(c.flagsPerRound, 1, 50, Math.max(1, teamCount - 1)),
     ctfScoreMode: oneOf(c.ctfScoreMode, CTF_SCORE_MODES, d.ctfScoreMode),

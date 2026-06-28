@@ -281,7 +281,7 @@ describe("capture the flag", () => {
   });
 
   it("default: touching a flag carrier steals/relays it on contact", () => {
-    const g = makeCtf(); // flagStealOnContact on (default)
+    const g = makeCtf(); // flagStealMode "any" (default)
     const a = tank(g, "a"); // team 0
     const b = tank(g, "b"); // team 1
     const flag = flagOf(g, 1); // team 1's flag
@@ -305,8 +305,48 @@ describe("capture the flag", () => {
     assert.equal(flag.carrierId, "b");
   });
 
+  it("steal mode 'team': only a teammate takes on touch; enemies must kill", () => {
+    const g = makeGame({
+      cfg: { mode: "ctf", maxFlags: 3, hp: 3, teamCount: 2, flagStealMode: "team" },
+      players: [
+        { id: "a", name: "A", team: 0 },
+        { id: "mate", name: "Mate", team: 0 },
+        { id: "enemy", name: "Enemy", team: 1 },
+      ],
+      maze: new Maze(10, 8, "open"),
+    });
+    const a = tank(g, "a"); // team 0 carrier of team 1's flag
+    const flag = flagOf(g, 1);
+    a.x = flag.x;
+    a.y = flag.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(flag.carrierId, "a");
+    a.x = 400;
+    a.y = 300;
+    flag.x = a.x;
+    flag.y = a.y;
+
+    // Enemy touches the carrier → can't take it (must kill).
+    flag.stealCooldown = 0;
+    const enemy = tank(g, "enemy");
+    enemy.x = a.x;
+    enemy.y = a.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(flag.carrierId, "a");
+
+    // Teammate touches the carrier → relays it.
+    flag.stealCooldown = 0;
+    enemy.x = 50;
+    enemy.y = 50; // move enemy away
+    const mate = tank(g, "mate");
+    mate.x = a.x;
+    mate.y = a.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(flag.carrierId, "mate");
+  });
+
   it("with steal off, touching a carrier doesn't take the flag (kill to drop)", () => {
-    const g = makeCtf({ flagStealOnContact: false });
+    const g = makeCtf({ flagStealMode: "off" });
     const a = tank(g, "a");
     const b = tank(g, "b");
     const flag = flagOf(g, 1);
@@ -355,6 +395,73 @@ describe("capture the flag", () => {
     const g = makeCtf();
     (g as any).kill(tank(g, "b"), "a");
     assert.equal(tank(g, "a").score, 0);
+  });
+
+  it("conquest: only flags PLANTED on your base score (×3 with own flag home)", () => {
+    const g = makeCtf({ ctfScoreMode: "conquest", winScore: 50 });
+    const a = tank(g, "a"); // team 0
+    const enemyFlag = flagOf(g, 1);
+    a.x = enemyFlag.x;
+    a.y = enemyFlag.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(enemyFlag.carrierId, "a"); // a carries team 1's flag
+
+    a.score = 0;
+    (g as any).stepConquest(1); // merely carrying scores nothing
+    assert.equal(a.score, 0);
+
+    // Bring it onto team 0's base → planted ("held").
+    const base = zoneOf(g, 0);
+    a.x = base.x + base.width / 2;
+    a.y = base.y + base.height / 2;
+    enemyFlag.x = a.x;
+    enemyFlag.y = a.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(enemyFlag.state, "held");
+    assert.equal(enemyFlag.carrierId, null);
+
+    a.score = 0;
+    (g as any).stepConquest(1); // own flag home → ×3, 1 planted flag → 3/s
+    assert.equal(Math.round(a.score), 3);
+
+    flagOf(g, 0).state = "dropped"; // own flag no longer home → no multiplier
+    a.score = 0;
+    (g as any).stepConquest(1);
+    assert.equal(Math.round(a.score), 1);
+
+    flagOf(g, 0).state = "home"; // back to ×3; cross the points target
+    a.score = 49;
+    (g as any).stepConquest(1); // +3 → 52 ≥ 50
+    assert.equal(g.isRoundOver, true);
+    assert.equal((g as any).roundWins.get("t0"), 1);
+  });
+
+  it("conquest: a planted flag isn't captured and can be raided back", () => {
+    const g = makeCtf({ ctfScoreMode: "conquest", winScore: 1000 });
+    const a = tank(g, "a"); // team 0
+    const b = tank(g, "b"); // team 1 (the flag's owner)
+    const enemyFlag = flagOf(g, 1);
+    a.x = enemyFlag.x;
+    a.y = enemyFlag.y;
+    (g as any).stepFlags(0.1);
+    const base = zoneOf(g, 0);
+    a.x = base.x + base.width / 2;
+    a.y = base.y + base.height / 2;
+    enemyFlag.x = a.x;
+    enemyFlag.y = a.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(enemyFlag.state, "held");
+    assert.equal(g.isRoundOver, false); // planted, never "captured"
+
+    // The owner raids the stack and carries it away.
+    a.x = 50;
+    a.y = 50; // captor steps off so its own team doesn't re-grab it
+    enemyFlag.stealCooldown = 0;
+    b.x = enemyFlag.x;
+    b.y = enemyFlag.y;
+    (g as any).stepFlags(0.1);
+    assert.equal(enemyFlag.state, "carried");
+    assert.equal(enemyFlag.carrierId, "b");
   });
 
   it("uses spawn-zone bases (2 teams by default)", () => {

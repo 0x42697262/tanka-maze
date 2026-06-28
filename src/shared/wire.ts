@@ -28,7 +28,7 @@ const KIND_CODES: BulletKind[] = ["normal", "sniper", "explosive", "laser", "tra
 // Pickup codes: every power-up in registry order.
 const PUP_CODES: PowerupType[] = POWERUP_TYPES;
 // Flag-state codes.
-const FLAG_STATES: FlagState[] = ["home", "carried", "dropped"];
+const FLAG_STATES: FlagState[] = ["home", "carried", "dropped", "held"];
 const flagStateCode = (s: FlagState): number => Math.max(0, FLAG_STATES.indexOf(s));
 
 const weaponCode = (w: PowerupType | null): number => {

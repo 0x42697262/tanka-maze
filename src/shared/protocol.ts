@@ -95,10 +95,15 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
 // ---------------------------------------------------------------------------
 
 export type GameMode = "ffa" | "lms" | "teams" | "ctf";
-/** How a CTF capture is scored. More modes coming; "deliver" = bring an enemy
- *  flag into your own base. */
-export type CtfScoreMode = "deliver";
-export const CTF_SCORE_MODES: CtfScoreMode[] = ["deliver"];
+/** How CTF is scored. "deliver" = bring an enemy flag into your own base for a
+ *  capture; "conquest" = hold enemy flags for points/second over time. */
+export type CtfScoreMode = "deliver" | "conquest";
+export const CTF_SCORE_MODES: CtfScoreMode[] = ["deliver", "conquest"];
+/** How a flag can change hands by touch (besides being dropped on a kill).
+ *  "any" = anyone who touches the carrier takes it; "team" = only teammates
+ *  (relay) — enemies must kill the carrier; "off" = only a kill drops it. */
+export type FlagStealMode = "any" | "team" | "off";
+export const FLAG_STEAL_MODES: FlagStealMode[] = ["any", "team", "off"];
 export type WallStyle =
   | "maze"
   | "sparse"
@@ -279,13 +284,13 @@ export interface GameConfig {
   // CTF: your team carries a dropped flag back instead of it teleporting home on
   // touch; it only returns to base once a carrier brings it inside the base.
   flagTeamCarry: boolean;
-  // CTF: touching a flag carrier takes the flag (enemies steal, teammates relay);
-  // off = the flag only drops when the carrier is killed.
-  flagStealOnContact: boolean;
-  // CTF: captures a team must score to win a round (default scales with team
-  // count: 1 for 2 teams, 3 for 4 teams — i.e. one per rival).
+  // CTF: how a flag changes hands by touch — any/team(mate)/off (kill to drop).
+  flagStealMode: FlagStealMode;
+  // CTF (deliver): captures a team must score to win a round (default scales with
+  // team count: 1 for 2 teams, 3 for 4 teams — i.e. one per rival).
   flagsPerRound: number;
-  // CTF: how a capture is scored. "deliver" = carry an enemy flag into your base.
+  // CTF: "deliver" = carry an enemy flag home to capture; "conquest" = hold enemy
+  // flags for points/sec, first to winScore points takes the round.
   ctfScoreMode: CtfScoreMode;
   // CTF: extra seconds added to the respawn delay on death (0 = none).
   ctfRespawnBonus: number;
@@ -316,7 +321,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   teamSpawnZones: true,
   maxFlags: 3,
   flagTeamCarry: true,
-  flagStealOnContact: true,
+  flagStealMode: "any",
   flagsPerRound: 1,
   ctfScoreMode: "deliver",
   ctfRespawnBonus: 3,
@@ -488,7 +493,8 @@ export interface BeamDTO {
   y2: number;
 }
 
-export type FlagState = "home" | "carried" | "dropped";
+// "held" = an enemy flag placed/stacked at a captor's base (conquest scoring).
+export type FlagState = "home" | "carried" | "dropped" | "held";
 
 /** A team's flag in Capture the Flag: its team (home base) + live position. */
 export interface FlagDTO {
