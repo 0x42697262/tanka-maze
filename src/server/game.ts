@@ -5,7 +5,7 @@ import {
   HAZARD_DAMAGE,
   HAZARD_HEAL_RATE,
   HAZARD_SLOW_MULT,
-  HAZARD_ZONE_CELLS,
+  HAZARD_ZONE_FRACTION,
   KILL_STREAK_WINDOW,
   SPAWN_SHIELD_SECONDS,
   SPAWN_ZONE_CELLS,
@@ -1410,8 +1410,9 @@ export class Game {
   }
 
   /**
-   * Place up to `hazardDensity` hazard zones on random open cells, avoiding
-   * spawn zones. Each zone is HAZARD_ZONE_CELLS per side with a random type.
+   * Place up to `hazardDensity` small hazard patches on random open cells,
+   * avoiding spawn zones. Patches are randomly offset inside their chosen cell
+   * so they don't form a predictable grid.
    * Called on construction and on each new round (the maze changes).
    */
   private buildHazardZones(): void {
@@ -1419,29 +1420,30 @@ export class Game {
     const density = this.cfg.hazardDensity;
     if (density <= 0) return;
     const { cols, rows, cell } = this.maze;
-    const side = Math.max(1, Math.min(HAZARD_ZONE_CELLS, Math.floor(cols / 2), Math.floor(rows / 2)));
+    const sidePx = Math.max(1, Math.round(cell * HAZARD_ZONE_FRACTION));
     const types: HazardType[] = ["lava", "mud", "ice", "heal"];
-    // Candidate top-left cells: avoid the arena border and spawn zones.
+    // Candidate cells: avoid the arena border and spawn zones.
     const candidates: Array<{ cx: number; cy: number }> = [];
-    for (let cy = 1; cy < rows - side; cy++) {
-      for (let cx = 1; cx < cols - side; cx++) {
+    for (let cy = 1; cy < rows - 1; cy++) {
+      for (let cx = 1; cx < cols - 1; cx++) {
         const zx = cx * cell;
         const zy = cy * cell;
-        const zw = side * cell;
         // Skip if overlapping any spawn zone.
         const overlaps = this.spawnZones.some(
-          (sz) => zx < sz.x + sz.width && zx + zw > sz.x && zy < sz.y + sz.height && zy + zw > sz.y
+          (sz) => zx < sz.x + sz.width && zx + cell > sz.x && zy < sz.y + sz.height && zy + cell > sz.y
         );
         if (!overlaps) candidates.push({ cx, cy });
       }
     }
     const chosen = shuffle(candidates).slice(0, density);
     for (const { cx, cy } of chosen) {
+      const jitterX = Math.random() * Math.max(0, cell - sidePx);
+      const jitterY = Math.random() * Math.max(0, cell - sidePx);
       this.hazards.push({
-        x: cx * cell,
-        y: cy * cell,
-        width: side * cell,
-        height: side * cell,
+        x: cx * cell + jitterX,
+        y: cy * cell + jitterY,
+        width: sidePx,
+        height: sidePx,
         type: types[Math.floor(Math.random() * types.length)],
       });
     }

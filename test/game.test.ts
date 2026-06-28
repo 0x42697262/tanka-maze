@@ -8,7 +8,7 @@ import {
   type InputState,
 } from "../src/shared/protocol.js";
 import { Game } from "../src/server/game.js";
-import { TEAMKILL_STREAK_WINDOW } from "../src/shared/constants.js";
+import { HAZARD_ZONE_FRACTION, TEAMKILL_STREAK_WINDOW } from "../src/shared/constants.js";
 import { Maze } from "../src/server/maze.js";
 
 type Player = { id: string; name: string; color?: string; team?: number };
@@ -1043,8 +1043,11 @@ describe("hazards", () => {
     });
     const zones = (g as any).hazards;
     assert.equal(zones.length, 5);
+    const expectedSide = Math.round(((g as any).maze as Maze).cell * HAZARD_ZONE_FRACTION);
     const spawnZones = (g as any).spawnZones;
     for (const h of zones) {
+      assert.equal(h.width, expectedSide);
+      assert.equal(h.height, expectedSide);
       for (const sz of spawnZones) {
         const overlaps = h.x < sz.x + sz.width && h.x + h.width > sz.x && h.y < sz.y + sz.height && h.y + h.height > sz.y;
         assert.ok(!overlaps, "hazard zone overlaps a spawn zone");

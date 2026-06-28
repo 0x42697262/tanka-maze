@@ -4,6 +4,7 @@
 
 import {
   DEFAULT_GAME_CONFIG,
+  type GameConfig,
   type HazardZoneDTO,
   type MazeDTO,
   type RoundStanding,
@@ -24,6 +25,7 @@ export function startGame(
   maze: MazeDTO,
   spawnZones: SpawnZoneDTO[] = [],
   hazardZones: HazardZoneDTO[] = [],
+  config: GameConfig = state.currentLobby?.config ?? DEFAULT_GAME_CONFIG,
   round = 1,
   totalRounds = 1,
   standing: RoundStanding[] = []
@@ -31,24 +33,7 @@ export function startGame(
   renderer.setMaze(maze);
   renderer.setSpawnZones(spawnZones);
   renderer.setHazards(hazardZones);
-  const cfg = state.currentLobby?.config ?? DEFAULT_GAME_CONFIG;
-  const adv = cfg.adv;
-  renderer.setParams(adv.tankRadius, adv.bulletRadius);
-  renderer.setFog(cfg.fogOfWar, cfg.visionRadius);
-  renderer.setDestructibleWalls(cfg.destructibleWalls, adv.wallHp);
-  renderer.setScope({
-    bulletSpeed: adv.bulletSpeed,
-    bulletLifetime: adv.bulletLifetime,
-    bulletBounces: adv.bulletBounces,
-    sniperSpeedMult: adv.sniperSpeedMult,
-    sniperWallPierce: adv.sniperWallPierce,
-    trackingLifetime: adv.trackingLifetime,
-    trackingBounces: adv.trackingBounces,
-    laserRange: adv.laserRange,
-    explosionRadius: adv.explosionRadius,
-    multiCount: adv.multishotCount,
-    multiSpread: adv.multishotSpread,
-  });
+  applyRendererConfig(config);
   state.arena = { w: maze.width, h: maze.height };
   state.inGame = true;
   if (state.roundCountdown) {
@@ -78,6 +63,27 @@ export function startGame(
   resetAnnouncements();
   show("game");
   fitCanvas();
+}
+
+/** Apply host-tunable rendering params that can change while a match is live. */
+export function applyRendererConfig(cfg: GameConfig): void {
+  const adv = cfg.adv;
+  renderer.setParams(adv.tankRadius, adv.bulletRadius);
+  renderer.setFog(cfg.fogOfWar, cfg.visionRadius);
+  renderer.setDestructibleWalls(cfg.destructibleWalls, adv.wallHp);
+  renderer.setScope({
+    bulletSpeed: adv.bulletSpeed,
+    bulletLifetime: adv.bulletLifetime,
+    bulletBounces: adv.bulletBounces,
+    sniperSpeedMult: adv.sniperSpeedMult,
+    sniperWallPierce: adv.sniperWallPierce,
+    trackingLifetime: adv.trackingLifetime,
+    trackingBounces: adv.trackingBounces,
+    laserRange: adv.laserRange,
+    explosionRadius: adv.explosionRadius,
+    multiCount: adv.multishotCount,
+    multiSpread: adv.multishotSpread,
+  });
 }
 
 /**

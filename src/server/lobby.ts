@@ -271,6 +271,7 @@ export class Lobby {
     this.lastStep = Date.now();
     this.broadcast({
       type: "gameStart",
+      config: this.config,
       maze: this.maze.toDTO(),
       spawnZones: this.game.spawnZoneDTOs(),
       hazardZones: this.game.hazardZoneDTOs(),
@@ -351,6 +352,7 @@ export class Lobby {
     client.ws.send(
       encode({
         type: "gameStart",
+        config: this.config,
         maze: this.maze.toDTO(),
         spawnZones: this.game.spawnZoneDTOs(),
         hazardZones: this.game.hazardZoneDTOs(),
@@ -483,6 +485,7 @@ export class Lobby {
     this.lastStep = Date.now();
     this.broadcast({
       type: "gameStart",
+      config: this.config,
       maze: this.maze.toDTO(),
       spawnZones: this.game.spawnZoneDTOs(),
       hazardZones: this.game.hazardZoneDTOs(),

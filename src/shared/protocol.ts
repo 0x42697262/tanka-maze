@@ -648,6 +648,7 @@ export type ServerMessage =
   // gameStart carries the maze + roster; the first snapshot follows as binary.
   | {
       type: "gameStart";
+      config: GameConfig;
       maze: MazeDTO;
       spawnZones: SpawnZoneDTO[];
       hazardZones: HazardZoneDTO[];

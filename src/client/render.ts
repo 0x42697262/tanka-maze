@@ -1,4 +1,5 @@
-import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS } from "../shared/constants.js";
+import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
+import { effectiveVisionRadius } from "../shared/fog.js";
 import {
   powerupDef,
   type BulletKind,
@@ -55,6 +56,11 @@ interface Beam {
   start: number;
 }
 
+interface FogView {
+  local: TankDTO;
+  radius: number;
+}
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private maze: MazeDTO | null = null;
@@ -90,11 +96,11 @@ export class Renderer {
   private consumedUntil = 0;
   private pendingEvents: KillEvent[] = [];
   private displayedSnap: SnapshotDTO | null = null;
-  // Fog of war: when on, enemies are culled outside visionRadius or when walls
-  // block the line of sight. The scope power-up doubles the radius and grants
-  // x-ray. Client-side only — the server still broadcasts all tanks.
+  // Fog of war: when on, non-wall visuals are clipped to the local sight radius.
+  // Enemy tanks also need line of sight unless scope grants x-ray. Client-side
+  // only — the server still broadcasts all entities.
   private fogOfWar = false;
-  private visionRadius = 260;
+  private visionRadius = VISION_RADIUS;
   // Hazard zones: terrain tiles (lava/mud/ice/heal) drawn under the walls.
   private hazards: HazardZoneDTO[] = [];
   // Destructible walls: per-wall HP array (index matches MazeDTO.walls). Walls
@@ -151,9 +157,10 @@ export class Renderer {
   /** Configure destructible walls. Initializes the per-wall HP array from the
    *  maze if one is already set; otherwise stores the config for setMaze. */
   setDestructibleWalls(enabled: boolean, wallHp: number): void {
+    const sameConfig = this.destructibleWalls === enabled && this.wallMaxHp === (enabled ? wallHp : Infinity);
     this.destructibleWalls = enabled;
     this.wallMaxHp = enabled ? wallHp : Infinity;
-    if (enabled && this.maze) {
+    if (enabled && this.maze && (!sameConfig || this.wallHp.length !== this.maze.walls.length)) {
       this.wallHp = new Array(this.maze.walls.length).fill(wallHp);
     } else if (!enabled) {
       this.wallHp = [];
@@ -250,89 +257,114 @@ export class Renderer {
     // with the world below), then draw the world ~INTERP_DELAY in the past.
     this.consumeEffects(nowMs - INTERP_DELAY, nowMs);
 
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    // Apply wall HP updates from the latest snapshot (wall destruction is a
-    // binary state — no interpolation needed, same as powerups).
-    if (this.destructibleWalls) {
-      const latest = this.latest();
-      if (latest) {
-        for (const w of latest.wallHp) {
-          if (w.index < this.wallHp.length) this.wallHp[w.index] = w.hp;
-        }
-      }
-    }
-    this.drawMaze(maze, nowMs);
-
     const interp = this.interpolated(nowMs);
     this.displayedSnap = interp;
-    if (!interp) return;
+    const localTank = interp?.tanks.find((t) => t.id === localId) ?? null;
+    const fog = this.fogView(localTank);
+
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.applyWallHp();
+    this.drawFloor(maze);
+    this.drawVisionClipped(fog, () => this.drawMapFeatures(nowMs, fog));
+    this.drawWalls(maze);
+    if (!interp) {
+      if (fog) this.drawFogOverlay(fog, maze);
+      return;
+    }
 
     // Power-up pickups (stationary — drawn from the latest snapshot, no interp).
-    this.drawPowerups(this.latest()?.powerups ?? [], nowMs);
+    this.drawVisionClipped(fog, () => this.drawPowerups(this.latest()?.powerups ?? [], nowMs, fog));
     // CTF flags (carried ones ride the interpolated tanks; the rest sit still).
-    this.drawFlags(interp, nowMs);
+    this.drawVisionClipped(fog, () => this.drawFlags(interp, nowMs, fog));
 
-    const tankColors = new Map(interp.tanks.map((t) => [t.id, t.color]));
-    for (const b of interp.bullets) {
-      const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
-      const rad = Math.max(1, this.bulletR + style.dr);
-      ctx.fillStyle = bulletColor(tankColors.get(b.ownerId));
-      if (b.kind === "tracking") {
-        // Triangle pointing in the travel direction.
-        ctx.save();
-        ctx.translate(b.x, b.y);
-        ctx.rotate(b.dir ?? 0);
-        const r = rad + 1.5;
-        ctx.beginPath();
-        ctx.moveTo(r, 0);
-        ctx.lineTo(-r * 0.8, r * 0.8);
-        ctx.lineTo(-r * 0.8, -r * 0.8);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      } else {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, rad, 0, Math.PI * 2);
-        ctx.fill();
+    this.drawVisionClipped(fog, () => {
+      const tankColors = new Map(interp.tanks.map((t) => [t.id, t.color]));
+      for (const b of interp.bullets) {
+        if (fog && !this.isPointVisible(b.x, b.y, fog.local, fog.radius)) continue;
+        const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
+        const rad = Math.max(1, this.bulletR + style.dr);
+        ctx.fillStyle = bulletColor(tankColors.get(b.ownerId));
+        if (b.kind === "tracking") {
+          // Triangle pointing in the travel direction.
+          ctx.save();
+          ctx.translate(b.x, b.y);
+          ctx.rotate(b.dir ?? 0);
+          const r = rad + 1.5;
+          ctx.beginPath();
+          ctx.moveTo(r, 0);
+          ctx.lineTo(-r * 0.8, r * 0.8);
+          ctx.lineTo(-r * 0.8, -r * 0.8);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        } else {
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, rad, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
-    }
+    });
 
     // Aiming guide (local player only) — drawn under the tanks would be hidden
     // by them, so draw it just before so the dotted line reads clearly.
-    this.drawScope(interp);
+    this.drawVisionClipped(fog, () => this.drawScope(interp, localId, fog));
 
-    // Fog of war: find the local tank (for LOS checks + overlay center), then
-    // cull enemy tanks outside the vision radius or blocked by walls. The scope
-    // power-up doubles the radius and grants x-ray through walls.
-    const localTank = interp.tanks.find((t) => t.id === localId) ?? null;
-
-    for (const t of interp.tanks) {
-      if (this.fogOfWar && localTank && t.id !== localId && !this.isVisible(t, localTank)) {
-        continue;
+    this.drawVisionClipped(fog, () => {
+      for (const t of interp.tanks) {
+        if (fog && t.id !== localId && !this.isVisible(t, fog.local, fog.radius)) {
+          continue;
+        }
+        this.drawTank(t, t.id === localId, nowMs);
       }
-      this.drawTank(t, t.id === localId, nowMs);
-    }
+    });
 
-    this.drawBeams(nowMs);
-    this.drawExplosions(nowMs);
+    this.drawVisionClipped(fog, () => this.drawBeams(nowMs, fog));
+    this.drawVisionClipped(fog, () => this.drawExplosions(nowMs, fog));
 
-    // Fog of war overlay: a radial gradient that is transparent within the
-    // vision radius (so the world reads clearly) and darkens to near-opaque
-    // outside it. Drawn last so it covers everything — tanks, bullets, flags —
-    // but enemies were already culled above so they never appear in the dark.
-    if (this.fogOfWar && localTank) {
-      const scoped = localTank.scoped;
-      const radius = scoped ? this.visionRadius * 2 : this.visionRadius;
-      const grad = ctx.createRadialGradient(
-        localTank.x, localTank.y, 0,
-        localTank.x, localTank.y, radius
-      );
-      grad.addColorStop(0, "rgba(18,16,14,0)");
-      grad.addColorStop(0.82, "rgba(18,16,14,0)");
-      grad.addColorStop(1, "rgba(18,16,14,0.86)");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    if (fog) {
+      this.drawFogOverlay(fog, maze);
+      this.drawWalls(maze);
     }
+  }
+
+  private applyWallHp(): void {
+    if (!this.destructibleWalls) return;
+    const latest = this.latest();
+    if (!latest) return;
+    for (const w of latest.wallHp) {
+      if (w.index < this.wallHp.length) this.wallHp[w.index] = w.hp;
+    }
+  }
+
+  private fogView(local: TankDTO | null): FogView | null {
+    if (!this.fogOfWar || !local || !this.maze) return null;
+    const base = effectiveVisionRadius(this.visionRadius, this.maze.width, this.maze.height);
+    return { local, radius: local.scoped ? base * 2 : base };
+  }
+
+  private drawVisionClipped(fog: FogView | null, draw: () => void): void {
+    if (!fog) {
+      draw();
+      return;
+    }
+    const { ctx } = this;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(fog.local.x, fog.local.y, fog.radius, 0, Math.PI * 2);
+    ctx.clip();
+    draw();
+    ctx.restore();
+  }
+
+  private drawFogOverlay(fog: FogView, maze: MazeDTO): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.fillStyle = "#12100e";
+    ctx.beginPath();
+    ctx.rect(0, 0, maze.width, maze.height);
+    ctx.arc(fog.local.x, fog.local.y, fog.radius, 0, Math.PI * 2, true);
+    ctx.fill("evenodd");
+    ctx.restore();
   }
 
   /**
@@ -340,20 +372,23 @@ export class Renderer {
    * the vision radius AND no wall segment blocks the ray from the local tank to
    * it. The scope power-up doubles the radius and skips the wall check (x-ray).
    */
-  private isVisible(enemy: TankDTO, local: TankDTO): boolean {
-    if (!enemy.alive) return true; // dead tanks show their respawn overlay
-    const dx = enemy.x - local.x;
-    const dy = enemy.y - local.y;
-    const dist2 = dx * dx + dy * dy;
-    const scoped = local.scoped;
-    const radius = scoped ? this.visionRadius * 2 : this.visionRadius;
-    if (dist2 > radius * radius) return false;
-    if (scoped) return true; // x-ray — see through walls
+  private isVisible(enemy: TankDTO, local: TankDTO, radius: number): boolean {
+    if (!this.isPointVisible(enemy.x, enemy.y, local, radius)) return false;
+    return true;
+  }
+
+  private isPointVisible(x: number, y: number, local: TankDTO, radius: number): boolean {
+    const dx = x - local.x;
+    const dy = y - local.y;
+    if (dx * dx + dy * dy > radius * radius) return false;
+    if (local.scoped) return true; // x-ray — see through walls
     if (!this.maze) return true;
     // Cast a ray from the local tank to the enemy; if any wall segment
     // intersects it, the enemy is hidden.
-    for (const w of this.maze.walls) {
-      if (segIntersect(local.x, local.y, enemy.x, enemy.y, w.x1, w.y1, w.x2, w.y2)) {
+    for (let i = 0; i < this.maze.walls.length; i++) {
+      if (!this.wallBlocksVision(i)) continue;
+      const w = this.maze.walls[i];
+      if (segIntersect(local.x, local.y, x, y, w.x1, w.y1, w.x2, w.y2)) {
         return false;
       }
     }
@@ -367,11 +402,12 @@ export class Renderer {
    * yet still computed purely client-side (the server only flags `scoped`), so
    * it adds no simulation cost.
    */
-  private drawScope(interp: SnapshotDTO): void {
+  private drawScope(interp: SnapshotDTO, localId: string, fog: FogView | null): void {
     if (!this.maze) return;
     const { ctx } = this;
     for (const t of interp.tanks) {
       if (!t.alive || !t.scoped) continue;
+      if (fog && t.id !== localId && !this.isVisible(t, fog.local, fog.radius)) continue;
       const paths = this.scopePaths(t, this.tankVelocity(t.id));
       ctx.save();
       ctx.lineCap = "round";
@@ -592,11 +628,12 @@ export class Renderer {
     return { x: (tb.x - ta.x) / dt, y: (tb.y - ta.y) / dt };
   }
 
-  private drawBeams(nowMs: number): void {
+  private drawBeams(nowMs: number, fog: FogView | null): void {
     const { ctx } = this;
     this.beams = this.beams.filter((b) => nowMs - b.start < BEAM_MS);
     ctx.lineCap = "round";
     for (const b of this.beams) {
+      if (fog && !this.isPointVisible((b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, fog.local, fog.radius)) continue;
       const alpha = 1 - (nowMs - b.start) / BEAM_MS;
       // Layered beam: violet glow → blue → white core.
       ctx.globalAlpha = alpha * 0.3;
@@ -623,10 +660,11 @@ export class Renderer {
     ctx.stroke();
   }
 
-  private drawPowerups(powerups: PowerupDTO[], nowMs: number): void {
+  private drawPowerups(powerups: PowerupDTO[], nowMs: number, fog: FogView | null): void {
     const { ctx } = this;
     const bob = Math.sin(nowMs / 300) * 1.5;
     for (const p of powerups) {
+      if (fog && !this.isPointVisible(p.x, p.y, fog.local, fog.radius)) continue;
       const def = powerupDef(p.type);
       const s = POWERUP_RADIUS;
       ctx.save();
@@ -665,7 +703,7 @@ export class Renderer {
   /** CTF flags: a pennant on a pole in the team's color. Dropped flags pulse.
    *  When one tank carries several flags, their pennants stack up a taller pole
    *  (lowest team index at the bottom) so every held flag stays visible. */
-  private drawFlags(interp: SnapshotDTO, nowMs: number): void {
+  private drawFlags(interp: SnapshotDTO, nowMs: number, fog: FogView | null): void {
     if (interp.flags.length === 0) return;
     const { ctx } = this;
     const teamColor = new Map(this.spawnZones.map((z) => [z.team, z.color]));
@@ -685,6 +723,7 @@ export class Renderer {
 
     const PENNANT_GAP = 9; // vertical spacing between stacked pennants
     for (const fl of interp.flags) {
+      if (fog && !this.isPointVisible(fl.x, fl.y, fog.local, fog.radius)) continue;
       const color = teamColor.get(fl.team) ?? "#888888";
       const bob = fl.state === "carried" ? 0 : Math.sin(nowMs / 300) * 1.5;
       const tier = stackIndex.get(fl) ?? 0;
@@ -715,10 +754,11 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  private drawExplosions(nowMs: number): void {
+  private drawExplosions(nowMs: number, fog: FogView | null): void {
     const { ctx } = this;
     this.explosions = this.explosions.filter((e) => nowMs - e.start < EXPLOSION_MS);
     for (const e of this.explosions) {
+      if (fog && !this.isPointVisible(e.x, e.y, fog.local, fog.radius)) continue;
       const age = (nowMs - e.start) / EXPLOSION_MS; // 0..1
       ctx.save();
       ctx.translate(e.x, e.y);
@@ -754,12 +794,15 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  private drawMaze(maze: MazeDTO, nowMs: number): void {
+  private drawFloor(maze: MazeDTO): void {
     const { ctx } = this;
     // Parchment arena floor.
     ctx.fillStyle = "#e7d9b8";
     ctx.fillRect(0, 0, maze.width, maze.height);
+  }
 
+  private drawMapFeatures(nowMs: number, fog: FogView | null): void {
+    const { ctx } = this;
     // Team spawn zones: a faint wash of each team's color, with a soft dashed
     // outline. Drawn under the walls so the arena structure reads on top.
     for (const z of this.spawnZones) {
@@ -775,7 +818,8 @@ export class Renderer {
 
     // Hazard zones: animated terrain tints, drawn under the walls.
     for (const h of this.hazards) {
-      const pulse = 0.12 + 0.06 * Math.abs(Math.sin(nowMs / 400));
+      if (fog && !this.isRectVisible(h.x, h.y, h.width, h.height, fog.local, fog.radius)) continue;
+      const pulse = 0.28 + 0.1 * Math.abs(Math.sin(nowMs / 400));
       let color = "#c24f2f"; // lava — red-orange
       if (h.type === "mud") color = "#6b4a2f";
       else if (h.type === "ice") color = "#5a8cb8";
@@ -783,13 +827,16 @@ export class Renderer {
       ctx.fillStyle = hexToRgba(color, pulse);
       ctx.fillRect(h.x, h.y, h.width, h.height);
       ctx.save();
-      ctx.strokeStyle = hexToRgba(color, 0.55);
+      ctx.strokeStyle = hexToRgba(color, 0.75);
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 4]);
       ctx.strokeRect(h.x + 1, h.y + 1, h.width - 2, h.height - 2);
       ctx.restore();
     }
+  }
 
+  private drawWalls(maze: MazeDTO): void {
+    const { ctx } = this;
     // Inked wall lines. Destroyed walls (hp <= 0) are skipped; damaged walls
     // are drawn with reduced alpha to show they're weakening.
     ctx.strokeStyle = "#352f25";
@@ -818,6 +865,21 @@ export class Renderer {
       }
       ctx.stroke();
     }
+  }
+
+  private wallBlocksVision(index: number): boolean {
+    return !this.destructibleWalls || this.wallHp[index] > 0;
+  }
+
+  private isRectVisible(x: number, y: number, width: number, height: number, local: TankDTO, radius: number): boolean {
+    const points = [
+      [x + width / 2, y + height / 2],
+      [x, y],
+      [x + width, y],
+      [x, y + height],
+      [x + width, y + height],
+    ] as const;
+    return points.some(([px, py]) => this.isPointVisible(px, py, local, radius));
   }
 
   private drawTank(t: TankDTO, isLocal: boolean, nowMs: number): void {

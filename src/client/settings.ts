@@ -93,7 +93,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       ctfRespawnBonus: num("ctf-respawn-bonus", 3),
       adv: gatherAdvanced(),
       fogOfWar: sel("fog-of-war") === "on",
-      visionRadius: num("vision-radius", 260),
+      visionRadius: num("vision-radius", DEFAULT_GAME_CONFIG.visionRadius),
       hazardDensity: num("hazard-density", 0),
       hazardDamage: num("hazard-damage", 2),
       hazardSlowMult: num("hazard-slow-mult", 0.5),

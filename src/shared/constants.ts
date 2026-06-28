@@ -92,11 +92,11 @@ export const LASER_RANGE = 15 * CELL;
 // Fog of war: enemies are only visible within this radius of the local tank AND
 // when no wall blocks the line of sight. The scope power-up doubles this and
 // grants x-ray through walls. Host-tunable live (GameConfig.fogOfWar / visionRadius).
-export const VISION_RADIUS = 260; // px base sight radius
+export const VISION_RADIUS = 100; // px base sight radius on a normal map
 
-// Hazard zones: terrain tiles that affect tanks inside them each tick.
+// Hazard zones: small terrain patches that affect tanks inside them each tick.
 // Lava deals damage; mud slows; ice removes friction (slide); heal restores HP.
-export const HAZARD_ZONE_CELLS = 2; // side in cells of each hazard zone
+export const HAZARD_ZONE_FRACTION = 0.60; // side length as a fraction of one cell
 export const HAZARD_DAMAGE = 2; // lava damage per second
 export const HAZARD_SLOW_MULT = 0.5; // mud speed multiplier
 export const HAZARD_HEAL_RATE = 1; // heal HP per second
