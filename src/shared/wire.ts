@@ -111,8 +111,8 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     s.beams.length * 8 +
     1 +
     s.events.length * 7 +
-    1 +
-    s.wallHp.length * 2; // u8 index + u8 hp per damaged wall
+    2 +
+    s.wallHp.length * 3; // u16 count, then u16 index + u8 hp per damaged wall
   const dv = new DataView(new ArrayBuffer(size));
   let o = 0;
 
@@ -213,10 +213,13 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint8(o++, Math.min(255, e.mult));
   }
 
-  // Damaged walls (destructibleWalls only): index + current HP.
-  dv.setUint8(o++, s.wallHp.length);
+  // Damaged walls (destructibleWalls only): index + current HP. The index is
+  // u16 because per-cell destructible walls can exceed 255 on large maps.
+  dv.setUint16(o, s.wallHp.length, true);
+  o += 2;
   for (const w of s.wallHp) {
-    dv.setUint8(o++, Math.min(255, w.index));
+    dv.setUint16(o, w.index, true);
+    o += 2;
     dv.setUint8(o++, Math.min(255, w.hp));
   }
 
@@ -359,9 +362,11 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
   }
 
   const wallHp: Array<{ index: number; hp: number }> = [];
-  const wallHpCount = dv.getUint8(o++);
+  const wallHpCount = dv.getUint16(o, true);
+  o += 2;
   for (let i = 0; i < wallHpCount; i++) {
-    const index = dv.getUint8(o++);
+    const index = dv.getUint16(o, true);
+    o += 2;
     const hp = dv.getUint8(o++);
     wallHp.push({ index, hp });
   }

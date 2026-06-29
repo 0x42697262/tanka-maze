@@ -105,6 +105,9 @@ export const HAZARD_HEAL_RATE = 1; // heal HP per second
 export const WALL_HP = 3; // hits to destroy an internal wall
 export const WALL_DAMAGE = 1; // HP removed per bullet bounce
 export const WALL_EXPLOSION_DAMAGE = 2; // HP removed by explosive AoE per wall
+// A broken (or damaged) wall heals back to full this many seconds after its last
+// hit, but only once no tank is standing on it (so it can't trap anyone).
+export const WALL_REGEN_SECONDS = 10;
 
 export const TEAM_COLORS = ["#3f8ce6", "#e6453f", "#46c24f", "#e6c23f"]; // blue, red, green, yellow
 

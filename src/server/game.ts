@@ -573,6 +573,10 @@ export class Game {
     }
 
     this.stepBullets(dt);
+    if (this.cfg.destructibleWalls) {
+      const bodies = [...this.tanks.values()].filter((t) => t.alive).map((t) => ({ x: t.x, y: t.y }));
+      this.maze.regenWalls(dt, bodies, this.adv.tankRadius);
+    }
     this.stepFlags(dt);
     this.stepConquest(dt);
     this.stepCarry(dt);

@@ -364,6 +364,9 @@ export class Renderer {
     if (!this.destructibleWalls) return;
     const latest = this.latest();
     if (!latest) return;
+    // The snapshot carries the authoritative set of below-full walls, so reset
+    // everything to full first — this restores walls that have regrown.
+    this.wallHp.fill(this.wallMaxHp);
     for (const w of latest.wallHp) {
       if (w.index < this.wallHp.length) this.wallHp[w.index] = w.hp;
     }
@@ -1074,8 +1077,8 @@ export class Renderer {
 
   private drawWalls(maze: MazeDTO): void {
     const { ctx } = this;
-    // Inked wall lines. Destroyed walls (hp <= 0) are skipped; damaged walls
-    // are drawn with reduced alpha to show they're weakening.
+    // Inked wall lines. Destructible walls look identical whether full or
+    // damaged — only a fully destroyed wall (hp <= 0) vanishes from the draw.
     ctx.strokeStyle = "#352f25";
     ctx.lineWidth = maze.thickness;
     ctx.lineCap = "round";
@@ -1088,20 +1091,6 @@ export class Renderer {
       ctx.lineTo(w.x2, w.y2);
     }
     ctx.stroke();
-    // Damaged walls get a second, lighter pass to show cracking.
-    if (this.destructibleWalls) {
-      ctx.strokeStyle = "#a89878";
-      ctx.lineWidth = maze.thickness * 0.5;
-      ctx.beginPath();
-      for (let i = 0; i < maze.walls.length; i++) {
-        const hp = this.wallHp[i];
-        if (hp <= 0 || hp >= this.wallMaxHp) continue; // destroyed or undamaged
-        const w = maze.walls[i];
-        ctx.moveTo(w.x1, w.y1);
-        ctx.lineTo(w.x2, w.y2);
-      }
-      ctx.stroke();
-    }
   }
 
   private wallBlocksVision(index: number): boolean {

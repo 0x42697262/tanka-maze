@@ -8,7 +8,7 @@ import {
   type InputState,
 } from "../src/shared/protocol.js";
 import { Game } from "../src/server/game.js";
-import { HAZARD_ZONE_FRACTION, TEAMKILL_STREAK_WINDOW } from "../src/shared/constants.js";
+import { HAZARD_ZONE_FRACTION, TEAMKILL_STREAK_WINDOW, WALL_REGEN_SECONDS } from "../src/shared/constants.js";
 import { Maze } from "../src/server/maze.js";
 
 type Player = { id: string; name: string; color?: string; team?: number };
@@ -1240,5 +1240,66 @@ describe("destructible walls", () => {
     const wallHp = g2.snapshot(0).wallHp;
     assert.equal(wallHp.length, 1);
     assert.equal(wallHp[0].hp, 2);
+  });
+
+  it("destroyed walls (hp 0) are reported in the snapshot", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 1 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const maze = (g as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    maze.damageWall(internal, 1);
+    assert.equal(internal.hp, 0, "wall is destroyed");
+    const wallHp = g.snapshot(0).wallHp;
+    const entry = wallHp.find((w) => maze.walls[w.index] === internal);
+    assert.ok(entry, "destroyed wall is included so the client can hide it");
+    assert.equal(entry!.hp, 0);
+  });
+
+  it("interior walls are per-cell, so one hit only breaks one cell", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 1 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const maze = (g as any).maze;
+    // Every destructible wall spans a single cell edge (length == cell size).
+    for (const w of maze.walls) {
+      if (w.maxHp === Infinity) continue;
+      const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+      assert.equal(len, maze.cell, "destructible wall is one cell long");
+    }
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    maze.damageWall(internal, 1);
+    const destroyed = maze.walls.filter((w: any) => w.maxHp !== Infinity && w.hp <= 0);
+    assert.equal(destroyed.length, 1, "only the hit cell broke");
+  });
+
+  it("damaged walls regenerate to full once clear, but not while blocked", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 2 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    const maze = (g as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    maze.damageWall(internal, 2);
+    assert.equal(internal.hp, 0);
+
+    // A tank sitting on the wall keeps it from regrowing past the timer.
+    a.x = (internal.x1 + internal.x2) / 2;
+    a.y = (internal.y1 + internal.y2) / 2;
+    maze.regenWalls(WALL_REGEN_SECONDS + 1, [{ x: a.x, y: a.y }], 14);
+    assert.equal(internal.hp, 0, "blocked wall stays broken");
+
+    // Once nothing overlaps it, the wall heals back to full.
+    maze.regenWalls(0, [{ x: 99999, y: 99999 }], 14);
+    assert.equal(internal.hp, internal.maxHp, "wall regrew to full");
   });
 });
