@@ -89,10 +89,9 @@ export const SPAWN_ZONE_CELLS = 2;
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;
 
-// Fog of war: non-wall visuals are clipped to the local tank's sight shape.
-// Scope doubles full-area radius and grants x-ray through walls. Host-tunable live.
+// Fog of war: non-wall visuals are clipped to the local/team sight area.
+// Scope doubles tank vision radius and grants x-ray through walls. Host-tunable live.
 export const VISION_RADIUS = 1000; // px base sight radius on a normal map
-export const FLASHLIGHT_DEGREES = 45; // cone width in degrees, centred on the turret
 
 // Hazard zones: small terrain patches that affect tanks inside them each tick.
 // Lava deals damage; mud slows; ice removes friction (slide); heal restores HP.

@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 
 import {
   DEFAULT_ADVANCED,
+  DEFAULT_GAME_CONFIG,
   POWERUP_DEFS,
   POWERUP_TYPES,
+  gameConfigWithDefaults,
   powerupDef,
   WEAPON_POWERUPS,
 } from "../src/shared/protocol.js";
@@ -68,5 +70,17 @@ describe("power-up registry", () => {
     ]);
     const missing = Object.keys(DEFAULT_ADVANCED).filter((k) => !covered.has(k));
     assert.deepEqual(missing, [], `uncovered adv fields: ${missing.join(", ")}`);
+  });
+});
+
+describe("game config defaults", () => {
+  it("fills missing fog and advanced fields for partial configs", () => {
+    const cfg = gameConfigWithDefaults({ fogOfWar: true, adv: { bulletSpeed: 420 } });
+    assert.equal(cfg.fogOfWar, true);
+    assert.equal(cfg.visionRadius, DEFAULT_GAME_CONFIG.visionRadius);
+    assert.equal(cfg.fogBaseVision, "team");
+    assert.equal(cfg.fogFlagVision, "team");
+    assert.equal(cfg.adv.bulletSpeed, 420);
+    assert.equal(cfg.adv.tankRadius, DEFAULT_ADVANCED.tankRadius);
   });
 });

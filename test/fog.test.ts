@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { CELL, FLASHLIGHT_DEGREES, MAZE_COLS, MAZE_ROWS, VISION_RADIUS } from "../src/shared/constants.js";
+import { CELL, MAZE_COLS, MAZE_ROWS, VISION_RADIUS } from "../src/shared/constants.js";
 import { effectiveVisionRadius } from "../src/shared/fog.js";
 import { DEFAULT_GAME_CONFIG } from "../src/shared/protocol.js";
 
 describe("fog of war", () => {
-  it("defaults to the shared full-area vision radius", () => {
+  it("defaults to the shared radius with team-owned objective vision", () => {
     assert.equal(DEFAULT_GAME_CONFIG.visionRadius, VISION_RADIUS);
-    assert.equal(DEFAULT_GAME_CONFIG.fogType, "full");
-    assert.equal(DEFAULT_GAME_CONFIG.flashlightDegrees, FLASHLIGHT_DEGREES);
+    assert.equal(DEFAULT_GAME_CONFIG.fogBaseVision, "team");
+    assert.equal(DEFAULT_GAME_CONFIG.fogFlagVision, "team");
   });
 
   it("keeps the configured radius on a normal map", () => {

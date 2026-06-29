@@ -7,10 +7,11 @@ import {
   HAZARD_TYPES,
   POWERUP_DEFS,
   WALL_STYLES,
+  gameConfigWithDefaults,
   type AdvancedConfig,
   type CtfScoreMode,
   type FlagStealMode,
-  type FogType,
+  type FogVisionMode,
   type GameConfig,
   type GameMode,
   type HazardType,
@@ -98,9 +99,9 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       ctfRespawnBonus: num("ctf-respawn-bonus", 3),
       adv: gatherAdvanced(),
       fogOfWar: sel("fog-of-war") === "on",
-      fogType: sel("fog-type") as FogType,
       visionRadius: num("vision-radius", d.visionRadius),
-      flashlightDegrees: num("flashlight-degrees", d.flashlightDegrees),
+      fogBaseVision: sel("fog-base-vision") as FogVisionMode,
+      fogFlagVision: sel("fog-flag-vision") as FogVisionMode,
       hazardDensity: num("hazard-density", d.hazardDensity),
       hazardTypes,
       hazardDamage: num("hazard-damage", d.hazardDamage),
@@ -116,47 +117,48 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
 }
 
 export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
+  const cfg = gameConfigWithDefaults(c);
   const set = (id: string, v: string | number) => (($(id) as HTMLInputElement).value = String(v));
   set("max-players", maxPlayers);
-  set("mode", c.mode);
-  set("walls", c.wallStyle);
-  set("map-size", c.mapSize);
-  set("rounds", c.rounds);
-  set("allow-late", c.allowLateJoin ? "on" : "off");
-  set("team-count", c.teamCount);
-  set("ctf-team-count", c.teamCount >= 3 ? 4 : 2);
-  set("tank-speed", c.tankSpeedPct);
-  set("hp", c.hp);
-  set("lives", c.lives);
-  set("cfg-respawn", c.respawnSeconds);
-  set("kill-points", c.killPoints);
-  set("death-penalty", c.deathPenaltyPct);
-  set("win-score", c.winScore);
-  set("friendly-fire", c.friendlyFire ? "on" : "off");
-  set("team-kill", c.teamKillPenalty);
-  set("team-spawn-zones", c.teamSpawnZones ? "on" : "off");
-  set("max-flags", c.maxFlags);
-  set("flag-team-carry", c.flagTeamCarry ? "on" : "off");
-  set("flag-steal", c.flagStealMode);
-  set("flags-per-round", c.flagsPerRound);
-  set("ctf-score-mode", c.ctfScoreMode);
-  set("ctf-points", c.winScore); // conquest points-to-win mirrors winScore
-  set("ctf-respawn-bonus", c.ctfRespawnBonus);
-  set("fog-of-war", c.fogOfWar ? "on" : "off");
-  set("fog-type", c.fogType);
-  set("vision-radius", c.visionRadius);
-  set("flashlight-degrees", c.flashlightDegrees);
-  set("hazard-density", c.hazardDensity);
-  for (const type of HAZARD_TYPES) set(`hazard-${type}`, c.hazardTypes.includes(type) ? "on" : "off");
-  set("hazard-damage", c.hazardDamage);
-  set("hazard-slow-mult", c.hazardSlowMult);
-  set("hazard-heal-rate", c.hazardHealRate);
-  set("destructible-walls", c.destructibleWalls ? "on" : "off");
-  set("powerups", c.powerups ? "on" : "off");
-  set("pwr-every", c.powerupEverySeconds);
-  set("pwr-charges", c.powerupCharges);
-  set("pwr-despawn", c.powerupDespawnSeconds);
-  for (const k of ADV_KEYS) set(`adv-${k}`, c.adv[k]);
+  set("mode", cfg.mode);
+  set("walls", cfg.wallStyle);
+  set("map-size", cfg.mapSize);
+  set("rounds", cfg.rounds);
+  set("allow-late", cfg.allowLateJoin ? "on" : "off");
+  set("team-count", cfg.teamCount);
+  set("ctf-team-count", cfg.teamCount >= 3 ? 4 : 2);
+  set("tank-speed", cfg.tankSpeedPct);
+  set("hp", cfg.hp);
+  set("lives", cfg.lives);
+  set("cfg-respawn", cfg.respawnSeconds);
+  set("kill-points", cfg.killPoints);
+  set("death-penalty", cfg.deathPenaltyPct);
+  set("win-score", cfg.winScore);
+  set("friendly-fire", cfg.friendlyFire ? "on" : "off");
+  set("team-kill", cfg.teamKillPenalty);
+  set("team-spawn-zones", cfg.teamSpawnZones ? "on" : "off");
+  set("max-flags", cfg.maxFlags);
+  set("flag-team-carry", cfg.flagTeamCarry ? "on" : "off");
+  set("flag-steal", cfg.flagStealMode);
+  set("flags-per-round", cfg.flagsPerRound);
+  set("ctf-score-mode", cfg.ctfScoreMode);
+  set("ctf-points", cfg.winScore); // conquest points-to-win mirrors winScore
+  set("ctf-respawn-bonus", cfg.ctfRespawnBonus);
+  set("fog-of-war", cfg.fogOfWar ? "on" : "off");
+  set("vision-radius", cfg.visionRadius);
+  set("fog-base-vision", cfg.fogBaseVision);
+  set("fog-flag-vision", cfg.fogFlagVision);
+  set("hazard-density", cfg.hazardDensity);
+  for (const type of HAZARD_TYPES) set(`hazard-${type}`, cfg.hazardTypes.includes(type) ? "on" : "off");
+  set("hazard-damage", cfg.hazardDamage);
+  set("hazard-slow-mult", cfg.hazardSlowMult);
+  set("hazard-heal-rate", cfg.hazardHealRate);
+  set("destructible-walls", cfg.destructibleWalls ? "on" : "off");
+  set("powerups", cfg.powerups ? "on" : "off");
+  set("pwr-every", cfg.powerupEverySeconds);
+  set("pwr-charges", cfg.powerupCharges);
+  set("pwr-despawn", cfg.powerupDespawnSeconds);
+  for (const k of ADV_KEYS) set(`adv-${k}`, cfg.adv[k]);
   renderWallPicker();
   applyModeVisibility();
 }
@@ -166,6 +168,7 @@ export function applyModeVisibility(): void {
   const mode = ($("mode") as HTMLSelectElement).value;
   const cfg = $("lobby-config");
   const ctf = mode === "ctf";
+  const teamBased = mode === "teams" || ctf;
   const toggle = (sel: string, hidden: boolean) =>
     cfg.querySelectorAll(sel).forEach((el) => el.classList.toggle("hidden", hidden));
   // Team-only controls (team count, team-kill, spawn-zones) — CTF locks these,
@@ -184,10 +187,9 @@ export function applyModeVisibility(): void {
   // Carry forces team-carry on (flags only ride tanks), so its toggle is hidden.
   toggle(".cfg-flagcarry", !ctf || scoreMode === "carry");
   const fogOn = ($("fog-of-war") as HTMLSelectElement).value === "on";
-  const flashlightFog = fogOn && ($("fog-type") as HTMLSelectElement).value === "flashlight";
   toggle(".cfg-fog-on", !fogOn);
-  toggle(".cfg-fog-full", !fogOn || flashlightFog);
-  toggle(".cfg-fog-flashlight", !flashlightFog);
+  toggle(".cfg-fog-team", !fogOn || !teamBased);
+  toggle(".cfg-fog-flag", !fogOn || !ctf);
 }
 
 // ---- Map (walls) image picker ----

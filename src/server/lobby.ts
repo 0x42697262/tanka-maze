@@ -10,6 +10,7 @@ import {
 } from "../shared/constants.js";
 import {
   encode,
+  gameConfigWithDefaults,
   type GameConfig,
   type InputState,
   type LobbyDTO,
@@ -92,7 +93,7 @@ export class Lobby {
     this.name = name;
     this.hostId = host.id;
     this.maxPlayers = clamp(maxPlayers, 2, 32) || DEFAULT_MAX_PLAYERS;
-    this.config = config;
+    this.config = gameConfigWithDefaults(config);
     this.onChange = onChange;
     this.ensureTeams();
   }
@@ -196,14 +197,14 @@ export class Lobby {
   setConfig(requesterId: string, maxPlayers: number, config: GameConfig): void {
     if (requesterId !== this.hostId) return;
     const prevTeamCount = this.config.teamCount;
-    this.config = config;
+    this.config = gameConfigWithDefaults(config);
     this.maxPlayers = clamp(maxPlayers, 2, 32) || this.maxPlayers;
     this.ensureTeams();
     // Team count changed: spread everyone evenly across the new teams. This runs
     // even mid-match (it applies live for the lobby roster and on the next round /
     // restart, which is when the team-count change takes structural effect).
-    if (config.teamCount !== prevTeamCount) this.rebalanceTeams();
-    if (this.inGame) this.game?.updateConfig(config);
+    if (this.config.teamCount !== prevTeamCount) this.rebalanceTeams();
+    if (this.inGame) this.game?.updateConfig(this.config);
     this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
     this.onChange(); // listing shows the new mode
   }
@@ -271,7 +272,7 @@ export class Lobby {
     this.lastStep = Date.now();
     this.broadcast({
       type: "gameStart",
-      config: this.config,
+      config: this.configDTO(),
       maze: this.maze.toDTO(),
       spawnZones: this.game.spawnZoneDTOs(),
       hazardZones: this.game.hazardZoneDTOs(),
@@ -352,7 +353,7 @@ export class Lobby {
     client.ws.send(
       encode({
         type: "gameStart",
-        config: this.config,
+        config: this.configDTO(),
         maze: this.maze.toDTO(),
         spawnZones: this.game.spawnZoneDTOs(),
         hazardZones: this.game.hazardZoneDTOs(),
@@ -485,7 +486,7 @@ export class Lobby {
     this.lastStep = Date.now();
     this.broadcast({
       type: "gameStart",
-      config: this.config,
+      config: this.configDTO(),
       maze: this.maze.toDTO(),
       spawnZones: this.game.spawnZoneDTOs(),
       hazardZones: this.game.hazardZoneDTOs(),
@@ -521,7 +522,7 @@ export class Lobby {
       hostId: this.hostId,
       maxPlayers: this.maxPlayers,
       inGame: this.inGame,
-      config: this.config,
+      config: this.configDTO(),
       players: this.members.map((m) => ({
         id: m.id,
         name: m.name,
@@ -533,6 +534,10 @@ export class Lobby {
       teamNames: this.teamNames.slice(0, this.config.teamCount),
       teamColors: this.teamColors.slice(0, this.config.teamCount),
     };
+  }
+
+  private configDTO(): GameConfig {
+    return gameConfigWithDefaults(this.config);
   }
 
   toSummary(): LobbySummaryDTO {

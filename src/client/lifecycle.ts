@@ -4,6 +4,7 @@
 
 import {
   DEFAULT_GAME_CONFIG,
+  gameConfigWithDefaults,
   type GameConfig,
   type HazardZoneDTO,
   type MazeDTO,
@@ -67,9 +68,10 @@ export function startGame(
 
 /** Apply host-tunable rendering params that can change while a match is live. */
 export function applyRendererConfig(cfg: GameConfig): void {
+  cfg = gameConfigWithDefaults(cfg);
   const adv = cfg.adv;
   renderer.setParams(adv.tankRadius, adv.bulletRadius);
-  renderer.setFog(cfg.fogOfWar, cfg.visionRadius, cfg.fogType, cfg.flashlightDegrees);
+  renderer.setFog(cfg.fogOfWar, cfg.visionRadius, cfg.fogBaseVision, cfg.fogFlagVision);
   renderer.setDestructibleWalls(cfg.destructibleWalls, adv.wallHp);
   renderer.setScope({
     bulletSpeed: adv.bulletSpeed,

@@ -73,14 +73,16 @@ describe("buildConfigDetailsHtml", () => {
 
   it("shows fog and hazard config in their own groups", () => {
     const cfg = structuredClone(DEFAULT_GAME_CONFIG);
+    cfg.mode = "ctf";
     cfg.fogOfWar = true;
-    cfg.fogType = "flashlight";
-    cfg.flashlightDegrees = 90;
+    cfg.fogBaseVision = "all";
+    cfg.fogFlagVision = "all";
     cfg.hazardDensity = 3;
     cfg.hazardTypes = ["lava", "mud"];
     const html = buildConfigDetailsHtml(lobby({ config: cfg }));
     assert.match(html, /Fog of War/);
-    assert.match(html, /Flashlight/);
+    assert.match(html, /All teams/);
+    assert.match(html, /All flags/);
     assert.match(html, /Hazards/);
     assert.match(html, /Lava, Mud/);
   });

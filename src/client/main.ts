@@ -3,7 +3,7 @@
 // modules (dom, state, labels, settings, lobby, hud, scoreboard, lifecycle).
 
 import "./style.css";
-import { DEFAULT_GAME_CONFIG, type ServerMessage } from "../shared/protocol.js";
+import { DEFAULT_GAME_CONFIG, gameConfigWithDefaults, type LobbyDTO, type ServerMessage } from "../shared/protocol.js";
 import { bytesEqual, decodeSnapshot, encodeInput } from "../shared/wire.js";
 import { $, show, toast } from "./dom.js";
 import { announceKill } from "./announce.js";
@@ -47,6 +47,10 @@ import {
 } from "./state.js";
 
 if (IS_TOUCH) document.body.classList.add("touch");
+
+function lobbyWithConfigDefaults(lobby: LobbyDTO): LobbyDTO {
+  return { ...lobby, config: gameConfigWithDefaults(lobby.config) };
+}
 
 // ---------------------------------------------------------------------------
 // Networking
@@ -95,17 +99,17 @@ net.onMessage((msg: ServerMessage) => {
       renderLobbyList(msg.lobbies);
       break;
     case "lobbyJoined":
-      state.currentLobby = msg.lobby;
+      state.currentLobby = lobbyWithConfigDefaults(msg.lobby);
       if (!state.inGame) {
-        renderLobby(msg.lobby, true);
+        renderLobby(state.currentLobby, true);
         show("lobby");
       }
       break;
     case "lobbyUpdate":
-      state.currentLobby = msg.lobby;
-      if (state.inGame) applyRendererConfig(msg.lobby.config);
+      state.currentLobby = lobbyWithConfigDefaults(msg.lobby);
+      if (state.inGame) applyRendererConfig(state.currentLobby.config);
       if (!state.inGame) {
-        renderLobby(msg.lobby, false);
+        renderLobby(state.currentLobby, false);
         show("lobby");
       }
       break;
@@ -116,7 +120,15 @@ net.onMessage((msg: ServerMessage) => {
       break;
     case "gameStart":
       state.roster = new Map(msg.roster.map((r) => [r.index, r]));
-      startGame(msg.maze, msg.spawnZones, msg.hazardZones, msg.config, msg.round, msg.totalRounds, msg.standing);
+      startGame(
+        msg.maze,
+        msg.spawnZones,
+        msg.hazardZones,
+        gameConfigWithDefaults(msg.config),
+        msg.round,
+        msg.totalRounds,
+        msg.standing
+      );
       // The first snapshot arrives next as a binary frame.
       break;
     case "roster":

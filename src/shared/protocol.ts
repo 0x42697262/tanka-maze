@@ -9,7 +9,6 @@ import {
   CELL,
   EXPLOSION_RADIUS,
   FIRE_COOLDOWN,
-  FLASHLIGHT_DEGREES,
   HAZARD_DAMAGE,
   HAZARD_HEAL_RATE,
   HAZARD_SLOW_MULT,
@@ -38,8 +37,8 @@ import {
   WALL_THICKNESS,
 } from "./constants.js";
 
-export const FOG_TYPES = ["full", "flashlight"] as const;
-export type FogType = (typeof FOG_TYPES)[number];
+export const FOG_VISION_MODES = ["off", "team", "all"] as const;
+export type FogVisionMode = (typeof FOG_VISION_MODES)[number];
 
 export const HAZARD_TYPES = ["lava", "mud", "ice", "heal"] as const;
 export type HazardType = (typeof HAZARD_TYPES)[number];
@@ -318,15 +317,15 @@ export interface GameConfig {
   // CTF: extra seconds added to the respawn delay on death (0 = none).
   ctfRespawnBonus: number;
   adv: AdvancedConfig; // advanced engine tuning
-  // Fog of war: non-wall visuals only render inside the local tank's sight
-  // shape. Flashlight mode is centred on the turret and casts until a wall/map
-  // edge. The scope power-up doubles full-area radius and grants x-ray through
-  // walls. Client-side only — the server still broadcasts all tanks (a patched
-  // client could see through walls).
+  // Fog of war: non-wall visuals only render inside the team's revealed areas.
+  // Tanks reveal from their own position; Team VS/CTF bases and CTF flags can
+  // reveal for their owning team or for everyone. The scope power-up doubles
+  // tank radius and grants x-ray through walls. Client-side only — the server
+  // still broadcasts all entities (a patched client could see through walls).
   fogOfWar: boolean;
-  fogType: FogType;
   visionRadius: number; // px base sight radius (scope doubles this)
-  flashlightDegrees: number; // cone width in degrees, only used when fogType = "flashlight"
+  fogBaseVision: FogVisionMode; // Team VS / CTF spawn bases: off, owning team, or all teams
+  fogFlagVision: FogVisionMode; // CTF flags: off, owning team, or all teams
   // Hazard zones: lava/mud/ice/heal terrain tiles placed on the map.
   hazardDensity: number; // 0 = off; 1-10 zones placed on round start
   hazardTypes: HazardType[]; // enabled terrain types to include in the spawn pool
@@ -368,9 +367,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   ctfRespawnBonus: 3,
   adv: DEFAULT_ADVANCED,
   fogOfWar: false,
-  fogType: "full",
   visionRadius: VISION_RADIUS,
-  flashlightDegrees: FLASHLIGHT_DEGREES,
+  fogBaseVision: "team",
+  fogFlagVision: "team",
   hazardDensity: 0,
   hazardTypes: [...HAZARD_TYPES],
   hazardDamage: HAZARD_DAMAGE,
@@ -382,6 +381,19 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   powerupDespawnSeconds: 12,
   powerupCharges: 1,
 };
+
+export type GameConfigInput = Partial<Omit<GameConfig, "adv">> & { adv?: Partial<AdvancedConfig> };
+
+/** Fill any missing config fields from the shared defaults. This is intentionally
+ *  not a trust-boundary sanitizer; the server still clamps raw client input. */
+export function gameConfigWithDefaults(config: GameConfigInput = {}): GameConfig {
+  return {
+    ...DEFAULT_GAME_CONFIG,
+    ...config,
+    adv: { ...DEFAULT_ADVANCED, ...(config.adv ?? {}) },
+    hazardTypes: config.hazardTypes ? [...config.hazardTypes] : [...DEFAULT_GAME_CONFIG.hazardTypes],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Data transfer objects
@@ -636,7 +648,7 @@ export type ClientMessage =
   | { type: "setTeamName"; team: number; name: string }
   | { type: "setTeamColor"; team: number; color: string }
   | { type: "listLobbies" }
-  | { type: "createLobby"; name: string; maxPlayers: number; config: Partial<GameConfig> }
+  | { type: "createLobby"; name: string; maxPlayers: number; config: GameConfigInput }
   | { type: "updateConfig"; maxPlayers: number; config: GameConfig }
   | { type: "joinLobby"; lobbyId: string }
   | { type: "leaveLobby" }

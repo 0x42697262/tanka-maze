@@ -140,17 +140,22 @@
               <option value="off">Off</option>
               <option value="on">On</option>
             </select>
-            <label for="fog-type" class="cfg-fog-on">Type</label>
-            <select id="fog-type" class="cfg-fog-on">
-              <option value="full">Full area</option>
-              <option value="flashlight">Flashlight</option>
-            </select>
+            <label for="vision-radius" class="cfg-fog-on">Vision px</label>
+            <input id="vision-radius" class="cfg-fog-on" type="number" min="80" max="800" step="20" />
           </div>
-          <div class="row two cfg-fog-on">
-            <label for="vision-radius" class="cfg-fog-full">Vision px</label>
-            <input id="vision-radius" class="cfg-fog-full" type="number" min="80" max="800" step="20" />
-            <label for="flashlight-degrees" class="cfg-fog-flashlight">Flashlight width</label>
-            <input id="flashlight-degrees" class="cfg-fog-flashlight" type="number" min="20" max="170" step="5" />
+          <div class="row two cfg-fog-team">
+            <label for="fog-base-vision">Base vision</label>
+            <select id="fog-base-vision">
+              <option value="off">Off</option>
+              <option value="team">Own team</option>
+              <option value="all">All teams</option>
+            </select>
+            <label for="fog-flag-vision" class="cfg-fog-flag">Flag vision</label>
+            <select id="fog-flag-vision" class="cfg-fog-flag">
+              <option value="off">Off</option>
+              <option value="team">Own team</option>
+              <option value="all">All flags</option>
+            </select>
           </div>
 
           <h3 class="cfg-h">Hazards</h3>
