@@ -4,6 +4,7 @@ import {
   MAZE_COLS,
   MAZE_ROWS,
   WALL_KEEP_DEADEND_RATIO,
+  WALL_REGEN_SECONDS,
   WALL_THICKNESS,
 } from "../shared/constants.js";
 import type { MapSize, MazeDTO, WallDTO, WallStyle } from "../shared/protocol.js";
@@ -60,6 +61,13 @@ interface Segment {
   y1: number;
   x2: number;
   y2: number;
+  /** Current HP (Infinity = indestructible border wall; 0 = destroyed). */
+  hp: number;
+  /** Max HP (Infinity = indestructible). Equal to `hp` when undamaged. */
+  maxHp: number;
+  /** Seconds until this wall heals back to full; reset on each hit, cleared at
+   *  full HP. undefined when undamaged. */
+  regen?: number;
 }
 
 /** 4-neighbour offsets (up, right, down, left) used throughout generation. */
@@ -1113,32 +1121,60 @@ export class Maze {
     return this.grid.passable(ax, ay, bx, by);
   }
 
-  /** Collect standing walls into merged collinear line segments. */
-  private buildSegments(): Segment[] {
+  /**
+   * Collect standing walls into line segments. By default collinear cells are
+   * merged into long segments (fewer collision checks). When `perCellInternal`
+   * is set, interior walls are emitted one cell-edge at a time so destructible
+   * damage stays local to a single cell; border walls stay merged.
+   */
+  private buildSegments(perCellInternal = false): Segment[] {
     const segs: Segment[] = [];
     const { vWalls, hWalls } = this.grid;
+    // Walls start indestructible (Infinity HP); setWallHp overrides internal walls.
+    const seg = (x1: number, y1: number, x2: number, y2: number): Segment => ({
+      x1,
+      y1,
+      x2,
+      y2,
+      hp: Infinity,
+      maxHp: Infinity,
+    });
 
-    // Vertical walls: merge consecutive present cells down each column.
+    // Vertical walls. Columns 0 and cols are the border (always merged).
     for (let x = 0; x <= this.cols; x++) {
+      const border = x === 0 || x === this.cols;
+      if (perCellInternal && !border) {
+        for (let y = 0; y < this.rows; y++) {
+          if (vWalls[x][y]) segs.push(seg(x * this.cell, y * this.cell, x * this.cell, (y + 1) * this.cell));
+        }
+        continue;
+      }
       let runStart = -1;
       for (let y = 0; y <= this.rows; y++) {
         const present = y < this.rows && vWalls[x][y];
         if (present && runStart === -1) runStart = y;
         if (!present && runStart !== -1) {
-          segs.push({ x1: x * this.cell, y1: runStart * this.cell, x2: x * this.cell, y2: y * this.cell });
+          segs.push(seg(x * this.cell, runStart * this.cell, x * this.cell, y * this.cell));
           runStart = -1;
         }
       }
     }
 
-    // Horizontal walls: merge consecutive present cells across each row.
+    // Horizontal walls. Rows 0 and rows are the border (always merged).
     for (let y = 0; y <= this.rows; y++) {
+      const border = y === 0 || y === this.rows;
+      if (perCellInternal && !border) {
+        for (let x = 0; x < this.cols; x++) {
+          if (hWalls[x][y]) segs.push(seg(x * this.cell, y * this.cell, (x + 1) * this.cell, y * this.cell));
+        }
+        continue;
+      }
       let runStart = -1;
       for (let x = 0; x <= this.cols; x++) {
         const present = x < this.cols && hWalls[x][y];
         if (present && runStart === -1) runStart = x;
         if (!present && runStart !== -1) {
-          segs.push({ x1: runStart * this.cell, y1: y * this.cell, x2: x * this.cell, y2: y * this.cell });
+          segs.push(seg(runStart * this.cell, y * this.cell, x * this.cell, y * this.cell));
           runStart = -1;
         }
       }
@@ -1163,9 +1199,94 @@ export class Maze {
     const reach = r + this.thickness / 2;
     const reach2 = reach * reach;
     for (const w of this.walls) {
+      if (w.hp <= 0) continue; // destroyed — no collision
       if (pointSegDist2(x, y, w.x1, w.y1, w.x2, w.y2) <= reach2) return true;
     }
     return false;
+  }
+
+  /** Make all non-border walls destructible with the given HP. Border walls
+   *  (on the arena boundary) stay indestructible. Called when destructibleWalls
+   *  is enabled. */
+  setWallHp(hp: number): void {
+    // Rebuild interior walls per cell so each takes (and heals) damage on its own.
+    this.walls = this.buildSegments(true);
+    for (const w of this.walls) {
+      if (!this.isBorderWall(w)) {
+        w.hp = hp;
+        w.maxHp = hp;
+      }
+    }
+  }
+
+  private isBorderWall(w: Segment): boolean {
+    return (
+      (w.x1 === 0 && w.x2 === 0) ||
+      (w.x1 === this.width && w.x2 === this.width) ||
+      (w.y1 === 0 && w.y2 === 0) ||
+      (w.y1 === this.height && w.y2 === this.height)
+    );
+  }
+
+  /** Find the first non-destroyed wall overlapping a circle at (x,y,r). */
+  hitWall(x: number, y: number, r: number): Segment | null {
+    const reach = r + this.thickness / 2;
+    const reach2 = reach * reach;
+    for (const w of this.walls) {
+      if (w.hp <= 0) continue;
+      if (pointSegDist2(x, y, w.x1, w.y1, w.x2, w.y2) <= reach2) return w;
+    }
+    return null;
+  }
+
+  /** Damage a wall by `amount`; at 0 HP it's destroyed (removed from collision).
+   *  Damaged walls start a heal timer that resets on each new hit. */
+  damageWall(w: Segment, amount: number): void {
+    if (w.maxHp === Infinity) return; // indestructible
+    w.hp = Math.max(0, w.hp - amount);
+    w.regen = WALL_REGEN_SECONDS;
+  }
+
+  /** Damage all non-destroyed, destructible walls within `radius` of (x,y). */
+  damageWallsInRadius(x: number, y: number, radius: number, amount: number): void {
+    const r2 = radius * radius;
+    for (const w of this.walls) {
+      if (w.hp <= 0 || w.maxHp === Infinity) continue;
+      if (pointSegDist2(x, y, w.x1, w.y1, w.x2, w.y2) <= r2) this.damageWall(w, amount);
+    }
+  }
+
+  /**
+   * Heal damaged walls back to full once their timer elapses, skipping any wall a
+   * tank is currently standing on so a regrown wall never traps someone. `bodies`
+   * are tank centers; `clearR` is the tank radius they must clear by.
+   */
+  regenWalls(dt: number, bodies: Array<{ x: number; y: number }>, clearR: number): void {
+    const reach = clearR + this.thickness / 2;
+    const reach2 = reach * reach;
+    for (const w of this.walls) {
+      if (w.maxHp === Infinity || w.regen === undefined) continue;
+      w.regen -= dt;
+      if (w.regen > 0) continue;
+      const blocked = bodies.some((b) => pointSegDist2(b.x, b.y, w.x1, w.y1, w.x2, w.y2) <= reach2);
+      if (blocked) continue; // wait until the cell is clear before regrowing
+      w.hp = w.maxHp;
+      w.regen = undefined;
+    }
+  }
+
+  /** Walls below full HP (incl. destroyed), as index+hp pairs for the snapshot.
+   *  The list is the authoritative set of non-full walls, so the client can
+   *  reset everything else to full (handles both destruction and regrowth). */
+  damagedWalls(): Array<{ index: number; hp: number }> {
+    const out: Array<{ index: number; hp: number }> = [];
+    for (let i = 0; i < this.walls.length; i++) {
+      const w = this.walls[i];
+      if (w.maxHp !== Infinity && w.hp < w.maxHp) {
+        out.push({ index: i, hp: Math.floor(w.hp) });
+      }
+    }
+    return out;
   }
 
   toDTO(): MazeDTO {

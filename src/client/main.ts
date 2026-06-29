@@ -3,7 +3,7 @@
 // modules (dom, state, labels, settings, lobby, hud, scoreboard, lifecycle).
 
 import "./style.css";
-import { DEFAULT_GAME_CONFIG, type ServerMessage } from "../shared/protocol.js";
+import { DEFAULT_GAME_CONFIG, gameConfigWithDefaults, type LobbyDTO, type ServerMessage } from "../shared/protocol.js";
 import { bytesEqual, decodeSnapshot, encodeInput } from "../shared/wire.js";
 import { AssetLoader } from "./core/AssetLoader.js";
 import { Engine, type Scene } from "./core/Engine.js";
@@ -24,12 +24,14 @@ import {
   fitCanvas,
   leaveToMenu,
   openPause,
+  applyRendererConfig,
   showRoundOver,
   startGame,
 } from "./lifecycle.js";
 import { closeScoreboard, openScoreboard, renderScoreboard } from "./scoreboard.js";
 import {
   applyModeVisibility,
+  applyConfigToControls,
   applyMoveSetting,
   buildPowerupAdvInputs,
   gatherConfig,
@@ -47,6 +49,10 @@ import {
 } from "./state.js";
 
 if (IS_TOUCH) document.body.classList.add("touch");
+
+function lobbyWithConfigDefaults(lobby: LobbyDTO): LobbyDTO {
+  return { ...lobby, config: gameConfigWithDefaults(lobby.config) };
+}
 
 // ---------------------------------------------------------------------------
 // Networking
@@ -95,16 +101,17 @@ net.onMessage((msg: ServerMessage) => {
       renderLobbyList(msg.lobbies);
       break;
     case "lobbyJoined":
-      state.currentLobby = msg.lobby;
+      state.currentLobby = lobbyWithConfigDefaults(msg.lobby);
       if (!state.inGame) {
-        renderLobby(msg.lobby, true);
+        renderLobby(state.currentLobby, true);
         show("lobby");
       }
       break;
     case "lobbyUpdate":
-      state.currentLobby = msg.lobby;
+      state.currentLobby = lobbyWithConfigDefaults(msg.lobby);
+      if (state.inGame) applyRendererConfig(state.currentLobby.config);
       if (!state.inGame) {
-        renderLobby(msg.lobby, false);
+        renderLobby(state.currentLobby, false);
         show("lobby");
       }
       break;
@@ -115,7 +122,15 @@ net.onMessage((msg: ServerMessage) => {
       break;
     case "gameStart":
       state.roster = new Map(msg.roster.map((r) => [r.index, r]));
-      startGame(msg.maze, msg.spawnZones, msg.round, msg.totalRounds, msg.standing);
+      startGame(
+        msg.maze,
+        msg.spawnZones,
+        msg.hazardZones,
+        gameConfigWithDefaults(msg.config),
+        msg.round,
+        msg.totalRounds,
+        msg.standing
+      );
       // The first snapshot arrives next as a binary frame.
       break;
     case "roster":
@@ -212,13 +227,14 @@ $("refresh").onclick = () => net.send({ type: "listLobbies" });
 $("create").onclick = () => {
   commitName();
   const name = ($("lobby-name") as HTMLInputElement).value.trim();
-  net.send({ type: "createLobby", name, maxPlayers: 8, config: DEFAULT_GAME_CONFIG });
+  net.send({ type: "createLobby", name, maxPlayers: 8, config: {} });
 };
 
 $("start").onclick = () => net.send({ type: "startGame" });
 
 // In-lobby game settings (host).
 buildPowerupAdvInputs();
+applyConfigToControls(DEFAULT_GAME_CONFIG, 8);
 $("lobby-config").addEventListener("change", (e) => {
   if (!state.currentLobby || state.currentLobby.hostId !== state.playerId) return;
   // CTF: defaults scale with rival count — captures-per-round and conquest

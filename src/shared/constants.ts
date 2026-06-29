@@ -41,6 +41,12 @@ export const TANK_RADIUS = 11;
 export const TANK_SPEED = 100; // px / second (forward, at 100% speed)
 export const TANK_REVERSE_SPEED = 60; // px / second (backward, at 100% speed)
 export const TANK_TURN_SPEED = 4.3; // radians / second (steering rate)
+// Momentum: velocity eases toward the input-derived target each tick instead
+// of teleporting to it. Accel applies while a movement key is held; decel
+// (higher, for snappy brakes vs wind-up) applies while idle. Both are host-
+// tunable live (AdvancedConfig.tankAccel / tankDecel).
+export const TANK_ACCEL = 600; // px/s² while input active (reaches 100 px/s in ~0.17s)
+export const TANK_DECEL = 1200; // px/s² while no input (stops in ~0.08s)
 
 // Ammunition: a magazine of MAX_AMMO rounds. Emptying it forces a reload that
 // takes RELOAD_SECONDS, then instantly refills the whole magazine.
@@ -91,6 +97,26 @@ export const SPAWN_ZONE_CELLS = 2;
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;
+
+// Fog of war: non-wall visuals are clipped to the local/team sight area.
+// Scope doubles tank vision radius and grants x-ray through walls. Host-tunable live.
+export const VISION_RADIUS = 1000; // px base sight radius on a normal map
+
+// Hazard zones: small terrain patches that affect tanks inside them each tick.
+// Lava deals damage; mud slows; ice removes friction (slide); heal restores HP.
+export const HAZARD_ZONE_FRACTION = 0.60; // side length as a fraction of one cell
+export const HAZARD_DAMAGE = 2; // lava damage per second
+export const HAZARD_SLOW_MULT = 0.5; // mud speed multiplier
+export const HAZARD_HEAL_RATE = 1; // heal HP per second
+
+// Destructible walls: internal walls have HP and can be breached by bullets.
+// Border walls are always indestructible. Explosive rounds deal AoE wall damage.
+export const WALL_HP = 3; // hits to destroy an internal wall
+export const WALL_DAMAGE = 1; // HP removed per bullet bounce
+export const WALL_EXPLOSION_DAMAGE = 2; // HP removed by explosive AoE per wall
+// A broken (or damaged) wall heals back to full this many seconds after its last
+// hit, but only once no tank is standing on it (so it can't trap anyone).
+export const WALL_REGEN_SECONDS = 10;
 
 export const TEAM_COLORS = ["#3f8ce6", "#e6453f", "#46c24f", "#e6c23f"]; // blue, red, green, yellow
 

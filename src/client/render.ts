@@ -1,8 +1,11 @@
-import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS } from "../shared/constants.js";
+import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
+import { effectiveVisionRadius } from "../shared/fog.js";
 import {
   powerupDef,
   type BulletKind,
+  type FogVisionMode,
   type FlagDTO,
+  type HazardZoneDTO,
   type KillEvent,
   type MazeDTO,
   type PowerupDTO,
@@ -54,8 +57,32 @@ interface Beam {
   start: number;
 }
 
+interface FogPoint {
+  x: number;
+  y: number;
+}
+
+interface FogSource {
+  x: number;
+  y: number;
+  radius: number;
+  seesThroughWalls: boolean;
+  haloRadius: number;
+  polygon: FogPoint[];
+  // When set, the source reveals this axis-aligned rectangle instead of a circle
+  // (used by spawn bases so a base reveals exactly its own square zone).
+  rect?: { x: number; y: number; width: number; height: number };
+}
+
+interface FogView {
+  local: TankDTO;
+  sources: FogSource[];
+}
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
+  private fogOverlay: HTMLCanvasElement | null = null;
+  private fogOverlayCtx: CanvasRenderingContext2D | null = null;
   private maze: MazeDTO | null = null;
   private worldWidth = 0;
   private worldHeight = 0;
@@ -92,6 +119,21 @@ export class Renderer {
   private consumedUntil = 0;
   private pendingEvents: KillEvent[] = [];
   private displayedSnap: SnapshotDTO | null = null;
+  // Fog of war: when on, non-wall visuals are clipped to team reveal sources.
+  // Enemy tanks also need line of sight unless scope grants x-ray. Client-side
+  // only — the server still broadcasts all entities.
+  private fogOfWar = false;
+  private visionRadius = VISION_RADIUS;
+  private fogBaseVision: FogVisionMode = "team";
+  private fogFlagVision: FogVisionMode = "team";
+  // Hazard zones: terrain tiles (lava/mud/ice/heal) drawn under the walls.
+  private hazards: HazardZoneDTO[] = [];
+  // Destructible walls: per-wall HP array (index matches MazeDTO.walls). Walls
+  // at 0 HP are destroyed (skipped in draw + collision). Updated from snapshot
+  // `wallHp` deltas. Empty when destructibleWalls is off.
+  private wallHp: number[] = [];
+  private wallMaxHp = Infinity;
+  private destructibleWalls = false;
 
   setParams(tankRadius: number, bulletRadius: number): void {
     this.tankR = tankRadius;
@@ -126,6 +168,37 @@ export class Renderer {
     this.spawnZones = zones;
   }
 
+  /** Configure fog of war for the current game. */
+  setFog(
+    fogOfWar: boolean,
+    visionRadius: number,
+    fogBaseVision: FogVisionMode,
+    fogFlagVision: FogVisionMode
+  ): void {
+    this.fogOfWar = fogOfWar;
+    this.visionRadius = visionRadius;
+    this.fogBaseVision = fogBaseVision;
+    this.fogFlagVision = fogFlagVision;
+  }
+
+  /** Hazard zones for the current game (lava/mud/ice/heal terrain tiles). */
+  setHazards(zones: HazardZoneDTO[]): void {
+    this.hazards = zones;
+  }
+
+  /** Configure destructible walls. Initializes the per-wall HP array from the
+   *  maze if one is already set; otherwise stores the config for setMaze. */
+  setDestructibleWalls(enabled: boolean, wallHp: number): void {
+    const sameConfig = this.destructibleWalls === enabled && this.wallMaxHp === (enabled ? wallHp : Infinity);
+    this.destructibleWalls = enabled;
+    this.wallMaxHp = enabled ? wallHp : Infinity;
+    if (enabled && this.maze && (!sameConfig || this.wallHp.length !== this.maze.walls.length)) {
+      this.wallHp = new Array(this.maze.walls.length).fill(wallHp);
+    } else if (!enabled) {
+      this.wallHp = [];
+    }
+  }
+
   setMaze(maze: MazeDTO): void {
     this.maze = maze;
     this.resizeDrawingBuffer(maze.width, maze.height);
@@ -136,6 +209,10 @@ export class Renderer {
     this.consumedUntil = 0;
     this.pendingEvents = [];
     this.displayedSnap = null;
+    // Initialize per-wall HP from the destructible-walls config.
+    this.wallHp = this.destructibleWalls
+      ? new Array(maze.walls.length).fill(this.wallMaxHp)
+      : [];
   }
 
   /** Buffer a snapshot. Effects are NOT fired here — they're applied later, when
@@ -212,53 +289,298 @@ export class Renderer {
     // with the world below), then draw the world ~INTERP_DELAY in the past.
     this.consumeEffects(nowMs - INTERP_DELAY, nowMs);
 
-    ctx.clearRect(0, 0, maze.width, maze.height);
-    this.drawMaze(maze);
-
     const interp = this.interpolated(nowMs);
     this.displayedSnap = interp;
-    if (!interp) return;
+    const localTank = interp?.tanks.find((t) => t.id === localId) ?? null;
+    const fog = this.fogView(localTank, interp?.tanks ?? []);
+
+    ctx.clearRect(0, 0, maze.width, maze.height);
+    this.applyWallHp();
+    this.drawFloor(maze);
+    this.drawVisionClipped(fog, () => this.drawMapFeatures(nowMs, fog));
+    this.drawWalls(maze);
+    if (!interp) {
+      if (fog) this.drawFogOverlay(fog, maze);
+      return;
+    }
 
     // Power-up pickups (stationary — drawn from the latest snapshot, no interp).
-    this.drawPowerups(this.latest()?.powerups ?? [], nowMs);
+    this.drawVisionClipped(fog, () => this.drawPowerups(this.latest()?.powerups ?? [], nowMs, fog));
     // CTF flags (carried ones ride the interpolated tanks; the rest sit still).
-    this.drawFlags(interp, nowMs);
+    this.drawVisionClipped(fog, () => this.drawFlags(interp, nowMs, fog));
 
-    const tankColors = new Map(interp.tanks.map((t) => [t.id, t.color]));
-    for (const b of interp.bullets) {
-      const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
-      const rad = Math.max(1, this.bulletR + style.dr);
-      ctx.fillStyle = bulletColor(tankColors.get(b.ownerId));
-      if (b.kind === "tracking") {
-        // Triangle pointing in the travel direction.
-        ctx.save();
-        ctx.translate(b.x, b.y);
-        ctx.rotate(b.dir ?? 0);
-        const r = rad + 1.5;
-        ctx.beginPath();
-        ctx.moveTo(r, 0);
-        ctx.lineTo(-r * 0.8, r * 0.8);
-        ctx.lineTo(-r * 0.8, -r * 0.8);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      } else {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, rad, 0, Math.PI * 2);
-        ctx.fill();
+    this.drawVisionClipped(fog, () => {
+      const tankColors = new Map(interp.tanks.map((t) => [t.id, t.color]));
+      for (const b of interp.bullets) {
+        if (fog && !this.isPointVisible(b.x, b.y, fog)) continue;
+        const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
+        const rad = Math.max(1, this.bulletR + style.dr);
+        ctx.fillStyle = bulletColor(tankColors.get(b.ownerId));
+        if (b.kind === "tracking") {
+          // Triangle pointing in the travel direction.
+          ctx.save();
+          ctx.translate(b.x, b.y);
+          ctx.rotate(b.dir ?? 0);
+          const r = rad + 1.5;
+          ctx.beginPath();
+          ctx.moveTo(r, 0);
+          ctx.lineTo(-r * 0.8, r * 0.8);
+          ctx.lineTo(-r * 0.8, -r * 0.8);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        } else {
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, rad, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
-    }
+    });
 
     // Aiming guide (local player only) — drawn under the tanks would be hidden
     // by them, so draw it just before so the dotted line reads clearly.
-    this.drawScope(interp);
+    this.drawVisionClipped(fog, () => this.drawScope(interp, localId, fog));
 
-    for (const t of interp.tanks) {
-      this.drawTank(t, t.id === localId, nowMs);
+    this.drawVisionClipped(fog, () => {
+      for (const t of interp.tanks) {
+        if (fog && t.id !== localId && !this.isVisible(t, fog)) {
+          continue;
+        }
+        this.drawTank(t, t.id === localId, nowMs);
+      }
+    });
+
+    this.drawVisionClipped(fog, () => this.drawBeams(nowMs, fog));
+    this.drawVisionClipped(fog, () => this.drawExplosions(nowMs, fog));
+
+    if (fog) {
+      this.drawFogOverlay(fog, maze);
+      // Redraw the local tank and walls over the dark wash so they stay crisp.
+      this.drawTank(fog.local, true, nowMs);
+      this.drawWalls(maze);
+      // Flags revealed by config show faintly over the fog (out-of-sight only).
+      this.drawFlagMarkers(interp, nowMs, fog);
+    }
+  }
+
+  private applyWallHp(): void {
+    if (!this.destructibleWalls) return;
+    const latest = this.latest();
+    if (!latest) return;
+    // The snapshot carries the authoritative set of below-full walls, so reset
+    // everything to full first — this restores walls that have regrown.
+    this.wallHp.fill(this.wallMaxHp);
+    for (const w of latest.wallHp) {
+      if (w.index < this.wallHp.length) this.wallHp[w.index] = w.hp;
+    }
+  }
+
+  private fogView(local: TankDTO | null, tanks: TankDTO[]): FogView | null {
+    if (!this.fogOfWar || !local || !this.maze) return null;
+    const visionTanks = [
+      local,
+      ...(
+        local.team >= 0
+          ? tanks.filter((t) => t.id !== local.id && t.alive && t.team === local.team)
+          : []
+      ),
+    ];
+    const baseRadius = effectiveVisionRadius(this.visionRadius, this.maze.width, this.maze.height);
+    const sources = visionTanks.map((t) => this.tankFogSource(t, baseRadius));
+    for (const z of this.spawnZones) {
+      if (!this.fogVisionIncludes(z.team, local.team, this.fogBaseVision)) continue;
+      // Bases reveal exactly their own square zone, not a circle around it.
+      sources.push(this.staticRectFogSource(z.x, z.y, z.width, z.height));
+    }
+    // Flags don't grant vision; instead they're drawn faintly over the fog
+    // (gated by fogFlagVision) in drawFlagMarkers so you can spot them.
+    return { local, sources };
+  }
+
+  private fogVisionIncludes(ownerTeam: number, localTeam: number, mode: FogVisionMode): boolean {
+    if (mode === "all") return true;
+    return mode === "team" && localTeam >= 0 && ownerTeam === localTeam;
+  }
+
+  private tankFogSource(tank: TankDTO, baseRadius: number): FogSource {
+    const fog: FogSource = {
+      x: tank.x,
+      y: tank.y,
+      radius: tank.scoped ? baseRadius * 2 : baseRadius,
+      seesThroughWalls: tank.scoped,
+      haloRadius: this.tankR + 9,
+      polygon: [],
+    };
+    fog.polygon = this.visibilityPolygon(fog);
+    return fog;
+  }
+
+  /** A reveal source shaped as an axis-aligned rectangle (its own square base zone). */
+  private staticRectFogSource(x: number, y: number, width: number, height: number): FogSource {
+    return {
+      x: x + width / 2,
+      y: y + height / 2,
+      radius: 0,
+      seesThroughWalls: false,
+      haloRadius: 0,
+      polygon: [],
+      rect: { x, y, width, height },
+    };
+  }
+
+  private drawVisionClipped(fog: FogView | null, draw: () => void): void {
+    if (!fog) {
+      draw();
+      return;
+    }
+    const { ctx } = this;
+    ctx.save();
+    ctx.beginPath();
+    this.addFogShape(fog, true);
+    ctx.clip();
+    draw();
+    ctx.restore();
+  }
+
+  private addFogShape(fog: FogView, includeHalo: boolean, ctx: CanvasRenderingContext2D = this.ctx): void {
+    for (const source of fog.sources) {
+      if (source.rect) {
+        ctx.rect(source.rect.x, source.rect.y, source.rect.width, source.rect.height);
+        continue;
+      }
+      if (source.polygon.length > 0) {
+        ctx.moveTo(source.polygon[0].x, source.polygon[0].y);
+        for (let i = 1; i < source.polygon.length; i++) ctx.lineTo(source.polygon[i].x, source.polygon[i].y);
+        ctx.closePath();
+      }
+      if (includeHalo && source.haloRadius > 0) {
+        ctx.moveTo(source.x + source.haloRadius, source.y);
+        ctx.arc(source.x, source.y, source.haloRadius, 0, Math.PI * 2);
+      }
+    }
+  }
+
+  private drawFogOverlay(fog: FogView, maze: MazeDTO): void {
+    const { ctx } = this;
+    const { canvas: overlay, ctx: overlayCtx } = this.fogOverlayTarget(maze.width, maze.height);
+    overlayCtx.clearRect(0, 0, maze.width, maze.height);
+    overlayCtx.globalCompositeOperation = "source-over";
+    overlayCtx.fillStyle = "#12100e";
+    overlayCtx.fillRect(0, 0, maze.width, maze.height);
+    overlayCtx.globalCompositeOperation = "destination-out";
+    overlayCtx.beginPath();
+    this.addFogShape(fog, true, overlayCtx);
+    overlayCtx.fill();
+    overlayCtx.globalCompositeOperation = "source-over";
+    ctx.save();
+    ctx.drawImage(overlay, 0, 0);
+    ctx.restore();
+  }
+
+  private fogOverlayTarget(width: number, height: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+    if (!this.fogOverlay) {
+      this.fogOverlay = document.createElement("canvas");
+      this.fogOverlayCtx = this.fogOverlay.getContext("2d");
+      if (!this.fogOverlayCtx) throw new Error("2D canvas context unavailable");
+    }
+    if (this.fogOverlay.width !== width || this.fogOverlay.height !== height) {
+      this.fogOverlay.width = width;
+      this.fogOverlay.height = height;
+    }
+    return { canvas: this.fogOverlay, ctx: this.fogOverlayCtx! };
+  }
+
+  /** Build the visible fog shape by casting rays until they hit a blocking wall. */
+  private visibilityPolygon(fog: FogSource): FogPoint[] {
+    const span = Math.PI * 2;
+    const samples = 96;
+    const angles: number[] = [];
+    const addAngle = (angle: number) => angles.push(angle);
+
+    for (let i = 0; i < samples; i++) addAngle((span * i) / samples);
+
+    if (this.maze && !fog.seesThroughWalls) {
+      const r2 = fog.radius * fog.radius;
+      const eps = 0.0008;
+      for (let i = 0; i < this.maze.walls.length; i++) {
+        if (!this.wallBlocksVision(i)) continue;
+        const w = this.maze.walls[i];
+        for (const p of [[w.x1, w.y1], [w.x2, w.y2]] as const) {
+          const dx = p[0] - fog.x;
+          const dy = p[1] - fog.y;
+          if (dx * dx + dy * dy > r2) continue;
+          const a = Math.atan2(dy, dx);
+          addAngle(a - eps);
+          addAngle(a);
+          addAngle(a + eps);
+        }
+      }
     }
 
-    this.drawBeams(nowMs);
-    this.drawExplosions(nowMs);
+    const points = angles
+      .map((angle) => ({ angle, order: normalizeAngle(angle), point: this.castFogRay(fog, angle) }))
+      .sort((a, b) => a.order - b.order)
+      .map((hit) => hit.point);
+    return points;
+  }
+
+  private castFogRay(fog: FogSource, angle: number): FogPoint {
+    const ox = fog.x;
+    const oy = fog.y;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    let best = fog.radius;
+    if (this.maze && !fog.seesThroughWalls) {
+      for (let i = 0; i < this.maze.walls.length; i++) {
+        if (!this.wallBlocksVision(i)) continue;
+        const w = this.maze.walls[i];
+        const hit = raySegmentDistance(ox, oy, dx, dy, w.x1, w.y1, w.x2, w.y2);
+        if (hit !== null && hit < best) best = hit;
+      }
+    }
+    return { x: ox + dx * best, y: oy + dy * best };
+  }
+
+  /**
+   * Line-of-sight check for fog of war. An enemy is visible when any team reveal
+   * source can see it; scoped tank sources skip the wall check (x-ray).
+   */
+  private isVisible(enemy: TankDTO, fog: FogView): boolean {
+    if (fog.local.team >= 0 && enemy.team === fog.local.team) return true;
+    if (!this.isPointVisible(enemy.x, enemy.y, fog)) return false;
+    return true;
+  }
+
+  private isPointVisible(x: number, y: number, fog: FogView): boolean {
+    return fog.sources.some((source) => this.isPointVisibleFromSource(x, y, source));
+  }
+
+  private isPointVisibleFromSource(x: number, y: number, fog: FogSource): boolean {
+    if (fog.rect) {
+      return (
+        x >= fog.rect.x &&
+        x <= fog.rect.x + fog.rect.width &&
+        y >= fog.rect.y &&
+        y <= fog.rect.y + fog.rect.height
+      );
+    }
+    const localDx = x - fog.x;
+    const localDy = y - fog.y;
+    if (localDx * localDx + localDy * localDy <= fog.haloRadius * fog.haloRadius) return true;
+    const dx = x - fog.x;
+    const dy = y - fog.y;
+    if (dx * dx + dy * dy > fog.radius * fog.radius) return false;
+    if (fog.seesThroughWalls) return true; // x-ray — see through walls
+    if (!this.maze) return true;
+    // Cast a ray from the reveal source to the target; any blocking wall hides it.
+    for (let i = 0; i < this.maze.walls.length; i++) {
+      if (!this.wallBlocksVision(i)) continue;
+      const w = this.maze.walls[i];
+      if (segIntersect(fog.x, fog.y, x, y, w.x1, w.y1, w.x2, w.y2)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -288,11 +610,12 @@ export class Renderer {
    * yet still computed purely client-side (the server only flags `scoped`), so
    * it adds no simulation cost.
    */
-  private drawScope(interp: SnapshotDTO): void {
+  private drawScope(interp: SnapshotDTO, localId: string, fog: FogView | null): void {
     if (!this.maze) return;
     const { ctx } = this;
     for (const t of interp.tanks) {
       if (!t.alive || !t.scoped) continue;
+      if (fog && t.id !== localId && !this.isVisible(t, fog)) continue;
       const paths = this.scopePaths(t, this.tankVelocity(t.id));
       ctx.save();
       ctx.lineCap = "round";
@@ -513,11 +836,12 @@ export class Renderer {
     return { x: (tb.x - ta.x) / dt, y: (tb.y - ta.y) / dt };
   }
 
-  private drawBeams(nowMs: number): void {
+  private drawBeams(nowMs: number, fog: FogView | null): void {
     const { ctx } = this;
     this.beams = this.beams.filter((b) => nowMs - b.start < BEAM_MS);
     ctx.lineCap = "round";
     for (const b of this.beams) {
+      if (fog && !this.isPointVisible((b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, fog)) continue;
       const alpha = 1 - (nowMs - b.start) / BEAM_MS;
       // Layered beam: violet glow → blue → white core.
       ctx.globalAlpha = alpha * 0.3;
@@ -544,10 +868,11 @@ export class Renderer {
     ctx.stroke();
   }
 
-  private drawPowerups(powerups: PowerupDTO[], nowMs: number): void {
+  private drawPowerups(powerups: PowerupDTO[], nowMs: number, fog: FogView | null): void {
     const { ctx } = this;
     const bob = Math.sin(nowMs / 300) * 1.5;
     for (const p of powerups) {
+      if (fog && !this.isPointVisible(p.x, p.y, fog)) continue;
       const def = powerupDef(p.type);
       const s = POWERUP_RADIUS;
       ctx.save();
@@ -586,14 +911,44 @@ export class Renderer {
   /** CTF flags: a pennant on a pole in the team's color. Dropped flags pulse.
    *  When one tank carries several flags, their pennants stack up a taller pole
    *  (lowest team index at the bottom) so every held flag stays visible. */
-  private drawFlags(interp: SnapshotDTO, nowMs: number): void {
+  private drawFlags(interp: SnapshotDTO, nowMs: number, fog: FogView | null): void {
     if (interp.flags.length === 0) return;
-    const { ctx } = this;
     const teamColor = new Map(this.spawnZones.map((z) => [z.team, z.color]));
-    // Stack order for carried flags: index within their carrier's held set.
+    const stackIndex = this.flagStackIndex(interp.flags);
+    for (const fl of interp.flags) {
+      if (fog && !this.isPointVisible(fl.x, fl.y, fog)) continue;
+      this.drawFlag(fl, teamColor.get(fl.team) ?? "#888888", stackIndex.get(fl) ?? 0, nowMs, 1);
+    }
+  }
+
+  /**
+   * Flags don't grant vision. Instead, when fogFlagVision allows it, draw flags
+   * that fall outside the team's sight faintly on top of the fog so players can
+   * still spot them without revealing the surrounding maze.
+   */
+  private drawFlagMarkers(interp: SnapshotDTO, nowMs: number, fog: FogView): void {
+    if (this.fogFlagVision === "off" || interp.flags.length === 0) return;
+    const teamColor = new Map(this.spawnZones.map((z) => [z.team, z.color]));
+    const stackIndex = this.flagStackIndex(interp.flags);
+    for (const fl of interp.flags) {
+      if (this.isPointVisible(fl.x, fl.y, fog)) continue; // already drawn crisply in sight
+      if (!this.fogVisionIncludes(fl.team, fog.local.team, this.fogFlagVision)) continue;
+      this.drawFlag(
+        fl,
+        teamColor.get(fl.team) ?? "#888888",
+        stackIndex.get(fl) ?? 0,
+        nowMs,
+        0.75,
+        "rgba(255,255,255,0.9)",
+      );
+    }
+  }
+
+  /** Stack order for carried flags: index within their carrier's held set. */
+  private flagStackIndex(flags: FlagDTO[]): Map<FlagDTO, number> {
     const stackIndex = new Map<FlagDTO, number>();
     const byCarrier = new Map<number, FlagDTO[]>();
-    for (const fl of interp.flags) {
+    for (const fl of flags) {
       if (fl.state !== "carried" || fl.carrier === 255) continue;
       const list = byCarrier.get(fl.carrier) ?? [];
       list.push(fl);
@@ -603,43 +958,70 @@ export class Renderer {
       list.sort((a, b) => a.team - b.team);
       list.forEach((fl, i) => stackIndex.set(fl, i));
     }
+    return stackIndex;
+  }
 
+  /** Draw a single CTF flag (pennant on a pole). `alpha` scales opacity so the
+   *  same drawing serves both crisp in-sight flags and faint fog markers.
+   *  `outline`, when set, draws a contrasting halo so the flag pops over fog. */
+  private drawFlag(
+    fl: FlagDTO,
+    color: string,
+    tier: number,
+    nowMs: number,
+    alpha: number,
+    outline?: string,
+  ): void {
+    const { ctx } = this;
     const PENNANT_GAP = 9; // vertical spacing between stacked pennants
-    for (const fl of interp.flags) {
-      const color = teamColor.get(fl.team) ?? "#888888";
-      const bob = fl.state === "carried" ? 0 : Math.sin(nowMs / 300) * 1.5;
-      const tier = stackIndex.get(fl) ?? 0;
-      const peak = 18 + tier * PENNANT_GAP; // pole height for this pennant's tier
-      ctx.save();
-      ctx.translate(fl.x, fl.y + bob);
-      ctx.globalAlpha = fl.state === "dropped" ? 0.55 + 0.25 * Math.abs(Math.sin(nowMs / 250)) : 1;
-      // Pole (tall enough to reach this tier's pennant).
-      ctx.strokeStyle = "#352f25";
-      ctx.lineWidth = 2;
+    const bob = fl.state === "carried" ? 0 : Math.sin(nowMs / 300) * 1.5;
+    const peak = 18 + tier * PENNANT_GAP; // pole height for this pennant's tier
+    ctx.save();
+    ctx.translate(fl.x, fl.y + bob);
+    ctx.lineJoin = "round";
+    const pulse = fl.state === "dropped" ? 0.55 + 0.25 * Math.abs(Math.sin(nowMs / 250)) : 1;
+    ctx.globalAlpha = pulse * alpha;
+    const polePath = () => {
       ctx.beginPath();
       ctx.moveTo(0, 4);
       ctx.lineTo(0, -peak);
-      ctx.stroke();
-      // Pennant at this tier.
-      ctx.fillStyle = color;
-      ctx.strokeStyle = "rgba(0,0,0,0.5)";
-      ctx.lineWidth = 1;
+    };
+    const pennantPath = () => {
       ctx.beginPath();
       ctx.moveTo(0, -peak);
       ctx.lineTo(13, -peak + 4.5);
       ctx.lineTo(0, -peak + 9);
       ctx.closePath();
-      ctx.fill();
+    };
+    // Contrasting outline drawn underneath so the flag stands out against fog.
+    if (outline) {
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 5;
+      polePath();
       ctx.stroke();
-      ctx.restore();
+      pennantPath();
+      ctx.stroke();
     }
-    ctx.globalAlpha = 1;
+    // Pole (tall enough to reach this tier's pennant).
+    ctx.strokeStyle = "#352f25";
+    ctx.lineWidth = 2;
+    polePath();
+    ctx.stroke();
+    // Pennant at this tier.
+    ctx.fillStyle = color;
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.lineWidth = 1;
+    pennantPath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
   }
 
-  private drawExplosions(nowMs: number): void {
+  private drawExplosions(nowMs: number, fog: FogView | null): void {
     const { ctx } = this;
     this.explosions = this.explosions.filter((e) => nowMs - e.start < EXPLOSION_MS);
     for (const e of this.explosions) {
+      if (fog && !this.isPointVisible(e.x, e.y, fog)) continue;
       const age = (nowMs - e.start) / EXPLOSION_MS; // 0..1
       ctx.save();
       ctx.translate(e.x, e.y);
@@ -675,12 +1057,15 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  private drawMaze(maze: MazeDTO): void {
+  private drawFloor(maze: MazeDTO): void {
     const { ctx } = this;
     // Parchment arena floor.
     ctx.fillStyle = "#e7d9b8";
     ctx.fillRect(0, 0, maze.width, maze.height);
+  }
 
+  private drawMapFeatures(nowMs: number, fog: FogView | null): void {
+    const { ctx } = this;
     // Team spawn zones: a faint wash of each team's color, with a soft dashed
     // outline. Drawn under the walls so the arena structure reads on top.
     for (const z of this.spawnZones) {
@@ -694,17 +1079,56 @@ export class Renderer {
       ctx.restore();
     }
 
-    // Inked wall lines.
+    // Hazard zones: animated terrain tints, drawn under the walls.
+    for (const h of this.hazards) {
+      if (fog && !this.isRectVisible(h.x, h.y, h.width, h.height, fog)) continue;
+      const pulse = 0.28 + 0.1 * Math.abs(Math.sin(nowMs / 400));
+      let color = "#c24f2f"; // lava — red-orange
+      if (h.type === "mud") color = "#6b4a2f";
+      else if (h.type === "ice") color = "#5a8cb8";
+      else if (h.type === "heal") color = "#3f9e4f";
+      ctx.fillStyle = hexToRgba(color, pulse);
+      ctx.fillRect(h.x, h.y, h.width, h.height);
+      ctx.save();
+      ctx.strokeStyle = hexToRgba(color, 0.75);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(h.x + 1, h.y + 1, h.width - 2, h.height - 2);
+      ctx.restore();
+    }
+  }
+
+  private drawWalls(maze: MazeDTO): void {
+    const { ctx } = this;
+    // Inked wall lines. Destructible walls look identical whether full or
+    // damaged — only a fully destroyed wall (hp <= 0) vanishes from the draw.
     ctx.strokeStyle = "#352f25";
     ctx.lineWidth = maze.thickness;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
-    for (const w of maze.walls) {
+    for (let i = 0; i < maze.walls.length; i++) {
+      if (this.destructibleWalls && this.wallHp[i] <= 0) continue; // destroyed
+      const w = maze.walls[i];
       ctx.moveTo(w.x1, w.y1);
       ctx.lineTo(w.x2, w.y2);
     }
     ctx.stroke();
+  }
+
+  private wallBlocksVision(index: number): boolean {
+    return !this.destructibleWalls || this.wallHp[index] > 0;
+  }
+
+  private isRectVisible(x: number, y: number, width: number, height: number, fog: FogView): boolean {
+    const points = [
+      [x + width / 2, y + height / 2],
+      [x, y],
+      [x + width, y],
+      [x, y + height],
+      [x + width, y + height],
+    ] as const;
+    return points.some(([px, py]) => this.isPointVisible(px, py, fog));
   }
 
   private drawTank(t: TankDTO, isLocal: boolean, nowMs: number): void {
@@ -872,7 +1296,7 @@ export class Renderer {
       return { ...fb, x: lerp(fa.x, fb.x, f), y: lerp(fa.y, fb.y, f) };
     });
 
-    return { t: target, tanks, bullets, powerups: [], flags, blasts: [], beams: [], events: [] };
+    return { t: target, tanks, bullets, powerups: [], flags, blasts: [], beams: [], events: [], wallHp: [] };
   }
 }
 
@@ -884,8 +1308,34 @@ function angleLerp(a: number, b: number, f: number): number {
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * f;
 }
+function normalizeAngle(a: number): number {
+  const v = a % (Math.PI * 2);
+  return v < 0 ? v + Math.PI * 2 : v;
+}
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** Distance along a unit ray to its first intersection with a segment. */
+function raySegmentDistance(
+  ox: number,
+  oy: number,
+  rx: number,
+  ry: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number | null {
+  const sx = bx - ax;
+  const sy = by - ay;
+  const denom = rx * sy - ry * sx;
+  if (Math.abs(denom) < 1e-9) return null;
+  const qx = ax - ox;
+  const qy = ay - oy;
+  const t = (qx * sy - qy * sx) / denom;
+  const u = (qx * ry - qy * rx) / denom;
+  return t >= 0 && u >= 0 && u <= 1 ? t : null;
 }
 
 /** Squared distance from point (px,py) to segment (ax,ay)-(bx,by). */
@@ -898,6 +1348,20 @@ function pointSegDist2(px: number, py: number, ax: number, ay: number, bx: numbe
   const cx = ax + t * dx;
   const cy = ay + t * dy;
   return (px - cx) ** 2 + (py - cy) ** 2;
+}
+
+/** True if segment A-B intersects segment C-D (used for fog-of-war raycasting). */
+function segIntersect(
+  ax: number, ay: number, bx: number, by: number,
+  cx: number, cy: number, dx: number, dy: number
+): boolean {
+  const d1x = bx - ax, d1y = by - ay;
+  const d2x = dx - cx, d2y = dy - cy;
+  const denom = d1x * d2y - d1y * d2x;
+  if (denom === 0) return false; // parallel or collinear
+  const t = ((cx - ax) * d2y - (cy - ay) * d2x) / denom;
+  const u = ((cx - ax) * d1y - (cy - ay) * d1x) / denom;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
 }
 
 function roundRect(

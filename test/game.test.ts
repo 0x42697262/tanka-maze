@@ -8,7 +8,7 @@ import {
   type InputState,
 } from "../src/shared/protocol.js";
 import { Game } from "../src/server/game.js";
-import { TEAMKILL_STREAK_WINDOW } from "../src/shared/constants.js";
+import { HAZARD_ZONE_FRACTION, TEAMKILL_STREAK_WINDOW, WALL_REGEN_SECONDS } from "../src/shared/constants.js";
 import { Maze } from "../src/server/maze.js";
 
 type Player = { id: string; name: string; color?: string; team?: number };
@@ -1026,5 +1026,280 @@ describe("live config update", () => {
     tank(g, "c").shieldTimer = 0;
     (g as any).kill(tank(g, "c"), "a");
     assert.equal(tank(g, "a").score, 160);
+  });
+});
+
+describe("hazards", () => {
+  it("hazardDensity=0 produces no zones", () => {
+    const g = makeGame({ cfg: { hazardDensity: 0 }, players: [{ id: "a", name: "A" }] });
+    assert.equal((g as any).hazards.length, 0);
+    assert.deepEqual(g.hazardZoneDTOs(), []);
+  });
+
+  it("places the requested number of zones avoiding spawn zones", () => {
+    const g = makeGame({
+      cfg: { hazardDensity: 5, mode: "teams", teamSpawnZones: true, teamCount: 2 },
+      players: [{ id: "a", name: "A" }, { id: "b", name: "B" }],
+    });
+    const zones = (g as any).hazards;
+    assert.equal(zones.length, 5);
+    const expectedSide = Math.round(((g as any).maze as Maze).cell * HAZARD_ZONE_FRACTION);
+    const spawnZones = (g as any).spawnZones;
+    for (const h of zones) {
+      assert.equal(h.width, expectedSide);
+      assert.equal(h.height, expectedSide);
+      for (const sz of spawnZones) {
+        const overlaps = h.x < sz.x + sz.width && h.x + h.width > sz.x && h.y < sz.y + sz.height && h.y + h.height > sz.y;
+        assert.ok(!overlaps, "hazard zone overlaps a spawn zone");
+      }
+    }
+  });
+
+  it("uses only the configured hazard type pool", () => {
+    const g = makeGame({ cfg: { hazardDensity: 6, hazardTypes: ["lava"] }, players: [{ id: "a", name: "A" }] });
+    const zones = (g as any).hazards;
+    assert.equal(zones.length, 6);
+    assert.deepEqual(new Set(zones.map((h: any) => h.type)), new Set(["lava"]));
+  });
+
+  it("spawns no zones when all hazard types are disabled", () => {
+    const g = makeGame({ cfg: { hazardDensity: 6, hazardTypes: [] }, players: [{ id: "a", name: "A" }] });
+    assert.equal((g as any).hazards.length, 0);
+  });
+
+  it("lava damages an unshielded tank over time and kills at 0 hp", () => {
+    const g = makeGame({ cfg: { hazardDensity: 1, hazardDamage: 10, hp: 1 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    // Force a lava zone onto the tank's position.
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 20, height: 20, type: "lava" }];
+    g.step(0.1);
+    assert.ok(a.hp < 1, "lava dealt damage");
+    assert.ok(!a.alive, "tank died from lava");
+  });
+
+  it("shields block lava damage", () => {
+    const g = makeGame({ cfg: { hazardDensity: 1, hazardDamage: 10, hp: 5 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 5;
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 20, height: 20, type: "lava" }];
+    g.step(0.1);
+    assert.equal(a.hp, 5, "shielded tank took no lava damage");
+  });
+
+  it("heal restores HP up to maxHp", () => {
+    const g = makeGame({ cfg: { hazardDensity: 1, hazardHealRate: 5, hp: 3 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    a.hp = 1;
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 20, height: 20, type: "heal" }];
+    g.step(0.2);
+    assert.ok(a.hp > 1, "heal restored HP");
+    assert.ok(a.hp <= 3, "heal capped at maxHp");
+  });
+
+  it("mud slows the target velocity", () => {
+    const g = makeGame({
+      cfg: { hazardDensity: 1, hazardSlowMult: 0.5 },
+      adv: { tankAccel: 10000 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 20, height: 20, type: "mud" }];
+    a.input = input({ forward: true, aim: 0 });
+    g.step(0.5);
+    // With slowMult 0.5, max velocity should be ~50 px/s instead of 100.
+    assert.ok(Math.abs(a.vx) < 70, "mud slowed the tank");
+    assert.ok(Math.abs(a.vx) > 20, "tank still moved");
+  });
+
+  it("ice preserves momentum when no input is held (slide)", () => {
+    const g = makeGame({
+      cfg: { hazardDensity: 1 },
+      adv: { tankAccel: 10000, tankDecel: 10000 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    // Build up speed first.
+    a.input = input({ forward: true, aim: 0 });
+    g.step(0.5);
+    const fastVx = a.vx;
+    assert.ok(fastVx > 50, "tank got up to speed");
+    // Place ice and release input — tank should keep sliding.
+    (g as any).hazards = [{ x: a.x - 5, y: a.y - 5, width: 30, height: 30, type: "ice" }];
+    a.input = input({ forward: false });
+    g.step(0.1);
+    assert.ok(a.vx > fastVx * 0.9, "ice preserved most of the momentum (no friction)");
+  });
+});
+
+describe("destructible walls", () => {
+  it("walls have Infinity HP when destructibleWalls is off", () => {
+    const g = makeGame({ players: [{ id: "a", name: "A" }] });
+    for (const w of (g as any).maze.walls) {
+      assert.equal(w.hp, Infinity);
+      assert.equal(w.maxHp, Infinity);
+    }
+  });
+
+  it("internal walls get HP when destructibleWalls is on; borders stay indestructible", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 3 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const maze = (g as any).maze;
+    let internal = 0;
+    let border = 0;
+    for (const w of maze.walls) {
+      const onBorder = (w.x1 === 0 && w.x2 === 0) || (w.x1 === maze.width && w.x2 === maze.width) ||
+        (w.y1 === 0 && w.y2 === 0) || (w.y1 === maze.height && w.y2 === maze.height);
+      if (onBorder) {
+        assert.equal(w.maxHp, Infinity, "border wall indestructible");
+        border++;
+      } else {
+        assert.equal(w.hp, 3, "internal wall has HP");
+        assert.equal(w.maxHp, 3);
+        internal++;
+      }
+    }
+    assert.ok(internal > 0, "there are internal walls");
+    assert.ok(border > 0, "there are border walls");
+  });
+
+  it("bullets damage walls and destroyed walls no longer block movement", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 1, fireCooldown: 0, bulletBounces: 0 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    const maze = (g as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    assert.ok(internal, "found an internal wall");
+    a.x = internal.x1 - 20;
+    a.y = internal.y1;
+    a.bodyAngle = 0;
+    a.turretAngle = 0;
+    a.ammo = 5;
+    a.input = input({ fire: true, aim: 0 });
+    const hpBefore = internal.hp;
+    g.step(1 / 30);
+    g.step(1 / 30);
+    g.step(1 / 30);
+    assert.ok(internal.hp < hpBefore || internal.hp === 0, "wall was damaged by the bullet");
+  });
+
+  it("explosive rounds deal AoE damage to nearby walls", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 5, fireCooldown: 0 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    a.weapon = "explosive";
+    a.weaponCharges = 5;
+    a.ammo = 5;
+    const maze = (g as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    assert.ok(internal);
+    a.x = internal.x1 - 15;
+    a.y = internal.y1;
+    a.input = input({ fire: true, aim: 0 });
+    const hpBefore = internal.hp;
+    g.step(1 / 30);
+    g.step(1 / 30);
+    g.step(1 / 30);
+    assert.ok(internal.hp < hpBefore, "explosive round damaged the wall (AoE)");
+  });
+
+  it("snapshot includes wallHp only when destructibleWalls is on", () => {
+    const g1 = makeGame({
+      cfg: { destructibleWalls: false },
+      players: [{ id: "a", name: "A" }],
+    });
+    assert.deepEqual(g1.snapshot(0).wallHp, []);
+
+    const g2 = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 3 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    assert.deepEqual(g2.snapshot(0).wallHp, []);
+    const maze = (g2 as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    maze.damageWall(internal, 1);
+    const wallHp = g2.snapshot(0).wallHp;
+    assert.equal(wallHp.length, 1);
+    assert.equal(wallHp[0].hp, 2);
+  });
+
+  it("destroyed walls (hp 0) are reported in the snapshot", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 1 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const maze = (g as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    maze.damageWall(internal, 1);
+    assert.equal(internal.hp, 0, "wall is destroyed");
+    const wallHp = g.snapshot(0).wallHp;
+    const entry = wallHp.find((w) => maze.walls[w.index] === internal);
+    assert.ok(entry, "destroyed wall is included so the client can hide it");
+    assert.equal(entry!.hp, 0);
+  });
+
+  it("interior walls are per-cell, so one hit only breaks one cell", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 1 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const maze = (g as any).maze;
+    // Every destructible wall spans a single cell edge (length == cell size).
+    for (const w of maze.walls) {
+      if (w.maxHp === Infinity) continue;
+      const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+      assert.equal(len, maze.cell, "destructible wall is one cell long");
+    }
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    maze.damageWall(internal, 1);
+    const destroyed = maze.walls.filter((w: any) => w.maxHp !== Infinity && w.hp <= 0);
+    assert.equal(destroyed.length, 1, "only the hit cell broke");
+  });
+
+  it("damaged walls regenerate to full once clear, but not while blocked", () => {
+    const g = makeGame({
+      cfg: { destructibleWalls: true },
+      adv: { wallHp: 2 },
+      maze: new Maze(10, 8, "cross"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    const maze = (g as any).maze;
+    const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
+    maze.damageWall(internal, 2);
+    assert.equal(internal.hp, 0);
+
+    // A tank sitting on the wall keeps it from regrowing past the timer.
+    a.x = (internal.x1 + internal.x2) / 2;
+    a.y = (internal.y1 + internal.y2) / 2;
+    maze.regenWalls(WALL_REGEN_SECONDS + 1, [{ x: a.x, y: a.y }], 14);
+    assert.equal(internal.hp, 0, "blocked wall stays broken");
+
+    // Once nothing overlaps it, the wall heals back to full.
+    maze.regenWalls(0, [{ x: 99999, y: 99999 }], 14);
+    assert.equal(internal.hp, internal.maxHp, "wall regrew to full");
   });
 });
