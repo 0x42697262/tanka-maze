@@ -26,6 +26,15 @@ export const STORAGE_KEY = "tanka-maze-name";
 export const MOVE_KEY = "tanka-maze-move"; // "relative" | "eight"
 export const COLOR_KEY = "tanka-maze-color";
 export const SESSION_KEY = "tanka-maze-session";
+export const FPS_KEY = "tanka-maze-fps"; // "30" | "60" | "120"
+export const QUALITY_KEY = "tanka-maze-quality"; // "low" | "medium" | "high"
+
+/** Render-quality presets → devicePixelRatio cap. */
+export const QUALITY_DPR: Record<"low" | "medium" | "high", number> = {
+  low: 1,
+  medium: 1.5,
+  high: Infinity,
+};
 
 export const PRESET_COLORS = [
   "#e6453f",
@@ -65,6 +74,8 @@ export interface AppState {
   roster: Map<number, RosterEntry>;
   arena: { w: number; h: number } | null;
   moveMode: "relative" | "eight";
+  fpsCap: 30 | 60 | 120;
+  quality: "low" | "medium" | "high";
   roundInfo: { round: number; total: number };
   roundStanding: RoundStanding[];
   roundCountdown: ReturnType<typeof setInterval> | null;
@@ -83,6 +94,8 @@ export const state: AppState = {
   roster: new Map(),
   arena: null,
   moveMode: "relative",
+  fpsCap: 60,
+  quality: "medium",
   roundInfo: { round: 1, total: 1 },
   roundStanding: [],
   roundCountdown: null,

@@ -470,6 +470,19 @@
         </select>
         <div id="move-picker" class="move-picker"></div>
         <p class="settings-hint" id="move-hint"></p>
+        <label class="settings-label">Frame rate</label>
+        <select id="fps-cap" class="settings-select" aria-label="Frame rate cap">
+          <option value="30">30 FPS — lowest CPU</option>
+          <option value="60">60 FPS — recommended</option>
+          <option value="120">120 FPS — smoothest</option>
+        </select>
+        <label class="settings-label">Graphics</label>
+        <select id="quality" class="settings-select" aria-label="Graphics quality">
+          <option value="low">Low — best performance</option>
+          <option value="medium">Medium — balanced</option>
+          <option value="high">High — sharpest</option>
+        </select>
+        <p class="settings-hint">Lower frame rate and graphics reduce CPU usage.</p>
       </div>
 
       <!-- On-screen touch controls (mobile). Twin-stick: drive left, aim/fire right. -->

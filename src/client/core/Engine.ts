@@ -32,6 +32,11 @@ export class Engine {
     this.scene.enter?.();
   }
 
+  /** Cap the render frame rate (see FixedTimestepLoop.setRenderHz). */
+  setRenderHz(hz: number): void {
+    this.loop.setRenderHz(hz);
+  }
+
   start(): void {
     this.loop.start();
   }

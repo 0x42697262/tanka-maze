@@ -87,6 +87,9 @@ export class Renderer {
   private worldWidth = 0;
   private worldHeight = 0;
   private dpr = 1;
+  // Upper bound on devicePixelRatio (render-quality setting). Lower = fewer
+  // pixels to fill each frame = less CPU/GPU, at the cost of some sharpness.
+  private maxDpr = Infinity;
   private spawnZones: SpawnZoneDTO[] = [];
   private buffer: Buffered[] = [];
   private explosions: Explosion[] = [];
@@ -600,7 +603,13 @@ export class Renderer {
   }
 
   private currentDpr(): number {
-    return Math.max(1, window.devicePixelRatio || 1);
+    return Math.max(1, Math.min(this.maxDpr, window.devicePixelRatio || 1));
+  }
+
+  /** Set the render-quality DPR cap and re-apply it to the current canvas. */
+  setMaxDpr(maxDpr: number): void {
+    this.maxDpr = maxDpr;
+    if (this.maze) this.resizeDrawingBuffer(this.worldWidth, this.worldHeight);
   }
 
   /**
