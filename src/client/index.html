@@ -125,6 +125,76 @@
               <option value="large">Large</option>
             </select>
           </div>
+          <div class="row">
+            <label for="destructible-walls">Destructible walls</label>
+            <select id="destructible-walls">
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </div>
+
+          <h3 class="cfg-h">Fog of War</h3>
+          <div class="row two">
+            <label for="fog-of-war">Fog of war</label>
+            <select id="fog-of-war">
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+            <label for="vision-radius" class="cfg-fog-on">Vision px</label>
+            <input id="vision-radius" class="cfg-fog-on" type="number" min="80" max="800" step="20" />
+          </div>
+          <div class="row two cfg-fog-team">
+            <label for="fog-base-vision">Base vision</label>
+            <select id="fog-base-vision">
+              <option value="off">Off</option>
+              <option value="team">Own team</option>
+              <option value="all">All teams</option>
+            </select>
+            <label for="fog-flag-vision" class="cfg-fog-flag">Flag vision</label>
+            <select id="fog-flag-vision" class="cfg-fog-flag">
+              <option value="off">Off</option>
+              <option value="team">Own team</option>
+              <option value="all">All flags</option>
+            </select>
+          </div>
+
+          <h3 class="cfg-h">Hazards</h3>
+          <div class="row two">
+            <label for="hazard-density">Hazard count</label>
+            <input id="hazard-density" type="number" min="0" max="10" step="1" />
+            <label for="hazard-damage">Lava DPS</label>
+            <input id="hazard-damage" type="number" min="1" max="20" step="1" />
+          </div>
+          <div class="row two">
+            <label for="hazard-slow-mult">Mud slow</label>
+            <input id="hazard-slow-mult" type="number" min="0" max="1" step="0.1" />
+            <label for="hazard-heal-rate">Heal HP/s</label>
+            <input id="hazard-heal-rate" type="number" min="0.5" max="10" step="0.5" />
+          </div>
+          <div class="row two">
+            <label for="hazard-lava">Spawn lava</label>
+            <select id="hazard-lava">
+              <option value="on">On</option>
+              <option value="off">Off</option>
+            </select>
+            <label for="hazard-mud">Spawn mud</label>
+            <select id="hazard-mud">
+              <option value="on">On</option>
+              <option value="off">Off</option>
+            </select>
+          </div>
+          <div class="row two">
+            <label for="hazard-ice">Spawn ice</label>
+            <select id="hazard-ice">
+              <option value="on">On</option>
+              <option value="off">Off</option>
+            </select>
+            <label for="hazard-heal">Spawn heal</label>
+            <select id="hazard-heal">
+              <option value="on">On</option>
+              <option value="off">Off</option>
+            </select>
+          </div>
 
           <h3 class="cfg-h">Match</h3>
           <div class="row two">
@@ -236,6 +306,12 @@
               <input id="adv-tankTurnSpeed" type="number" min="0.5" max="12" step="0.1" />
             </div>
             <div class="row two">
+              <label for="adv-tankAccel">Accel px/s²</label>
+              <input id="adv-tankAccel" type="number" min="50" max="4000" step="50" />
+              <label for="adv-tankDecel">Decel px/s²</label>
+              <input id="adv-tankDecel" type="number" min="50" max="8000" step="50" />
+            </div>
+            <div class="row two">
               <label for="adv-fireCooldown">Fire cd s</label>
               <input id="adv-fireCooldown" type="number" min="0.05" max="5" step="0.05" />
               <label for="adv-maxAmmo">Magazine</label>
@@ -266,6 +342,10 @@
               <input id="adv-cellSize" type="number" min="40" max="200" step="4" />
               <label for="adv-wallThickness">Wall thick</label>
               <input id="adv-wallThickness" type="number" min="2" max="30" step="1" />
+            </div>
+            <div class="row">
+              <label for="adv-wallHp">Wall HP</label>
+              <input id="adv-wallHp" type="number" min="1" max="50" step="1" />
             </div>
 
             <!-- Per-power-up tuning is generated from the registry (see main.ts). -->

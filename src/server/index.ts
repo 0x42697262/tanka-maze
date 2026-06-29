@@ -12,6 +12,8 @@ import {
   DEFAULT_ADVANCED,
   DEFAULT_GAME_CONFIG,
   encode,
+  FOG_VISION_MODES,
+  HAZARD_TYPES,
   POWERUP_DEFS,
   type AdvancedConfig,
   type ClientMessage,
@@ -45,6 +47,7 @@ class Hub {
   // Client (preserving lobby membership, tank, and score).
   private sessions = new Map<string, Client>();
   private lobbies = new Map<string, Lobby>();
+  private pingPulseCount = 0;
 
   /** Bind a (re)connecting socket. With a known sessionId, resume that session;
    *  otherwise mint a new one. */
@@ -278,7 +281,12 @@ class Hub {
    * then ping every connected socket so the next tick has fresh measurements.
    */
   pingPulse(): void {
+    this.pingPulseCount += 1;
     for (const lobby of this.lobbies.values()) {
+      // In-game pings are informational UI, not simulation data. During a match,
+      // send them less often so idle/large rooms are not dominated by JSON status
+      // chatter; lobbies still update every pulse while players are forming teams.
+      if (lobby.inGame && this.pingPulseCount % 5 !== 0) continue;
       const pings = lobby.members.map((m) => ({ id: m.id, ms: m.latency }));
       lobby.broadcast({ type: "latencies", pings });
     }
@@ -353,6 +361,8 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     ...d,
     tankRadius: f(c.tankRadius, 4, 40, d.tankRadius),
     tankTurnSpeed: f(c.tankTurnSpeed, 0.5, 12, d.tankTurnSpeed),
+    tankAccel: f(c.tankAccel, 50, 4000, d.tankAccel),
+    tankDecel: f(c.tankDecel, 50, 8000, d.tankDecel),
     fireCooldown: f(c.fireCooldown, 0.05, 5, d.fireCooldown),
     maxAmmo: i(c.maxAmmo, 1, 50, d.maxAmmo),
     reloadSeconds: f(c.reloadSeconds, 0.2, 20, d.reloadSeconds),
@@ -362,6 +372,7 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     bulletLifetime: f(c.bulletLifetime, 0.5, 20, d.bulletLifetime),
     cellSize: i(c.cellSize, 40, 200, d.cellSize),
     wallThickness: f(c.wallThickness, 2, 30, d.wallThickness),
+    wallHp: i(c.wallHp, 1, 50, d.wallHp),
   };
   for (const def of POWERUP_DEFS) {
     for (const field of def.config) {
@@ -382,8 +393,16 @@ function sanitizeConfig(raw: unknown): GameConfig {
     const n = Math.floor(Number(v));
     return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
   };
+  const clampFloat = (v: unknown, lo: number, hi: number, dflt: number): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+  };
   const mode = oneOf(c.mode, ["ffa", "lms", "teams", "ctf"] as const, d.mode);
   const ctf = mode === "ctf";
+  const rawHazardTypes = c.hazardTypes;
+  const hazardTypes = Array.isArray(rawHazardTypes)
+    ? HAZARD_TYPES.filter((t) => rawHazardTypes.includes(t))
+    : d.hazardTypes;
   let lives = clampInt(c.lives, 0, 99, d.lives);
   // Last Man Standing needs finite lives, or it could never end.
   if (mode === "lms" && lives < 1) lives = 3;
@@ -425,6 +444,16 @@ function sanitizeConfig(raw: unknown): GameConfig {
     ctfScoreMode: oneOf(c.ctfScoreMode, CTF_SCORE_MODES, d.ctfScoreMode),
     ctfRespawnBonus: clampInt(c.ctfRespawnBonus, 0, 60, d.ctfRespawnBonus),
     adv: sanitizeAdvanced(c.adv),
+    fogOfWar: typeof c.fogOfWar === "boolean" ? c.fogOfWar : d.fogOfWar,
+    visionRadius: clampInt(c.visionRadius, 80, 800, d.visionRadius),
+    fogBaseVision: oneOf(c.fogBaseVision, FOG_VISION_MODES, d.fogBaseVision),
+    fogFlagVision: oneOf(c.fogFlagVision, FOG_VISION_MODES, d.fogFlagVision),
+    hazardDensity: clampInt(c.hazardDensity, 0, 10, d.hazardDensity),
+    hazardTypes,
+    hazardDamage: clampInt(c.hazardDamage, 1, 20, d.hazardDamage),
+    hazardSlowMult: clampFloat(c.hazardSlowMult, 0, 1, d.hazardSlowMult),
+    hazardHealRate: clampFloat(c.hazardHealRate, 0.5, 10, d.hazardHealRate),
+    destructibleWalls: typeof c.destructibleWalls === "boolean" ? c.destructibleWalls : d.destructibleWalls,
     powerups: typeof c.powerups === "boolean" ? c.powerups : d.powerups,
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
     powerupDespawnSeconds: clampInt(c.powerupDespawnSeconds, 3, 60, d.powerupDespawnSeconds),

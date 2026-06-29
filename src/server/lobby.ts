@@ -3,6 +3,7 @@ import {
   DEFAULT_MAX_PLAYERS,
   ROUND_INTERMISSION_SECONDS,
   SNAPSHOT_EVERY_TICKS,
+  snapshotEveryTicksForPlayers,
   SPAWN_ZONE_CELLS,
   TANK_COLORS,
   TEAM_COLORS,
@@ -10,13 +11,14 @@ import {
 } from "../shared/constants.js";
 import {
   encode,
+  gameConfigWithDefaults,
   type GameConfig,
   type InputState,
   type LobbyDTO,
   type LobbySummaryDTO,
   type ServerMessage,
 } from "../shared/protocol.js";
-import { bytesEqual, encodeSnapshot } from "../shared/wire.js";
+import { bytesEqual, encodeSlimSnapshot, encodeSnapshot } from "../shared/wire.js";
 import { Game } from "./game.js";
 import { Maze, mazeDimensions, ctfPathCount, ctfCenterRoom } from "./maze.js";
 
@@ -29,6 +31,7 @@ import { Maze, mazeDimensions, ctfPathCount, ctfCenterRoom } from "./maze.js";
  * CTF corridors aren't much tighter than the open modes'.
  */
 const CTF_MAZE_DENSITY = 1.3;
+const FULL_SNAPSHOT_EVERY_SENDS = 5;
 
 export interface Client {
   id: string; // public player id (used as tank id)
@@ -75,6 +78,7 @@ export class Lobby {
   private maze: Maze | null = null;
   private lastSnapBytes: Uint8Array | null = null;
   private tickCount = 0;
+  private snapshotSendCount = 0;
   private loop: ReturnType<typeof setInterval> | null = null;
   private lastStep = 0;
   private roundBreak: ReturnType<typeof setTimeout> | null = null;
@@ -92,7 +96,7 @@ export class Lobby {
     this.name = name;
     this.hostId = host.id;
     this.maxPlayers = clamp(maxPlayers, 2, 32) || DEFAULT_MAX_PLAYERS;
-    this.config = config;
+    this.config = gameConfigWithDefaults(config);
     this.onChange = onChange;
     this.ensureTeams();
   }
@@ -196,14 +200,14 @@ export class Lobby {
   setConfig(requesterId: string, maxPlayers: number, config: GameConfig): void {
     if (requesterId !== this.hostId) return;
     const prevTeamCount = this.config.teamCount;
-    this.config = config;
+    this.config = gameConfigWithDefaults(config);
     this.maxPlayers = clamp(maxPlayers, 2, 32) || this.maxPlayers;
     this.ensureTeams();
     // Team count changed: spread everyone evenly across the new teams. This runs
     // even mid-match (it applies live for the lobby roster and on the next round /
     // restart, which is when the team-count change takes structural effect).
-    if (config.teamCount !== prevTeamCount) this.rebalanceTeams();
-    if (this.inGame) this.game?.updateConfig(config);
+    if (this.config.teamCount !== prevTeamCount) this.rebalanceTeams();
+    if (this.inGame) this.game?.updateConfig(this.config);
     this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
     this.onChange(); // listing shows the new mode
   }
@@ -268,11 +272,14 @@ export class Lobby {
       this.teamNames
     );
     this.lastSnapBytes = null;
+    this.snapshotSendCount = 0;
     this.lastStep = Date.now();
     this.broadcast({
       type: "gameStart",
+      config: this.configDTO(),
       maze: this.maze.toDTO(),
       spawnZones: this.game.spawnZoneDTOs(),
+      hazardZones: this.game.hazardZoneDTOs(),
       roster: this.game.roster(),
       round: this.game.currentRound,
       totalRounds: this.game.roundCount,
@@ -350,8 +357,10 @@ export class Lobby {
     client.ws.send(
       encode({
         type: "gameStart",
+        config: this.configDTO(),
         maze: this.maze.toDTO(),
         spawnZones: this.game.spawnZoneDTOs(),
+        hazardZones: this.game.hazardZoneDTOs(),
         roster: this.game.roster(),
         round: this.game.currentRound,
         totalRounds: this.game.roundCount,
@@ -364,8 +373,10 @@ export class Lobby {
   /** Broadcast the current snapshot as binary — only if it changed (gating). */
   private broadcastSnapshot(force = false): void {
     if (!this.game) return;
-    const bytes = encodeSnapshot(this.game.snapshot(Date.now()));
+    const full = force || this.snapshotSendCount % FULL_SNAPSHOT_EVERY_SENDS === 0;
+    const bytes = full ? encodeSnapshot(this.game.snapshot(Date.now())) : encodeSlimSnapshot(this.game.snapshot(Date.now()));
     if (!force && bytesEqual(this.lastSnapBytes, bytes)) return;
+    this.snapshotSendCount += 1;
     this.lastSnapBytes = bytes;
     for (const m of this.members) {
       if (m.ws.readyState === m.ws.OPEN) m.ws.send(bytes);
@@ -466,7 +477,8 @@ export class Lobby {
     // unchanged world sends nothing. Force a send on ticks that produced a blast
     // or beam so those transient effects are never dropped on a skipped tick.
     this.tickCount += 1;
-    if (this.tickCount % SNAPSHOT_EVERY_TICKS === 0 || this.game.hasEffects()) {
+    const snapshotEvery = snapshotEveryTicksForPlayers(this.members.length);
+    if (this.tickCount % snapshotEvery === 0 || this.game.hasEffects()) {
       this.broadcastSnapshot();
     }
   }
@@ -478,11 +490,14 @@ export class Lobby {
     this.maze = this.buildMaze();
     this.game.startNextRound(this.maze);
     this.lastSnapBytes = null;
+    this.snapshotSendCount = 0;
     this.lastStep = Date.now();
     this.broadcast({
       type: "gameStart",
+      config: this.configDTO(),
       maze: this.maze.toDTO(),
       spawnZones: this.game.spawnZoneDTOs(),
+      hazardZones: this.game.hazardZoneDTOs(),
       roster: this.game.roster(),
       round: this.game.currentRound,
       totalRounds: this.game.roundCount,
@@ -515,7 +530,7 @@ export class Lobby {
       hostId: this.hostId,
       maxPlayers: this.maxPlayers,
       inGame: this.inGame,
-      config: this.config,
+      config: this.configDTO(),
       players: this.members.map((m) => ({
         id: m.id,
         name: m.name,
@@ -527,6 +542,10 @@ export class Lobby {
       teamNames: this.teamNames.slice(0, this.config.teamCount),
       teamColors: this.teamColors.slice(0, this.config.teamCount),
     };
+  }
+
+  private configDTO(): GameConfig {
+    return gameConfigWithDefaults(this.config);
   }
 
   toSummary(): LobbySummaryDTO {

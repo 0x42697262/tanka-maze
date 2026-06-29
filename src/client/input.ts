@@ -1,4 +1,25 @@
 import type { InputState } from "../shared/protocol.js";
+import {
+  FireCommand,
+  MoveBackwardCommand,
+  MoveForwardCommand,
+  TurnLeftCommand,
+  TurnRightCommand,
+  type InputCommand,
+} from "./input/commands.js";
+
+const KEY_SPACE = "Space";
+const KEY_BINDINGS: ReadonlyArray<readonly [string, InputCommand]> = [
+  ["KeyW", new MoveForwardCommand()],
+  ["ArrowUp", new MoveForwardCommand()],
+  ["KeyS", new MoveBackwardCommand()],
+  ["ArrowDown", new MoveBackwardCommand()],
+  ["KeyA", new TurnLeftCommand()],
+  ["ArrowLeft", new TurnLeftCommand()],
+  ["KeyD", new TurnRightCommand()],
+  ["ArrowRight", new TurnRightCommand()],
+  [KEY_SPACE, new FireCommand()],
+];
 
 /**
  * Tracks keyboard + mouse and produces an InputState. The aim angle is computed
@@ -9,7 +30,7 @@ import type { InputState } from "../shared/protocol.js";
  * drives toward the stick direction (`joystick` mode on the server), and the
  * turret/shot follow that same heading. A separate fire button shoots.
  */
-export class Input {
+export class InputManager {
   private keys = new Set<string>();
   private mouseDown = false;
   private mouseX = 0; // canvas (world) pixel space
@@ -75,15 +96,17 @@ export class Input {
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
-    if (e.code === "Space") e.preventDefault();
+    if (e.code === KEY_SPACE) e.preventDefault();
     this.keys.add(e.code);
   };
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.code);
 
   private onMouseMove = (e: MouseEvent) => {
     const rect = this.canvas.getBoundingClientRect();
-    const scaleX = this.canvas.width / rect.width;
-    const scaleY = this.canvas.height / rect.height;
+    const worldWidth = Number(this.canvas.dataset.worldWidth) || this.canvas.width;
+    const worldHeight = Number(this.canvas.dataset.worldHeight) || this.canvas.height;
+    const scaleX = worldWidth / rect.width;
+    const scaleY = worldHeight / rect.height;
     this.mouseX = (e.clientX - rect.left) * scaleX;
     this.mouseY = (e.clientY - rect.top) * scaleY;
   };
@@ -162,15 +185,25 @@ export class Input {
         joystick: true,
       };
     }
-    return {
-      forward: this.keys.has("KeyW") || this.keys.has("ArrowUp"),
-      backward: this.keys.has("KeyS") || this.keys.has("ArrowDown"),
-      turnLeft: this.keys.has("KeyA") || this.keys.has("ArrowLeft"),
-      turnRight: this.keys.has("KeyD") || this.keys.has("ArrowRight"),
-      fire: this.mouseDown || this.keys.has("Space"),
+    const state: InputState = {
+      forward: false,
+      backward: false,
+      turnLeft: false,
+      turnRight: false,
+      fire: this.mouseDown,
       aim: Math.atan2(this.mouseY - tankY, this.mouseX - tankX),
       eightDir: this.eightDir,
       joystick: false,
     };
+    this.applyCommands(state);
+    return state;
+  }
+
+  private applyCommands(state: InputState): void {
+    for (const [code, command] of KEY_BINDINGS) {
+      if (this.keys.has(code)) command.execute(state);
+    }
   }
 }
+
+export { InputManager as Input };

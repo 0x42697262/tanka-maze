@@ -3,8 +3,11 @@
 
 import {
   POWERUP_DEFS,
+  gameConfigWithDefaults,
+  type FogVisionMode,
   type GameConfig,
   type GameMode,
+  type HazardType,
   type LobbyDTO,
   type MapSize,
   type RoundStanding,
@@ -40,22 +43,41 @@ export const SIZE_LABEL: Record<MapSize, string> = {
   random: "Random",
 };
 
+const FOG_VISION_LABEL: Record<FogVisionMode, string> = {
+  off: "Off",
+  team: "Own team",
+  all: "All teams",
+};
+
+const FLAG_VISION_LABEL: Record<FogVisionMode, string> = { ...FOG_VISION_LABEL, all: "All flags" };
+
+const HAZARD_LABEL: Record<HazardType, string> = {
+  lava: "Lava",
+  mud: "Mud",
+  ice: "Ice",
+  heal: "Heal",
+};
+
 /** Round wins needed to take the match (CTF counts captured rounds via maxFlags). */
 export function roundsToWin(c: GameConfig): number {
-  return c.mode === "ctf" ? c.maxFlags : c.rounds;
+  const cfg = gameConfigWithDefaults(c);
+  return cfg.mode === "ctf" ? cfg.maxFlags : cfg.rounds;
 }
 
 /** One-line summary shown in the lobby list + waiting room. */
 export function configSummary(c: GameConfig): string {
-  const bits = [modeLabel(c.mode), `${WALL_LABEL[c.wallStyle]} · ${SIZE_LABEL[c.mapSize]} map`];
-  if (c.mode !== "ctf" && c.rounds > 1) bits.push(`first to ${c.rounds} rounds`);
-  if (c.hp > 1) bits.push(`${c.hp} HP`);
-  if (c.tankSpeedPct !== 100) bits.push(`${c.tankSpeedPct}% speed`);
-  if (c.mode === "ctf") bits.push(`${c.teamCount} teams · first to ${c.maxFlags} rounds`);
-  else if (c.mode === "lms") bits.push(c.lives > 0 ? `${c.lives} lives` : "1 life");
-  else if (c.mode === "teams") bits.push(`${c.teamCount} teams · first to ${c.winScore} pts`);
-  else bits.push(`first to ${c.winScore} pts`);
-  if (c.powerups) bits.push("power-ups");
+  const cfg = gameConfigWithDefaults(c);
+  const bits = [modeLabel(cfg.mode), `${WALL_LABEL[cfg.wallStyle]} · ${SIZE_LABEL[cfg.mapSize]} map`];
+  if (cfg.mode !== "ctf" && cfg.rounds > 1) bits.push(`first to ${cfg.rounds} rounds`);
+  if (cfg.hp > 1) bits.push(`${cfg.hp} HP`);
+  if (cfg.tankSpeedPct !== 100) bits.push(`${cfg.tankSpeedPct}% speed`);
+  if (cfg.mode === "ctf") bits.push(`${cfg.teamCount} teams · first to ${cfg.maxFlags} rounds`);
+  else if (cfg.mode === "lms") bits.push(cfg.lives > 0 ? `${cfg.lives} lives` : "1 life");
+  else if (cfg.mode === "teams") bits.push(`${cfg.teamCount} teams · first to ${cfg.winScore} pts`);
+  else bits.push(`first to ${cfg.winScore} pts`);
+  if (cfg.powerups) bits.push("power-ups");
+  if (cfg.fogOfWar) bits.push("fog");
+  if (cfg.hazardDensity > 0) bits.push("hazards");
   return bits.join(" · ");
 }
 
@@ -73,7 +95,7 @@ export function standingHtml(standing: RoundStanding[]): string {
 
 /** Build the complete (read-only) config as organized HTML groups. */
 export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
-  const c = lobby.config;
+  const c = gameConfigWithDefaults(lobby.config);
   const a = c.adv;
   const ctf = c.mode === "ctf";
   const teams = c.mode === "teams";
@@ -104,8 +126,29 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     rows: [
       ["Walls", WALL_LABEL[c.wallStyle]],
       ["Size", SIZE_LABEL[c.mapSize]],
+      ["Destructible walls", onOff(c.destructibleWalls)],
     ],
   });
+
+  const fog: Row[] = [["Fog of war", onOff(c.fogOfWar)]];
+  if (c.fogOfWar) {
+    fog.push(["Radius", `${c.visionRadius}px`]);
+    if (teamBased) fog.push(["Base vision", FOG_VISION_LABEL[c.fogBaseVision]]);
+    if (ctf) fog.push(["Flag vision", FLAG_VISION_LABEL[c.fogFlagVision]]);
+  }
+  groups.push({ title: "Fog of War", rows: fog });
+
+  const hazards: Row[] = [["Hazards", c.hazardDensity > 0 ? `${c.hazardDensity} zones` : "Off"]];
+  if (c.hazardDensity > 0) {
+    hazards.push([
+      "Types",
+      c.hazardTypes.length > 0 ? c.hazardTypes.map((t) => HAZARD_LABEL[t]).join(", ") : "None",
+    ]);
+    if (c.hazardTypes.includes("lava")) hazards.push(["Lava DPS", c.hazardDamage]);
+    if (c.hazardTypes.includes("mud")) hazards.push(["Mud slow", c.hazardSlowMult]);
+    if (c.hazardTypes.includes("heal")) hazards.push(["Heal HP/s", c.hazardHealRate]);
+  }
+  groups.push({ title: "Hazards", rows: hazards });
 
   const match: Row[] = [];
   // CTF is a round series: each round is won by capturing flagsPerRound flags,
@@ -144,6 +187,8 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     rows: [
       ["Size", a.tankRadius],
       ["Turn rate", a.tankTurnSpeed],
+      ["Accel", a.tankAccel],
+      ["Decel", a.tankDecel],
       ["Fire cooldown", `${a.fireCooldown}s`],
       ["Magazine", a.maxAmmo],
       ["Reload", `${a.reloadSeconds}s`],
@@ -163,6 +208,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     rows: [
       ["Cell size", a.cellSize],
       ["Wall thickness", a.wallThickness],
+      ["Wall HP", a.wallHp],
     ],
   });
   // Power-up tuning — generated from the registry so every power-up's config

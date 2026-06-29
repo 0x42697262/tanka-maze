@@ -2,6 +2,10 @@ import {
   MAX_POWERUPS_ON_MAP,
   POWERUP_RADIUS,
   FLAG_STEAL_COOLDOWN,
+  HAZARD_DAMAGE,
+  HAZARD_HEAL_RATE,
+  HAZARD_SLOW_MULT,
+  HAZARD_ZONE_FRACTION,
   KILL_STREAK_WINDOW,
   SPAWN_SHIELD_SECONDS,
   SPAWN_ZONE_CELLS,
@@ -10,6 +14,8 @@ import {
   TANK_REVERSE_SPEED,
   TANK_SPEED,
   TRACKING_REPATH,
+  WALL_DAMAGE,
+  WALL_EXPLOSION_DAMAGE,
 } from "../shared/constants.js";
 import {
   POWERUP_TYPES,
@@ -18,6 +24,8 @@ import {
   type AdvancedConfig,
   type BulletKind,
   type GameConfig,
+  type HazardType,
+  type HazardZoneDTO,
   type InputState,
   type KillEvent,
   type PowerupType,
@@ -29,9 +37,19 @@ import {
   type FlagDTO,
   type FlagState,
 } from "../shared/protocol.js";
+import { ObjectPool } from "../shared/core/ObjectPool.js";
 import { Maze } from "./maze.js";
 
-/** A team's flag in Capture the Flag. Home position is its base (spawn-zone) center. */
+/** A terrain hazard zone that affects tanks standing inside it each tick. */
+interface HazardZone {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: HazardType;
+}
+
+ /** A team's flag in Capture the Flag. Home position is its base (spawn-zone) center. */
 interface Flag {
   team: number;
   homeX: number;
@@ -180,6 +198,28 @@ export class Game {
   private adv: AdvancedConfig;
   private tanks = new Map<string, Tank>();
   private bullets: Bullet[] = [];
+  private bulletPool = new ObjectPool<Bullet>(() => ({
+    id: 0,
+    ownerId: "",
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    bounces: 0,
+    maxBounces: 0,
+    life: 0,
+    kind: "normal",
+    wallPierce: 0,
+    pierceTanks: false,
+    wasInWall: false,
+    hitIds: new Set<string>(),
+    repathIn: 0,
+    waypoint: null,
+  }), (bullet) => {
+    bullet.ownerId = "";
+    bullet.hitIds.clear();
+    bullet.waypoint = null;
+  });
   private nextBulletId = 1;
   private nextIndex = 0;
   private spawns: Array<{ x: number; y: number }>;
@@ -187,6 +227,8 @@ export class Game {
   private spawnZones: SpawnZone[] = [];
   // Capture the Flag: one flag per team (empty in other modes).
   private flags: Flag[] = [];
+  // Hazard zones: terrain tiles (lava/mud/ice/heal) placed on the map.
+  private hazards: HazardZone[] = [];
   private finished = false; // the whole match is decided
   private winnerName = ""; // match champion (set once finished)
   // Round series state.
@@ -235,6 +277,8 @@ export class Game {
     this.spawns = shuffle(maze.openCellCenters());
     this.buildSpawnZones(players.map((p) => p.team ?? 0));
     this.maze.clearZones(this.spawnZones); // bases are open rooms (no inner walls)
+    this.buildHazardZones();
+    if (this.cfg.destructibleWalls) this.maze.setWallHp(this.adv.wallHp);
     this.buildFlags();
 
     // Initial players take sequential spawn points around the arena.
@@ -323,6 +367,11 @@ export class Game {
     return this.cfg.mode === "teams" || this.ctf ? Math.max(2, this.cfg.teamCount) : Math.max(2, this.tanks.size);
   }
 
+  /** Team identity exposed to clients; -1 means this match has no teams. */
+  private dtoTeam(t: Tank): number {
+    return this.cfg.mode === "teams" || this.ctf ? t.team : -1;
+  }
+
   /**
    * Worst-case rounds in a "first to roundsToWin" series for any number of sides:
    * every side reaching roundsToWin-1 before one more round forces a winner, i.e.
@@ -374,7 +423,12 @@ export class Game {
 
   removePlayer(playerId: string): void {
     this.tanks.delete(playerId);
-    this.bullets = this.bullets.filter((b) => b.ownerId !== playerId);
+    const survivors: Bullet[] = [];
+    for (const bullet of this.bullets) {
+      if (bullet.ownerId === playerId) this.bulletPool.release(bullet);
+      else survivors.push(bullet);
+    }
+    this.bullets = survivors;
     this.checkElimination();
   }
 
@@ -437,20 +491,25 @@ export class Game {
 
       tank.turretAngle = tank.input.aim;
 
-      const oldX = tank.x;
-      const oldY = tank.y;
       const boost = tank.boostTimer > 0 ? this.adv.speedBoostMult : 1;
+
+      // --- compute target velocity from input (per control scheme) ---
+      // Velocity is authoritative state that eases toward this target each
+      // tick (momentum), instead of being derived from an instant position
+      // teleport. Bullets inherit the tank's actual current velocity, so a
+      // ramping tank's shots ramp along with it.
+      let tx = 0; // target velocity x (px/s)
+      let ty = 0; // target velocity y (px/s)
+      let moving = false; // any movement key held (governs accel vs decel rate)
 
       if (tank.input.joystick) {
         // Mobile joystick: face and drive the full 360° toward the aim angle.
         // The turret already tracks `aim` (set above), so heading == aim == shot.
         tank.bodyAngle = tank.input.aim;
         if (tank.input.forward) {
-          const step = this.forwardSpeed * boost * dt;
-          const nx = tank.x + Math.cos(tank.input.aim) * step;
-          if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
-          const ny = tank.y + Math.sin(tank.input.aim) * step;
-          if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+          tx = Math.cos(tank.input.aim) * this.forwardSpeed * boost;
+          ty = Math.sin(tank.input.aim) * this.forwardSpeed * boost;
+          moving = true;
         }
       } else if (tank.input.eightDir) {
         // 8-directional world movement (MMORPG-style): WASD = up/left/down/right,
@@ -463,14 +522,9 @@ export class Game {
         if (tank.input.turnRight) mx += 1; // D
         if (mx !== 0 || my !== 0) {
           const len = Math.hypot(mx, my);
-          mx /= len;
-          my /= len;
-          tank.bodyAngle = Math.atan2(my, mx);
-          const step = this.forwardSpeed * boost * dt;
-          const nx = tank.x + mx * step;
-          if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
-          const ny = tank.y + my * step;
-          if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+          tx = (mx / len) * this.forwardSpeed * boost;
+          ty = (my / len) * this.forwardSpeed * boost;
+          moving = true;
         }
       } else {
         // Tank-relative: A/D rotate the heading, W/S drive along it.
@@ -484,25 +538,98 @@ export class Game {
         if (tank.input.backward) drive -= 1;
         if (drive !== 0) {
           const base = drive > 0 ? this.forwardSpeed : this.reverseSpeed;
-          const step = drive * base * boost * dt;
-          const dx = Math.cos(tank.bodyAngle) * step;
-          const dy = Math.sin(tank.bodyAngle) * step;
-          const nx = tank.x + dx;
-          if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
-          const ny = tank.y + dy;
-          if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+          tx = Math.cos(tank.bodyAngle) * drive * base * boost;
+          ty = Math.sin(tank.bodyAngle) * drive * base * boost;
+          moving = true;
         }
       }
-      tank.vx = dt > 0 ? (tank.x - oldX) / dt : 0;
-      tank.vy = dt > 0 ? (tank.y - oldY) / dt : 0;
+
+      // --- terrain hazard effects on movement ---
+      // Mud scales the target velocity (tank drives slower); ice removes
+      // friction so the tank slides with no decel when no key is held. Lava
+      // and heal are damage/restore effects handled in stepHazards (below).
+      const hazard = this.hazardAt(tank.x, tank.y);
+      const slowMult = hazard === "mud" ? this.cfg.hazardSlowMult : 1;
+      tx *= slowMult;
+      ty *= slowMult;
+      const onIce = hazard === "ice";
+
+      // --- ease current velocity toward the target (momentum) ---
+      // Vector easing: clamp the magnitude of the delta to the per-tick rate,
+      // so a diagonal reaches max speed at the same rate as a cardinal move.
+      // Decel is higher than accel for snappy brakes vs wind-up. On ice with no
+      // input, skip the ease entirely — velocity persists (no friction = slide).
+      if (onIce && !moving) {
+        // no friction — keep sliding
+      } else {
+        const rate = (moving ? this.adv.tankAccel : this.adv.tankDecel) * dt;
+        const dxv = tx - tank.vx;
+        const dyv = ty - tank.vy;
+        const dlen = Math.hypot(dxv, dyv);
+        if (dlen <= rate || dlen === 0) {
+          tank.vx = tx;
+          tank.vy = ty;
+        } else {
+          const k = rate / dlen;
+          tank.vx += dxv * k;
+          tank.vy += dyv * k;
+        }
+      }
+
+      // --- move by velocity, axis-separated (slide along walls) ---
+      // Zeroing the blocked component preserves slide along the wall and stops
+      // the tank from "pushing" into it every tick (which would waste accel
+      // and feel sticky).
+      const nx = tank.x + tank.vx * dt;
+      if (!this.circleHitsWall(nx, tank.y, this.adv.tankRadius)) tank.x = nx;
+      else tank.vx = 0;
+      const ny = tank.y + tank.vy * dt;
+      if (!this.circleHitsWall(tank.x, ny, this.adv.tankRadius)) tank.y = ny;
+      else tank.vy = 0;
+
+      // --- body facing follows velocity (8-dir only, for smooth rotation) ---
+      // Joystick sets bodyAngle = aim above (instant). Tank-relative derives
+      // heading from A/D. Only 8-dir benefits from velocity-based facing, so
+      // the body eases through diagonals as momentum ramps. Guard so a tank
+      // at rest keeps its last facing.
+      if (tank.input.eightDir) {
+        const speed = Math.hypot(tank.vx, tank.vy);
+        if (speed > 1) tank.bodyAngle = Math.atan2(tank.vy, tank.vx);
+      }
 
       if (tank.input.fire && tank.fireCooldown === 0) this.fire(tank);
     }
 
     this.stepBullets(dt);
+    if (this.cfg.destructibleWalls) {
+      const bodies = [...this.tanks.values()].filter((t) => t.alive).map((t) => ({ x: t.x, y: t.y }));
+      this.maze.regenWalls(dt, bodies, this.adv.tankRadius);
+    }
     this.stepFlags(dt);
     this.stepConquest(dt);
     this.stepCarry(dt);
+    this.stepHazards(dt);
+  }
+
+  private createBullet(init: Omit<Bullet, "hitIds" | "repathIn" | "waypoint">): Bullet {
+    const bullet = this.bulletPool.acquire();
+    bullet.id = init.id;
+    bullet.ownerId = init.ownerId;
+    bullet.x = init.x;
+    bullet.y = init.y;
+    bullet.vx = init.vx;
+    bullet.vy = init.vy;
+    bullet.bounces = init.bounces;
+    bullet.maxBounces = init.maxBounces;
+    bullet.life = init.life;
+    bullet.kind = init.kind;
+    bullet.wallPierce = init.wallPierce;
+    bullet.pierceTanks = init.pierceTanks;
+    bullet.wasInWall = init.wasInWall;
+    bullet.hitIds.clear();
+    bullet.repathIn = 0;
+    bullet.waypoint = null;
+    return bullet;
   }
 
   private fire(tank: Tank): void {
@@ -540,7 +667,7 @@ export class Game {
       const muzzle = this.adv.tankRadius + this.adv.bulletRadius + 2;
       for (let i = 0; i < n; i++) {
         const ang = n > 1 ? start + step * i : a;
-        this.bullets.push({
+        this.bullets.push(this.createBullet({
           id: this.nextBulletId++,
           ownerId: tank.id,
           x: tank.x + Math.cos(ang) * muzzle,
@@ -554,10 +681,7 @@ export class Game {
           wallPierce: 0,
           pierceTanks: false,
           wasInWall: false,
-          hitIds: new Set(),
-          repathIn: 0,
-          waypoint: null,
-        });
+        }));
       }
       tank.weaponCharges -= 1;
       if (tank.weaponCharges <= 0) tank.weapon = null;
@@ -572,7 +696,7 @@ export class Game {
       // Sniper flies straight & fast (no momentum drift); others inherit it.
       const inheritVx = kind === "sniper" ? 0 : tank.vx;
       const inheritVy = kind === "sniper" ? 0 : tank.vy;
-      this.bullets.push({
+      this.bullets.push(this.createBullet({
         id: this.nextBulletId++,
         ownerId: tank.id,
         x: tank.x + Math.cos(a) * muzzle,
@@ -589,10 +713,7 @@ export class Game {
         wallPierce: kind === "sniper" ? this.adv.sniperWallPierce : 0,
         pierceTanks: kind === "sniper",
         wasInWall: false,
-        hitIds: new Set(),
-        repathIn: 0,
-        waypoint: null,
-      });
+      }));
     }
 
     if (usingWeapon) {
@@ -680,6 +801,7 @@ export class Game {
       if (b.life <= 0) {
         // An explosive round detonates wherever it expires, not just on a wall.
         if (b.kind === "explosive") this.explode(b.x, b.y, b.ownerId);
+        this.bulletPool.release(b);
         continue;
       }
 
@@ -701,6 +823,11 @@ export class Game {
           } else {
             const inWall = this.circleHitsWall(b.x, b.y, this.adv.bulletRadius);
             if (inWall && !b.wasInWall) {
+              // Destructible walls: damage on pierce before checking wallPierce.
+              if (this.cfg.destructibleWalls) {
+                const w = this.maze.hitWall(b.x, b.y, this.adv.bulletRadius);
+                if (w) this.maze.damageWall(w, WALL_DAMAGE);
+              }
               if (b.wallPierce <= 0) dead = true;
               else b.wallPierce -= 1;
             }
@@ -713,6 +840,11 @@ export class Game {
               this.explode(b.x, b.y, b.ownerId);
               dead = true;
             } else {
+              // Destructible walls: damage on bounce.
+              if (this.cfg.destructibleWalls) {
+                const w = this.maze.hitWall(nx, b.y, this.adv.bulletRadius);
+                if (w) this.maze.damageWall(w, WALL_DAMAGE);
+              }
               b.vx = -b.vx;
               if (++b.bounces > b.maxBounces) dead = true;
             }
@@ -726,6 +858,10 @@ export class Game {
                 this.explode(b.x, b.y, b.ownerId);
                 dead = true;
               } else {
+                if (this.cfg.destructibleWalls) {
+                  const w = this.maze.hitWall(b.x, ny, this.adv.bulletRadius);
+                  if (w) this.maze.damageWall(w, WALL_DAMAGE);
+                }
                 b.vy = -b.vy;
                 if (++b.bounces > b.maxBounces) dead = true;
               }
@@ -739,6 +875,7 @@ export class Game {
       }
 
       if (!dead) survivors.push(b);
+      else this.bulletPool.release(b);
     }
     this.bullets = survivors;
   }
@@ -868,6 +1005,10 @@ export class Game {
   /** Area damage from an explosive round; emits a blast for clients to render. */
   private explode(x: number, y: number, ownerId: string): void {
     this.pendingBlasts.push({ x, y });
+    // Destructible walls: AoE damage to nearby walls.
+    if (this.cfg.destructibleWalls) {
+      this.maze.damageWallsInRadius(x, y, this.adv.explosionRadius, WALL_EXPLOSION_DAMAGE);
+    }
     if (this.roundOver) return; // between rounds: blast shows, but no damage
     const r2 = this.adv.explosionRadius * this.adv.explosionRadius;
     for (const tank of this.tanks.values()) {
@@ -1154,6 +1295,8 @@ export class Game {
     this.spawnIndex = 0;
     this.buildSpawnZones([...this.tanks.values()].map((t) => t.team));
     this.maze.clearZones(this.spawnZones); // bases are open rooms (no inner walls)
+    this.buildHazardZones();
+    if (this.cfg.destructibleWalls) this.maze.setWallHp(this.adv.wallHp);
     this.buildFlags();
     this.teamRoundCaptures.clear();
     // Fresh fight, fresh streaks (a new First Blood is up for grabs).
@@ -1163,6 +1306,7 @@ export class Game {
     this.round += 1;
     this.roundOver = false;
     this.roundWinnerName = "";
+    for (const bullet of this.bullets) this.bulletPool.release(bullet);
     this.bullets = [];
     this.powerups = [];
     this.pendingBlasts = [];
@@ -1318,6 +1462,75 @@ export class Game {
         cells,
       });
     }
+  }
+
+  /**
+   * Place up to `hazardDensity` small hazard patches on random open cells,
+   * avoiding spawn zones. Patches are randomly offset inside their chosen cell
+   * so they don't form a predictable grid.
+   * Called on construction and on each new round (the maze changes).
+   */
+  private buildHazardZones(): void {
+    this.hazards = [];
+    const density = this.cfg.hazardDensity;
+    if (density <= 0) return;
+    const { cols, rows, cell } = this.maze;
+    const sidePx = Math.max(1, Math.round(cell * HAZARD_ZONE_FRACTION));
+    const types = this.cfg.hazardTypes;
+    if (types.length === 0) return;
+    // Candidate cells: avoid the arena border and spawn zones.
+    const candidates: Array<{ cx: number; cy: number }> = [];
+    for (let cy = 1; cy < rows - 1; cy++) {
+      for (let cx = 1; cx < cols - 1; cx++) {
+        const zx = cx * cell;
+        const zy = cy * cell;
+        // Skip if overlapping any spawn zone.
+        const overlaps = this.spawnZones.some(
+          (sz) => zx < sz.x + sz.width && zx + cell > sz.x && zy < sz.y + sz.height && zy + cell > sz.y
+        );
+        if (!overlaps) candidates.push({ cx, cy });
+      }
+    }
+    const chosen = shuffle(candidates).slice(0, density);
+    for (const { cx, cy } of chosen) {
+      const jitterX = Math.random() * Math.max(0, cell - sidePx);
+      const jitterY = Math.random() * Math.max(0, cell - sidePx);
+      this.hazards.push({
+        x: cx * cell + jitterX,
+        y: cy * cell + jitterY,
+        width: sidePx,
+        height: sidePx,
+        type: types[Math.floor(Math.random() * types.length)],
+      });
+    }
+  }
+
+  /** The hazard type at a world point, or null if none. */
+  private hazardAt(x: number, y: number): HazardType | null {
+    for (const h of this.hazards) {
+      if (x >= h.x && x < h.x + h.width && y >= h.y && y < h.y + h.height) return h.type;
+    }
+    return null;
+  }
+
+  /** Per-tick hazard effects: lava damages, heal restores HP. (Mud/ice are
+   *  applied in the movement block via hazardAt.) Shields block lava. */
+  private stepHazards(dt: number): void {
+    if (this.hazards.length === 0 || this.roundOver) return;
+    for (const t of this.tanks.values()) {
+      if (!t.alive || t.shieldTimer > 0) continue;
+      const h = this.hazardAt(t.x, t.y);
+      if (h === "lava") {
+        t.hp -= this.cfg.hazardDamage * dt;
+        if (t.hp <= 0) this.kill(t, t.id); // lava is environmental (self-kill)
+      } else if (h === "heal") {
+        t.hp = Math.min(t.maxHp, t.hp + this.cfg.hazardHealRate * dt);
+      }
+    }
+  }
+
+  hazardZoneDTOs(): HazardZoneDTO[] {
+    return this.hazards.map((h) => ({ x: h.x, y: h.y, width: h.width, height: h.height, type: h.type }));
   }
 
   /** True when this is a Capture the Flag match. */
@@ -1716,7 +1929,7 @@ export class Game {
           shielded: t.shieldTimer > 0,
           charging: t.laserCharge > 0,
           scoped: t.scopeTimer > 0 && t.scopeShots > 0,
-          team: t.team,
+          team: this.dtoTeam(t),
           captures: t.captures,
         })),
       bullets: this.bullets.map((b) => ({
@@ -1741,6 +1954,7 @@ export class Game {
         y2: round(b.y2),
       })),
       events: this.pendingEvents.slice(),
+      wallHp: this.cfg.destructibleWalls ? this.maze.damagedWalls() : [],
     };
   }
 
@@ -1761,7 +1975,7 @@ export class Game {
       id: t.id,
       name: t.name,
       color: t.color,
-      team: t.team,
+      team: this.dtoTeam(t),
       maxHp: t.maxHp,
       maxAmmo: this.adv.maxAmmo,
     }));

@@ -9,6 +9,9 @@ import {
   CELL,
   EXPLOSION_RADIUS,
   FIRE_COOLDOWN,
+  HAZARD_DAMAGE,
+  HAZARD_HEAL_RATE,
+  HAZARD_SLOW_MULT,
   LASER_DELAY,
   LASER_RANGE,
   MAX_AMMO,
@@ -22,13 +25,23 @@ import {
   SNIPER_WALL_PIERCE,
   SPEED_BOOST_MULT,
   SPEED_BOOST_SECONDS,
+  TANK_ACCEL,
+  TANK_DECEL,
   TANK_RADIUS,
   TANK_TURN_SPEED,
   TRACKING_BOUNCES,
   TRACKING_LIFETIME,
   TRACKING_TURN_RATE,
+  VISION_RADIUS,
+  WALL_HP,
   WALL_THICKNESS,
 } from "./constants.js";
+
+export const FOG_VISION_MODES = ["off", "team", "all"] as const;
+export type FogVisionMode = (typeof FOG_VISION_MODES)[number];
+
+export const HAZARD_TYPES = ["lava", "mud", "ice", "heal"] as const;
+export type HazardType = (typeof HAZARD_TYPES)[number];
 
 /**
  * Advanced, normally-hardcoded tuning values, exposed so a host can override
@@ -37,6 +50,8 @@ import {
 export interface AdvancedConfig {
   tankRadius: number;
   tankTurnSpeed: number; // rad/s
+  tankAccel: number; // px/s² while a movement key is held (momentum wind-up)
+  tankDecel: number; // px/s² while no movement input (momentum slow-down)
   fireCooldown: number; // s between shots
   maxAmmo: number;
   reloadSeconds: number;
@@ -46,6 +61,7 @@ export interface AdvancedConfig {
   bulletLifetime: number; // s
   cellSize: number; // px per maze cell
   wallThickness: number; // px
+  wallHp: number; // hits to destroy an internal wall (destructibleWalls only)
   speedBoostMult: number;
   speedBoostSeconds: number;
   shieldSeconds: number;
@@ -65,6 +81,8 @@ export interface AdvancedConfig {
 export const DEFAULT_ADVANCED: AdvancedConfig = {
   tankRadius: TANK_RADIUS,
   tankTurnSpeed: TANK_TURN_SPEED,
+  tankAccel: TANK_ACCEL,
+  tankDecel: TANK_DECEL,
   fireCooldown: FIRE_COOLDOWN,
   maxAmmo: MAX_AMMO,
   reloadSeconds: RELOAD_SECONDS,
@@ -74,6 +92,7 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
   bulletLifetime: BULLET_LIFETIME,
   cellSize: CELL,
   wallThickness: WALL_THICKNESS,
+  wallHp: WALL_HP,
   speedBoostMult: SPEED_BOOST_MULT,
   speedBoostSeconds: SPEED_BOOST_SECONDS,
   shieldSeconds: SHIELD_SECONDS,
@@ -298,6 +317,24 @@ export interface GameConfig {
   // CTF: extra seconds added to the respawn delay on death (0 = none).
   ctfRespawnBonus: number;
   adv: AdvancedConfig; // advanced engine tuning
+  // Fog of war: non-wall visuals only render inside the team's revealed areas.
+  // Tanks reveal from their own position; Team VS/CTF bases and CTF flags can
+  // reveal for their owning team or for everyone. The scope power-up doubles
+  // tank radius and grants x-ray through walls. Client-side only — the server
+  // still broadcasts all entities (a patched client could see through walls).
+  fogOfWar: boolean;
+  visionRadius: number; // px base sight radius (scope doubles this)
+  fogBaseVision: FogVisionMode; // Team VS / CTF spawn bases: off, owning team, or all teams
+  fogFlagVision: FogVisionMode; // CTF flags: off, owning team, or all teams
+  // Hazard zones: lava/mud/ice/heal terrain tiles placed on the map.
+  hazardDensity: number; // 0 = off; 1-10 zones placed on round start
+  hazardTypes: HazardType[]; // enabled terrain types to include in the spawn pool
+  hazardDamage: number; // lava DPS
+  hazardSlowMult: number; // mud speed multiplier (0-1)
+  hazardHealRate: number; // heal HP per second
+  // Destructible walls: internal walls have HP and can be breached by bullets.
+  // Border walls are always indestructible.
+  destructibleWalls: boolean;
   // Power-ups
   powerups: boolean; // spawn pickups on the map
   powerupEverySeconds: number; // spawn cadence
@@ -329,11 +366,34 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   ctfScoreMode: "deliver",
   ctfRespawnBonus: 3,
   adv: DEFAULT_ADVANCED,
+  fogOfWar: false,
+  visionRadius: VISION_RADIUS,
+  fogBaseVision: "team",
+  fogFlagVision: "team",
+  hazardDensity: 0,
+  hazardTypes: [...HAZARD_TYPES],
+  hazardDamage: HAZARD_DAMAGE,
+  hazardSlowMult: HAZARD_SLOW_MULT,
+  hazardHealRate: HAZARD_HEAL_RATE,
+  destructibleWalls: false,
   powerups: true,
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,
   powerupCharges: 1,
 };
+
+export type GameConfigInput = Partial<Omit<GameConfig, "adv">> & { adv?: Partial<AdvancedConfig> };
+
+/** Fill any missing config fields from the shared defaults. This is intentionally
+ *  not a trust-boundary sanitizer; the server still clamps raw client input. */
+export function gameConfigWithDefaults(config: GameConfigInput = {}): GameConfig {
+  return {
+    ...DEFAULT_GAME_CONFIG,
+    ...config,
+    adv: { ...DEFAULT_ADVANCED, ...(config.adv ?? {}) },
+    hazardTypes: config.hazardTypes ? [...config.hazardTypes] : [...DEFAULT_GAME_CONFIG.hazardTypes],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Data transfer objects
@@ -345,6 +405,7 @@ export interface LobbyPlayerDTO {
   color: string;
   isHost: boolean;
   connected: boolean;
+  /** Team index, or -1 when the match has no team identity. */
   team: number;
 }
 
@@ -389,6 +450,15 @@ export interface SpawnZoneDTO {
   width: number;
   height: number;
   color: string; // the team's color (rendered faintly)
+}
+
+/** A terrain hazard zone: lava (DPS), mud (slow), ice (slide), heal (restore HP). */
+export interface HazardZoneDTO {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: HazardType;
 }
 
 export interface MazeDTO {
@@ -447,7 +517,7 @@ export interface TankDTO {
   charging: boolean;
   /** Whether the line-of-sight scope (aiming guide) is active. */
   scoped: boolean;
-  /** Team index (Team VS); 0 in other modes. */
+  /** Team index in team modes, or -1 when the match has no team identity. */
   team: number;
   /** Flags this tank has captured so far this match (Capture the Flag). */
   captures: number;
@@ -523,6 +593,9 @@ export interface SnapshotDTO {
   beams: BeamDTO[];
   /** Kill/suicide/team-kill events this tick (transient; for the log). */
   events: KillEvent[];
+  /** Damaged walls (destructibleWalls only): index into MazeDTO.walls + current HP.
+   *  Walls at full HP or indestructible are omitted. Empty when destructibleWalls is off. */
+  wallHp: Array<{ index: number; hp: number }>;
 }
 
 export interface ScoreDTO {
@@ -575,7 +648,7 @@ export type ClientMessage =
   | { type: "setTeamName"; team: number; name: string }
   | { type: "setTeamColor"; team: number; color: string }
   | { type: "listLobbies" }
-  | { type: "createLobby"; name: string; maxPlayers: number; config: GameConfig }
+  | { type: "createLobby"; name: string; maxPlayers: number; config: GameConfigInput }
   | { type: "updateConfig"; maxPlayers: number; config: GameConfig }
   | { type: "joinLobby"; lobbyId: string }
   | { type: "leaveLobby" }
@@ -601,8 +674,10 @@ export type ServerMessage =
   // gameStart carries the maze + roster; the first snapshot follows as binary.
   | {
       type: "gameStart";
+      config: GameConfig;
       maze: MazeDTO;
       spawnZones: SpawnZoneDTO[];
+      hazardZones: HazardZoneDTO[];
       roster: RosterEntry[];
       round: number;
       totalRounds: number;
