@@ -389,7 +389,9 @@ export class Renderer {
       ),
     ];
     const baseRadius = effectiveVisionRadius(this.visionRadius, this.maze.width, this.maze.height);
-    const sources = visionTanks.map((t) => this.tankFogSource(t, baseRadius));
+    // Scope only benefits its own user: a teammate's scope must not extend or
+    // x-ray the local player's fog, so honor `scoped` for the local tank only.
+    const sources = visionTanks.map((t) => this.tankFogSource(t, baseRadius, t.id === local.id));
     for (const z of this.spawnZones) {
       if (!this.fogVisionIncludes(z.team, local.team, this.fogBaseVision)) continue;
       // Bases reveal exactly their own square zone, not a circle around it.
@@ -405,12 +407,13 @@ export class Renderer {
     return mode === "team" && localTeam >= 0 && ownerTeam === localTeam;
   }
 
-  private tankFogSource(tank: TankDTO, baseRadius: number): FogSource {
+  private tankFogSource(tank: TankDTO, baseRadius: number, applyScope: boolean): FogSource {
+    const scoped = applyScope && tank.scoped;
     const fog: FogSource = {
       x: tank.x,
       y: tank.y,
-      radius: tank.scoped ? baseRadius * 2 : baseRadius,
-      seesThroughWalls: tank.scoped,
+      radius: scoped ? baseRadius * 2 : baseRadius,
+      seesThroughWalls: scoped,
       haloRadius: this.tankR + 9,
       polygon: [],
     };
