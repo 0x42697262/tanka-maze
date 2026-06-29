@@ -41,6 +41,7 @@ export function startGame(
     clearInterval(state.roundCountdown);
     state.roundCountdown = null;
   }
+  state.matchStartTime = performance.now();
   state.roundInfo = { round, total: totalRounds };
   state.roundStanding = standing;
   state.lastInputBytes = null; // force the first input of the new game to send

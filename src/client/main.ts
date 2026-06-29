@@ -9,7 +9,7 @@ import { AssetLoader } from "./core/AssetLoader.js";
 import { Engine, type Scene } from "./core/Engine.js";
 import { $, show, toast } from "./dom.js";
 import { announceKill } from "./announce.js";
-import { logKillEvent, renderAmmo, renderLeaderboard, updateRespawnOverlay } from "./hud.js";
+import { logKillEvent, renderHud, renderLeaderboard, updateRespawnOverlay } from "./hud.js";
 import {
   buildSwatches,
   commitColor,
@@ -46,6 +46,9 @@ import {
   SESSION_KEY,
   state,
   STORAGE_KEY,
+  BGM_KEY,
+  BGM_VOL_KEY,
+  SFX_VOL_KEY,
 } from "./state.js";
 
 if (IS_TOUCH) document.body.classList.add("touch");
@@ -175,12 +178,20 @@ net.onBinary((buf) => {
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
+import { setSfxVolume, isVroomPlaying, playVroom, pauseVroom } from "./audio.js";
+
 function frame(now: number): void {
+  let isMoving = false;
   if (state.inGame) {
     const snap = renderer.latest();
     const me = snap?.tanks.find((t) => t.id === state.playerId);
+
     if (state.input && me && !state.paused) {
-      const bytes = encodeInput(state.input.getState(me.x, me.y));
+      const inputState = state.input.getState(me.x, me.y);
+      if (me.alive) {
+        isMoving = inputState.forward || inputState.backward || inputState.turnLeft || inputState.turnRight || (inputState.eightDir && inputState.joystick);
+      }
+      const bytes = encodeInput(inputState);
       // Send only when the input actually changed (capped at ~30 Hz). The server
       // keeps applying the last input, so idle players send nothing.
       if (now - state.lastInputSent > 1000 / 30 && !bytesEqual(state.lastInputBytes, bytes)) {
@@ -200,11 +211,17 @@ function frame(now: number): void {
     // with the on-screen explosion, not the instant the server signalled it.
     const shownMe = renderer.displayed()?.tanks.find((t) => t.id === state.playerId);
     updateRespawnOverlay(shownMe ?? me);
-    renderAmmo(me);
+    renderHud(me);
     if (snap) {
       const alive = snap.tanks.filter((t) => t.alive).length;
       $("gh-count").textContent = `${snap.tanks.length} players · ${alive} alive`;
     }
+  }
+  
+  if (isMoving && !isVroomPlaying) {
+    playVroom();
+  } else if (!isMoving && isVroomPlaying) {
+    pauseVroom();
   }
 }
 
@@ -273,6 +290,67 @@ $("move-mode").addEventListener("change", () => {
 });
 state.moveMode = localStorage.getItem(MOVE_KEY) === "eight" ? "eight" : "relative";
 applyMoveSetting();
+
+// Background Music
+const bgm = $("bgm") as HTMLAudioElement;
+const bgmToggle = $("bgm-toggle") as HTMLInputElement;
+
+function applyBgmSetting() {
+  bgmToggle.checked = state.bgmEnabled;
+  if (state.bgmEnabled) {
+    // play() can fail if the user hasn't interacted with the document yet.
+    bgm.play().catch(() => {});
+  } else {
+    bgm.pause();
+  }
+}
+
+bgmToggle.addEventListener("change", () => {
+  state.bgmEnabled = bgmToggle.checked;
+  localStorage.setItem(BGM_KEY, state.bgmEnabled ? "true" : "false");
+  applyBgmSetting();
+});
+
+state.bgmEnabled = localStorage.getItem(BGM_KEY) !== "false";
+applyBgmSetting();
+
+const bgmVolumeInput = $("bgm-volume") as HTMLInputElement;
+const sfxVolumeInput = $("sfx-volume") as HTMLInputElement;
+
+bgmVolumeInput.value = state.bgmVolume.toString();
+sfxVolumeInput.value = state.sfxVolume.toString();
+bgm.volume = state.bgmVolume;
+setSfxVolume(state.sfxVolume);
+
+bgmVolumeInput.addEventListener("input", () => {
+  state.bgmVolume = parseFloat(bgmVolumeInput.value);
+  bgm.volume = state.bgmVolume;
+  localStorage.setItem(BGM_VOL_KEY, state.bgmVolume.toString());
+});
+
+sfxVolumeInput.addEventListener("input", () => {
+  state.sfxVolume = parseFloat(sfxVolumeInput.value);
+  setSfxVolume(state.sfxVolume);
+  localStorage.setItem(SFX_VOL_KEY, state.sfxVolume.toString());
+});
+
+// Controls Hint Bar
+const controlsHint = $("controls-hint");
+const hintToggle = $("hint-toggle");
+if (localStorage.getItem("tanka-hint-collapsed") === "true") {
+  controlsHint.classList.add("collapsed");
+}
+hintToggle.addEventListener("click", () => {
+  controlsHint.classList.toggle("collapsed");
+  localStorage.setItem("tanka-hint-collapsed", controlsHint.classList.contains("collapsed") ? "true" : "false");
+});
+
+// Browsers block autoplay until user interaction. Start BGM on first click if enabled.
+document.body.addEventListener("pointerdown", () => {
+  if (state.bgmEnabled && bgm.paused) {
+    bgm.play().catch(() => {});
+  }
+}, { once: true });
 
 $("leave").onclick = () => {
   net.send({ type: "leaveLobby" });

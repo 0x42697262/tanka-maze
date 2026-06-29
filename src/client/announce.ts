@@ -7,14 +7,16 @@ import { type KillEvent } from "../shared/protocol.js";
 import { $, escapeHtml } from "./dom.js";
 import { state } from "./state.js";
 
+import { playSfx } from "./audio.js";
+
 /** tier code (KillEvent.streak) → banner label + CSS class. Enemy multikills
  *  (1-5) get flashier; team-kill betrayals (6-8) get grim, horror styling. */
-const TIERS: Record<number, { label: string; cls: string }> = {
-  1: { label: "FIRST BLOOD!", cls: "fb" },
-  2: { label: "DOUBLE KILL!", cls: "t2" },
-  3: { label: "TRIPLE KILL!!", cls: "t3" },
-  4: { label: "MANIAC!!", cls: "t4" },
-  5: { label: "SAVAGE!!!", cls: "t5" },
+const TIERS: Record<number, { label: string; cls: string; sfx?: string }> = {
+  1: { label: "FIRST BLOOD!", cls: "fb", sfx: "first_blood" },
+  2: { label: "DOUBLE KILL!", cls: "t2", sfx: "double_kill" },
+  3: { label: "TRIPLE KILL!!", cls: "t3", sfx: "triple_kill" },
+  4: { label: "MANIAC!!", cls: "t4", sfx: "maniac" },
+  5: { label: "SAVAGE!!!", cls: "t5", sfx: "savage" },
   6: { label: "BETRAYAL", cls: "b1" },
   7: { label: "TRAITOR", cls: "b2" },
   8: { label: "KINSLAYER", cls: "b3" },
@@ -72,4 +74,8 @@ function show(item: Item): void {
   el.innerHTML =
     `<div class="ann-label">${escapeHtml(t.label)}${mult}</div>` +
     `<div class="ann-by" style="color:${r?.color ?? "#ddd"}">${escapeHtml(r?.name ?? "?")}</div>`;
+  
+  if (t.sfx) {
+    playSfx(t.sfx, 0.9);
+  }
 }

@@ -380,8 +380,23 @@
           <div class="stage">
             <canvas id="canvas"></canvas>
 
-            <!-- Ammo / reload indicator -->
-            <div id="ammo" class="ammo"></div>
+            <!-- HUD Strip (Health, Ammo, Radar) -->
+            <div id="hud-strip" class="hud-strip">
+              <div class="hud-section">
+                <div class="hud-label">HEALTH</div>
+                <div id="hud-health" class="hud-content health-bar"></div>
+              </div>
+              <div class="hud-section">
+                <div class="hud-label">AMMO</div>
+                <div id="hud-ammo" class="hud-content ammo-row"></div>
+              </div>
+              <div class="hud-section">
+                <div class="hud-label">RADAR</div>
+                <div class="hud-content radar-circle">
+                  <div id="radar-dots"></div>
+                </div>
+              </div>
+            </div>
 
             <!-- Local respawn overlay -->
             <div id="respawn" class="respawn hidden">
@@ -403,6 +418,17 @@
 
           <!-- Leaderboard (placed outside the arena) -->
           <aside id="leaderboard" class="leaderboard">
+            <div id="match-info" class="match-info hidden">
+              <h3>Match Info</h3>
+              <dl>
+                <dt>Round</dt>
+                <dd id="mi-round">-</dd>
+                <dt>Time</dt>
+                <dd id="mi-time">00:00</dd>
+                <dt>Objective</dt>
+                <dd id="mi-obj" class="obj-badge">Survive</dd>
+              </dl>
+            </div>
             <div id="series-board" class="series-board hidden">
               <h3>Series</h3>
               <ul id="series-board-rows" class="series-rows"></ul>
@@ -412,7 +438,17 @@
             <ul id="killlog" class="killlog"></ul>
           </aside>
         </div>
-        <p class="hint">W/↑ forward · S/↓ reverse · A/D or ←/→ steer · Mouse aims · Click/Space fire · <kbd>Tab</kbd> scores · <kbd>Esc</kbd> menu</p>
+        <!-- Controls hint bar -->
+        <div id="controls-hint" class="controls-hint">
+          <button id="hint-toggle" class="hint-toggle" aria-label="Toggle controls">?</button>
+          <div class="hint-keys">
+            <span><kbd>W</kbd> Move</span>
+            <span><kbd>S</kbd> Reverse</span>
+            <span><kbd>A</kbd><kbd>D</kbd> Steer</span>
+            <span><kbd>🖱</kbd> Aim</span>
+            <span><kbd>Space</kbd> Fire</span>
+          </div>
+        </div>
       </section>
 
       <!-- Pause / in-game menu (Esc) -->
@@ -459,10 +495,26 @@
         </div>
       </div>
 
+      <!-- Audio -->
+      <audio id="bgm" src="/bgm.mp3" loop preload="auto"></audio>
+
       <!-- Per-player settings (client-side) -->
       <button id="settings-gear" class="settings-gear" title="Settings" aria-label="Settings">⚙</button>
       <div id="settings-panel" class="settings-panel hidden">
         <h3>Settings</h3>
+        <label class="settings-label">Audio</label>
+        <div class="row" style="margin-bottom: 8px;">
+          <label style="width: auto;">Music</label>
+          <input type="checkbox" id="bgm-toggle" style="flex: 0 0 auto; width: 18px; height: 18px; cursor: pointer;">
+        </div>
+        <div class="row" style="margin-bottom: 8px; flex-direction: column; align-items: stretch;">
+          <label style="width: auto; margin-bottom: 4px;">Music Volume</label>
+          <input type="range" id="bgm-volume" min="0" max="1" step="0.01" value="0.5">
+        </div>
+        <div class="row" style="margin-bottom: 8px; flex-direction: column; align-items: stretch;">
+          <label style="width: auto; margin-bottom: 4px;">SFX Volume</label>
+          <input type="range" id="sfx-volume" min="0" max="1" step="0.01" value="1.0">
+        </div>
         <label class="settings-label">Movement</label>
         <select id="move-mode" class="walls-select" aria-label="Movement scheme">
           <option value="relative">Tank — rotate &amp; drive</option>

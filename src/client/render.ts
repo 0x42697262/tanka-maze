@@ -1,5 +1,7 @@
 import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
 import { effectiveVisionRadius } from "../shared/fog.js";
+import { playSfx } from "./audio.js";
+import { state } from "./state.js";
 import {
   powerupDef,
   type BulletKind,
@@ -110,7 +112,8 @@ export class Renderer {
     multiSpread: 30,
   };
   // Last seen state per tank, to detect deaths and spawn explosions.
-  private lastTankState = new Map<string, { x: number; y: number; alive: boolean; color: string }>();
+  private lastTankState = new Map<string, { x: number; y: number; alive: boolean; color: string; ammo: number; weapon: string | null; weaponCharges: number; reloadIn: number; boosted: boolean; shielded: boolean; scoped: boolean }>();
+  private lastPowerups = new Map<number, PowerupDTO>();
   // Transient effects (explosions, beams, kill events) are applied on the same
   // ~INTERP_DELAY-behind clock as the interpolated world, so a hit/death shows
   // exactly when the (delayed) bullet reaches the tank — not when the snapshot
@@ -206,6 +209,7 @@ export class Renderer {
     this.explosions = [];
     this.beams = [];
     this.lastTankState.clear();
+    this.lastPowerups.clear();
     this.consumedUntil = 0;
     this.pendingEvents = [];
     this.displayedSnap = null;
@@ -230,12 +234,14 @@ export class Renderer {
   private consumeEffects(target: number, nowMs: number): void {
     for (const { snap, recvAt } of this.buffer) {
       if (recvAt <= this.consumedUntil || recvAt > target) continue;
-      this.detectDeaths(snap, nowMs);
+      this.detectTransients(snap, nowMs);
       for (const b of snap.blasts) {
         this.explosions.push({ x: b.x, y: b.y, color: "#e6863f", start: nowMs });
+        playSfx("explosion", 0.5);
       }
       for (const bm of snap.beams) {
         this.beams.push({ x1: bm.x1, y1: bm.y1, x2: bm.x2, y2: bm.y2, start: nowMs });
+        playSfx("pew", 0.3);
       }
       if (snap.events.length) this.pendingEvents.push(...snap.events);
       this.consumedUntil = recvAt;
@@ -255,23 +261,68 @@ export class Renderer {
     return this.displayedSnap;
   }
 
-  /** Spawn an explosion wherever a tank went from alive to dead/gone. */
-  private detectDeaths(snap: SnapshotDTO, nowMs: number): void {
+  /** Spawn an explosion wherever a tank died, and play sounds for firing. */
+  private detectTransients(snap: SnapshotDTO, nowMs: number): void {
     const seen = new Set<string>();
     for (const t of snap.tanks) {
       seen.add(t.id);
       const prev = this.lastTankState.get(t.id);
-      if (prev && prev.alive && !t.alive) {
-        this.explosions.push({ x: prev.x, y: prev.y, color: t.color, start: nowMs });
+      if (prev && prev.alive) {
+        if (!t.alive) {
+          this.explosions.push({ x: prev.x, y: prev.y, color: t.color, start: nowMs });
+          playSfx("explosion", 0.5);
+        } else {
+          // Play firing sound if ammo dropped, or if they reloaded and fired in the same snapshot
+          const firedNormal = t.ammo < prev.ammo || (prev.ammo === 0 && t.ammo > 0 && t.ammo < t.maxAmmo);
+          const firedSpecial = !t.charging && t.weaponCharges < prev.weaponCharges && prev.weaponCharges > 0;
+          
+          if (firedNormal || firedSpecial) {
+            playSfx("pew", 0.3);
+          }
+          
+          if (prev.reloadIn === 0 && t.reloadIn > 0) {
+            playSfx("reloading", 0.4);
+          }
+        }
       }
-      this.lastTankState.set(t.id, { x: t.x, y: t.y, alive: t.alive, color: t.color });
+      this.lastTankState.set(t.id, { 
+        x: t.x, y: t.y, alive: t.alive, color: t.color, 
+        ammo: t.ammo, weapon: t.weapon, weaponCharges: t.weaponCharges, 
+        reloadIn: t.reloadIn, boosted: t.boosted, shielded: t.shielded, scoped: t.scoped 
+      });
     }
     // A previously-alive tank that vanished (killed while disconnected) also pops.
     for (const [id, prev] of this.lastTankState) {
       if (!seen.has(id)) {
-        if (prev.alive) this.explosions.push({ x: prev.x, y: prev.y, color: prev.color, start: nowMs });
+        if (prev.alive) {
+          this.explosions.push({ x: prev.x, y: prev.y, color: prev.color, start: nowMs });
+          playSfx("explosion", 0.5);
+        }
         this.lastTankState.delete(id);
       }
+    }
+
+    let playedPowerupSound = false;
+    const currentPowerupIds = new Set(snap.powerups.map(p => p.id));
+    for (const p of this.lastPowerups.values()) {
+      if (!currentPowerupIds.has(p.id)) {
+        // Powerup disappeared. Was it picked up by the local player?
+        const me = snap.tanks.find(t => t.id === state.playerId);
+        if (me && me.alive) {
+          const dx = me.x - p.x;
+          const dy = me.y - p.y;
+          if (dx * dx + dy * dy <= 1600) { // 40 radius squared, for some interpolation margin
+            playedPowerupSound = true;
+          }
+        }
+      }
+    }
+    this.lastPowerups.clear();
+    for (const p of snap.powerups) {
+      this.lastPowerups.set(p.id, p);
+    }
+    if (playedPowerupSound) {
+      playSfx("powerup", 0.6);
     }
   }
 

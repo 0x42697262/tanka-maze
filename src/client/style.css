@@ -588,7 +588,7 @@ canvas {
   border: 3px solid var(--ink);
   border-radius: 3px;
   box-shadow: 4px 5px 0 rgba(70, 55, 30, 0.22), 0 10px 30px rgba(70, 55, 30, 0.18);
-  cursor: crosshair;
+  cursor: url('/crosshair.svg') 16 16, crosshair;
   touch-action: none;
 }
 
@@ -784,20 +784,98 @@ canvas {
     }
   }
 }
-.hint {
-  color: var(--ink-soft);
+/* ---- Controls Hint Bar ---- */
+.controls-hint {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(47, 42, 34, 0.95);
+  padding: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 20;
+}
+.controls-hint.collapsed {
+  transform: translateY(100%);
+}
+.hint-toggle {
+  position: absolute;
+  right: 16px;
+  bottom: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-family: monospace;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.controls-hint.collapsed .hint-toggle {
+  transform: translateY(-46px);
+}
+.hint-keys {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+.hint-keys span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(239, 230, 208, 0.85); /* paper color slightly muted */
   font-size: 13px;
-  margin: 0;
-  font-style: italic;
+  font-family: var(--font-body);
 }
 kbd {
-  font-family: var(--font-body);
-  background: var(--paper-3);
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  padding: 0 5px;
+  font-family: monospace;
+  background: #f4f4f4;
+  color: #333;
+  border: 1px solid #ccc;
+  border-bottom: 2px solid #aaa;
+  border-radius: 4px;
+  padding: 2px 6px;
   font-size: 12px;
   font-style: normal;
+  font-weight: bold;
+  min-width: 22px;
+  text-align: center;
+}
+
+/* ---- Match Info Panel ---- */
+.match-info {
+  margin-bottom: 16px;
+}
+.match-info dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  font-size: 13px;
+  align-items: center;
+}
+.match-info dt {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.match-info dd {
+  margin: 0;
+  text-align: right;
+  font-weight: bold;
+}
+.obj-badge {
+  color: var(--stamp);
+  font-family: var(--font-hand);
+  font-size: 14px;
 }
 
 /* ---- Leaderboard (side column beside the arena) ---- */
@@ -880,55 +958,106 @@ kbd {
   color: var(--stamp);
 }
 
-/* ---- Ammo / reload indicator ---- */
-.ammo {
+/* ---- HUD Strip ---- */
+.hud-strip {
   position: absolute;
-  bottom: 10px;
+  bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 5px;
-  background: rgba(243, 235, 214, 0.8);
-  border: 1.5px solid rgba(120, 100, 70, 0.55);
-  border-radius: 4px;
-  padding: 5px 10px;
-  line-height: normal;
-  backdrop-filter: blur(2px);
-  box-shadow: 2px 3px 0 rgba(70, 55, 30, 0.18);
+  gap: 24px;
+  background: rgba(47, 42, 34, 0.88); /* dark ink pill */
+  border: 1px solid rgba(200, 180, 150, 0.15);
+  border-radius: 30px;
+  padding: 8px 24px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  z-index: 10;
 }
-.ammo .pip {
-  width: 8px;
-  height: 16px;
+.hud-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.hud-label {
+  font-family: var(--font-hand);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(239, 230, 208, 0.6);
+  text-transform: uppercase;
+  line-height: 1;
+}
+.hud-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+}
+
+/* Health */
+.health-bar { gap: 4px; }
+.health-seg {
+  width: 16px; height: 16px;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 2px;
-  background: var(--ink);
+  transition: background 0.2s, box-shadow 0.2s;
 }
-.ammo .pip.spent {
-  background: rgba(47, 42, 34, 0.18);
+.health-seg.high { background: #46c24f; box-shadow: 0 0 6px rgba(70, 194, 79, 0.4); }
+.health-seg.med { background: #e6c23f; box-shadow: 0 0 6px rgba(230, 194, 63, 0.4); }
+.health-seg.low { background: #e6453f; box-shadow: 0 0 6px rgba(230, 69, 63, 0.4); }
+
+/* Ammo */
+.ammo-row { gap: 4px; }
+.ammo-row .pip {
+  font-size: 15px;
+  color: var(--paper);
 }
-.ammo .reload {
+.ammo-row .pip.spent {
+  color: rgba(239, 230, 208, 0.2);
+}
+.ammo-row .reload {
   font-family: var(--font-hand);
-  font-size: 14px;
-  color: var(--stamp);
-  margin-left: 2px;
-}
-.ammo .weapon {
-  font-family: var(--font-hand);
-  font-size: 14px;
-  color: var(--blue);
+  font-size: 15px;
+  color: #ff5555;
   margin-left: 4px;
 }
-.ammo .weapon.boost {
-  color: var(--leaf);
+.ammo-row .weapon {
+  font-family: var(--font-hand);
+  font-size: 15px;
+  color: #55aaff;
+  margin-left: 8px;
 }
-.ammo .weapon.shield {
-  color: #2f9b80;
+.ammo-row .weapon.boost { color: #55ff55; }
+.ammo-row .weapon.shield { color: #55ffff; }
+.ammo-row .weapon.laser { color: #ff55ff; }
+.ammo-row .weapon.scope { color: #88aaff; }
+
+/* Radar */
+.radar-circle {
+  position: relative;
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  overflow: hidden;
 }
-.ammo .weapon.laser {
-  color: #9b3fd6;
+.radar-circle::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 2px; height: 2px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
 }
-.ammo .weapon.scope {
-  color: #3f6fc8;
+.radar-dot {
+  position: absolute;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
 }
 
 /* ---- Respawn overlay (over the arena) ---- */

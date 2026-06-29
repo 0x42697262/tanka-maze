@@ -26,6 +26,10 @@ export const STORAGE_KEY = "tanka-maze-name";
 export const MOVE_KEY = "tanka-maze-move"; // "relative" | "eight"
 export const COLOR_KEY = "tanka-maze-color";
 export const SESSION_KEY = "tanka-maze-session";
+export const THEME_KEY = "tanka-maze-theme";
+export const BGM_KEY = "tanka-maze-bgm";
+export const BGM_VOL_KEY = "tanka-maze-bgm-vol";
+export const SFX_VOL_KEY = "tanka-sfx-vol";
 
 export const PRESET_COLORS = [
   "#e6453f",
@@ -64,12 +68,17 @@ export interface AppState {
   lastInputBytes: Uint8Array | null;
   roster: Map<number, RosterEntry>;
   arena: { w: number; h: number } | null;
+  theme: string;
+  bgmEnabled: boolean;
+  bgmVolume: number;
+  sfxVolume: number;
   moveMode: "relative" | "eight";
   roundInfo: { round: number; total: number };
   roundStanding: RoundStanding[];
   roundCountdown: ReturnType<typeof setInterval> | null;
   scoreboardOpen: boolean;
   scoreboardTimer: ReturnType<typeof setInterval> | null;
+  matchStartTime: number | null;
 }
 
 export const state: AppState = {
@@ -82,10 +91,15 @@ export const state: AppState = {
   lastInputBytes: null,
   roster: new Map(),
   arena: null,
+  theme: "parchment",
+  bgmEnabled: localStorage.getItem(BGM_KEY) !== "false",
+  bgmVolume: parseFloat(localStorage.getItem(BGM_VOL_KEY) ?? "0.5"),
+  sfxVolume: parseFloat(localStorage.getItem(SFX_VOL_KEY) ?? "1.0"),
   moveMode: "relative",
   roundInfo: { round: 1, total: 1 },
   roundStanding: [],
   roundCountdown: null,
   scoreboardOpen: false,
   scoreboardTimer: null,
+  matchStartTime: null,
 };
