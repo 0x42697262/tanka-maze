@@ -1100,7 +1100,7 @@ describe("hazards", () => {
 
   it("mud slows the target velocity", () => {
     const g = makeGame({
-      cfg: { hazardDensity: 1, hazardSlowMult: 0.5 },
+      cfg: { hazardDensity: 0, hazardSlowMult: 0.5 },
       adv: { tankAccel: 10000 },
       players: [{ id: "a", name: "A" }],
     });
@@ -1116,7 +1116,7 @@ describe("hazards", () => {
 
   it("ice preserves momentum when no input is held (slide)", () => {
     const g = makeGame({
-      cfg: { hazardDensity: 1 },
+      cfg: { hazardDensity: 0 },
       adv: { tankAccel: 10000, tankDecel: 10000 },
       players: [{ id: "a", name: "A" }],
     });
@@ -1301,5 +1301,56 @@ describe("destructible walls", () => {
     // Once nothing overlaps it, the wall heals back to full.
     maze.regenWalls(0, [{ x: 99999, y: 99999 }], 14);
     assert.equal(internal.hp, internal.maxHp, "wall regrew to full");
+  });
+});
+
+describe("tank collision", () => {
+  it("overlapping tanks are pushed apart when tankCollision is true", () => {
+    const g = makeGame({
+      cfg: { tankCollision: true },
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    const a = tank(g, "a");
+    const b = tank(g, "b");
+    const r = (g as any).adv.tankRadius;
+    
+    // Place them almost exactly on top of each other, away from walls
+    a.x = 200;
+    a.y = 200;
+    b.x = 201;
+    b.y = 200;
+    
+    (g as any).step(0.1);
+    
+    // They should be pushed apart to exactly 2 * tankRadius distance
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    assert.ok(dist >= 2 * r - 0.5, `tanks pushed apart: dist ${dist} >= ${2*r}`);
+  });
+
+  it("tanks are NOT pushed apart when tankCollision is false", () => {
+    const g = makeGame({
+      cfg: { tankCollision: false },
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    const a = tank(g, "a");
+    const b = tank(g, "b");
+    
+    // Place them almost exactly on top of each other
+    a.x = 200;
+    a.y = 200;
+    b.x = 201;
+    b.y = 200;
+    
+    (g as any).step(0.1);
+    
+    // They should not have moved
+    assert.equal(a.x, 200);
+    assert.equal(b.x, 201);
   });
 });

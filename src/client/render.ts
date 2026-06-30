@@ -112,7 +112,7 @@ export class Renderer {
     multiSpread: 30,
   };
   // Last seen state per tank, to detect deaths and spawn explosions.
-  private lastTankState = new Map<string, { x: number; y: number; alive: boolean; color: string; ammo: number; weapon: string | null; weaponCharges: number; reloadIn: number; boosted: boolean; shielded: boolean; scoped: boolean }>();
+  private lastTankState = new Map<string, { x: number; y: number; alive: boolean; hp: number; color: string; ammo: number; weapon: string | null; weaponCharges: number; reloadIn: number; boosted: boolean; shielded: boolean; scoped: boolean }>();
   private lastPowerups = new Map<number, PowerupDTO>();
   // Transient effects (explosions, beams, kill events) are applied on the same
   // ~INTERP_DELAY-behind clock as the interpolated world, so a hit/death shows
@@ -272,6 +272,10 @@ export class Renderer {
           this.explosions.push({ x: prev.x, y: prev.y, color: t.color, start: nowMs });
           playSfx("explosion", 0.5);
         } else {
+          if (prev.hp !== undefined && t.hp < prev.hp) {
+            playSfx("oof", 0.4);
+          }
+          
           // Play firing sound if ammo dropped, or if they reloaded and fired in the same snapshot
           const firedNormal = t.ammo < prev.ammo || (prev.ammo === 0 && t.ammo > 0 && t.ammo < t.maxAmmo);
           const firedSpecial = !t.charging && t.weaponCharges < prev.weaponCharges && prev.weaponCharges > 0;
@@ -286,7 +290,7 @@ export class Renderer {
         }
       }
       this.lastTankState.set(t.id, { 
-        x: t.x, y: t.y, alive: t.alive, color: t.color, 
+        x: t.x, y: t.y, alive: t.alive, hp: t.hp, color: t.color, 
         ammo: t.ammo, weapon: t.weapon, weaponCharges: t.weaponCharges, 
         reloadIn: t.reloadIn, boosted: t.boosted, shielded: t.shielded, scoped: t.scoped 
       });

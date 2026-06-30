@@ -12,16 +12,20 @@ export function loadAudio(name: string, url: string) {
 }
 
 // Preload sound effects into memory
-loadAudio("pew", "/pew.mp3");
-loadAudio("explosion", "/explosion.mp3");
+loadAudio("pew", "/pew.ogg");
+loadAudio("explosion", "/explosion.ogg");
 loadAudio("vroom", "/vroom.ogg");
-loadAudio("reloading", "/reloading.mp3");
-loadAudio("powerup", "/powerup.mp3");
-loadAudio("first_blood", "/first_blood.mp3");
-loadAudio("double_kill", "/double_kill.mp3");
-loadAudio("triple_kill", "/triple_kill.mp3");
-loadAudio("maniac", "/maniac.mp3");
-loadAudio("savage", "/savage.mp3");
+loadAudio("reloading", "/reloading.ogg");
+loadAudio("powerup", "/powerup.ogg");
+loadAudio("oof", "/oof.ogg");
+loadAudio("first_blood", "/first_blood.ogg");
+loadAudio("double_kill", "/double_kill.ogg");
+loadAudio("triple_kill", "/triple_kill.ogg");
+loadAudio("maniac", "/maniac.ogg");
+loadAudio("savage", "/savage.ogg");
+loadAudio("win", "/win.ogg");
+loadAudio("lose", "/lose.ogg");
+loadAudio("bgm", "/bgm.ogg");
 
 // Browsers require a user gesture to unlock audio contexts
 const unlockAudio = () => {
@@ -86,4 +90,47 @@ export function pauseVroom() {
   vroomSource.disconnect();
   vroomSource = null;
   isVroomPlaying = false;
+}
+
+export let globalBgmVolume = 0.5;
+let bgmSource: AudioBufferSourceNode | null = null;
+let bgmGainNode: GainNode | null = null;
+export let isBgmPlaying = false;
+
+export function setBgmVolume(vol: number) {
+  globalBgmVolume = vol;
+  if (bgmGainNode) {
+    bgmGainNode.gain.value = globalBgmVolume;
+  }
+}
+
+export function playBgm() {
+  if (isBgmPlaying) return;
+  const buffer = buffers.get("bgm");
+  if (!buffer) {
+    // If called before the fetch completes, retry shortly
+    setTimeout(playBgm, 500);
+    return;
+  }
+  
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  bgmSource = audioCtx.createBufferSource();
+  bgmSource.buffer = buffer;
+  bgmSource.loop = true;
+  
+  bgmGainNode = audioCtx.createGain();
+  bgmGainNode.gain.value = globalBgmVolume;
+  
+  bgmSource.connect(bgmGainNode);
+  bgmGainNode.connect(audioCtx.destination);
+  bgmSource.start();
+  isBgmPlaying = true;
+}
+
+export function pauseBgm() {
+  if (!isBgmPlaying || !bgmSource) return;
+  bgmSource.stop();
+  bgmSource.disconnect();
+  bgmSource = null;
+  isBgmPlaying = false;
 }

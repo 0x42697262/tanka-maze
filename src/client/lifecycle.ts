@@ -14,6 +14,7 @@ import {
 } from "../shared/protocol.js";
 import { encodeInput } from "../shared/wire.js";
 import { $, escapeHtml, show } from "./dom.js";
+import { playSfx } from "./audio.js";
 import { resetAnnouncements } from "./announce.js";
 import { clearKillLog, renderRoundBadge, renderSeriesBoard } from "./hud.js";
 import { Input } from "./input.js";
@@ -158,20 +159,68 @@ export function endGame(
   standing: RoundStanding[] = [],
   totalRounds = 1
 ): void {
-  state.inGame = false;
+  // Disable controls immediately so players can't move after the match ends
+  state.input?.dispose();
+  state.input = null;
+  $("touch-controls").classList.add("hidden");
   closePause();
   closeScoreboard();
-  $("touch-controls").classList.add("hidden");
+
+  // Clear any existing end-game timeout just in case
+  if (state.matchEndTimeout) clearTimeout(state.matchEndTimeout);
+  
+  // Phase 1: Wait 3 seconds for the final effects (explosions, audio) to play out.
+  state.matchEndTimeout = setTimeout(() => {
+    const my = Array.from(state.roster.values()).find(r => r.id === state.playerId);
+    const myTeamName = state.currentLobby?.teamNames?.[my?.team ?? 0];
+    const title = $("match-result-title");
+    const subtitle = $("match-result-subtitle");
+    
+    if (winnerName === "Draw") {
+      title.textContent = "DRAW";
+      title.style.color = "var(--ink-soft)";
+      subtitle.textContent = "Nobody wins.";
+    } else if (my && (winnerName === my.name || winnerName === myTeamName)) {
+      title.textContent = "YOU WON!";
+      title.style.color = "var(--leaf)";
+      subtitle.textContent = "Victory";
+      playSfx("win", 1.0);
+    } else if (my && winnerName) {
+      title.textContent = "YOU LOSE!";
+      title.style.color = "var(--stamp)";
+      subtitle.textContent = `Winner: ${winnerName}`;
+      playSfx("lose", 1.0);
+    } else {
+      title.textContent = "GAME OVER";
+      title.style.color = "var(--ink)";
+      subtitle.textContent = winnerName ? `Winner: ${winnerName}` : "";
+    }
+
+    $("match-result").classList.remove("hidden");
+    
+    // Phase 2: Wait 4 seconds with the banner before tearing down the game
+    state.matchEndTimeout = setTimeout(() => teardownGame(scores, winnerName, standing, totalRounds), 4000);
+  }, 3000);
+}
+
+function teardownGame(
+  scores: ScoreDTO[],
+  winnerName: string,
+  standing: RoundStanding[],
+  totalRounds: number
+): void {
+  state.matchEndTimeout = null;
+  $("match-result").classList.add("hidden");
+  state.inGame = false;
+  
   if (state.roundCountdown) {
     clearInterval(state.roundCountdown);
     state.roundCountdown = null;
   }
   $("respawn").classList.add("hidden");
   $("roundover").classList.add("hidden");
-  state.input?.dispose();
-  state.input = null;
 
-  $("winner").textContent = winnerName ? `🏆 ${winnerName} wins!` : "Game Over";
+  $("winner").textContent = winnerName ? (winnerName === "Draw" ? "Draw" : `🏆 ${winnerName} wins!`) : "Game Over";
 
   // Series tally (round wins) — only meaningful for multi-round matches.
   const series = $("series");
@@ -197,6 +246,11 @@ export function endGame(
 }
 
 export function leaveToMenu(): void {
+  if (state.matchEndTimeout) {
+    clearTimeout(state.matchEndTimeout);
+    state.matchEndTimeout = null;
+  }
+  $("match-result").classList.add("hidden");
   state.inGame = false;
   closeScoreboard();
   $("touch-controls").classList.add("hidden");

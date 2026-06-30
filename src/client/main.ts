@@ -178,7 +178,7 @@ net.onBinary((buf) => {
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
-import { setSfxVolume, isVroomPlaying, playVroom, pauseVroom } from "./audio.js";
+import { setSfxVolume, isVroomPlaying, playVroom, pauseVroom, playBgm, pauseBgm, setBgmVolume, isBgmPlaying } from "./audio.js";
 
 function frame(now: number): void {
   let isMoving = false;
@@ -292,16 +292,14 @@ state.moveMode = localStorage.getItem(MOVE_KEY) === "eight" ? "eight" : "relativ
 applyMoveSetting();
 
 // Background Music
-const bgm = $("bgm") as HTMLAudioElement;
 const bgmToggle = $("bgm-toggle") as HTMLInputElement;
 
 function applyBgmSetting() {
   bgmToggle.checked = state.bgmEnabled;
   if (state.bgmEnabled) {
-    // play() can fail if the user hasn't interacted with the document yet.
-    bgm.play().catch(() => {});
+    playBgm();
   } else {
-    bgm.pause();
+    pauseBgm();
   }
 }
 
@@ -319,12 +317,12 @@ const sfxVolumeInput = $("sfx-volume") as HTMLInputElement;
 
 bgmVolumeInput.value = state.bgmVolume.toString();
 sfxVolumeInput.value = state.sfxVolume.toString();
-bgm.volume = state.bgmVolume;
+setBgmVolume(state.bgmVolume);
 setSfxVolume(state.sfxVolume);
 
 bgmVolumeInput.addEventListener("input", () => {
   state.bgmVolume = parseFloat(bgmVolumeInput.value);
-  bgm.volume = state.bgmVolume;
+  setBgmVolume(state.bgmVolume);
   localStorage.setItem(BGM_VOL_KEY, state.bgmVolume.toString());
 });
 
@@ -347,8 +345,8 @@ hintToggle.addEventListener("click", () => {
 
 // Browsers block autoplay until user interaction. Start BGM on first click if enabled.
 document.body.addEventListener("pointerdown", () => {
-  if (state.bgmEnabled && bgm.paused) {
-    bgm.play().catch(() => {});
+  if (state.bgmEnabled && !isBgmPlaying) {
+    playBgm();
   }
 }, { once: true });
 
