@@ -1,5 +1,5 @@
 import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
-import { effectiveVisionRadius } from "../shared/fog.js";
+import { buildFogShape, effectiveVisionRadius, pointInFogShape, type FogShape, type FogWall } from "../shared/fog.js";
 import { playSfx } from "./audio.js";
 import { state } from "./state.js";
 import {
@@ -59,21 +59,11 @@ interface Beam {
   start: number;
 }
 
-interface FogPoint {
-  x: number;
-  y: number;
-}
-
 interface FogSource {
   x: number;
   y: number;
-  radius: number;
-  seesThroughWalls: boolean;
   haloRadius: number;
-  polygon: FogPoint[];
-  // When set, the source reveals this axis-aligned rectangle instead of a circle
-  // (used by spawn bases so a base reveals exactly its own square zone).
-  rect?: { x: number; y: number; width: number; height: number };
+  shape: FogShape;
 }
 
 interface FogView {
@@ -444,7 +434,9 @@ export class Renderer {
       ),
     ];
     const baseRadius = effectiveVisionRadius(this.visionRadius, this.maze.width, this.maze.height);
-    const sources = visionTanks.map((t) => this.tankFogSource(t, baseRadius));
+    const arena = { x: 0, y: 0, width: this.maze.width, height: this.maze.height };
+    const walls = this.visionWalls();
+    const sources = visionTanks.map((t) => this.tankFogSource(t, baseRadius, arena, walls));
     for (const z of this.spawnZones) {
       if (!this.fogVisionIncludes(z.team, local.team, this.fogBaseVision)) continue;
       // Bases reveal exactly their own square zone, not a circle around it.
@@ -460,17 +452,25 @@ export class Renderer {
     return mode === "team" && localTeam >= 0 && ownerTeam === localTeam;
   }
 
-  private tankFogSource(tank: TankDTO, baseRadius: number): FogSource {
-    const fog: FogSource = {
+  private visionWalls(): readonly FogWall[] {
+    if (!this.maze) return [];
+    if (!this.destructibleWalls) return this.maze.walls;
+    return this.maze.walls.filter((_, i) => this.wallHp[i] > 0);
+  }
+
+  private tankFogSource(
+    tank: TankDTO,
+    baseRadius: number,
+    arena: { x: number; y: number; width: number; height: number },
+    walls: readonly FogWall[]
+  ): FogSource {
+    const radius = tank.scoped ? baseRadius * 2 : baseRadius;
+    return {
       x: tank.x,
       y: tank.y,
-      radius: tank.scoped ? baseRadius * 2 : baseRadius,
-      seesThroughWalls: tank.scoped,
       haloRadius: this.tankR + 9,
-      polygon: [],
+      shape: buildFogShape({ x: tank.x, y: tank.y, radius, seesThroughWalls: tank.scoped, arena, walls }),
     };
-    fog.polygon = this.visibilityPolygon(fog);
-    return fog;
   }
 
   /** A reveal source shaped as an axis-aligned rectangle (its own square base zone). */
@@ -478,11 +478,8 @@ export class Renderer {
     return {
       x: x + width / 2,
       y: y + height / 2,
-      radius: 0,
-      seesThroughWalls: false,
       haloRadius: 0,
-      polygon: [],
-      rect: { x, y, width, height },
+      shape: { kind: "rect", x, y, width, height },
     };
   }
 
@@ -502,13 +499,15 @@ export class Renderer {
 
   private addFogShape(fog: FogView, includeHalo: boolean, ctx: CanvasRenderingContext2D = this.ctx): void {
     for (const source of fog.sources) {
-      if (source.rect) {
-        ctx.rect(source.rect.x, source.rect.y, source.rect.width, source.rect.height);
-        continue;
-      }
-      if (source.polygon.length > 0) {
-        ctx.moveTo(source.polygon[0].x, source.polygon[0].y);
-        for (let i = 1; i < source.polygon.length; i++) ctx.lineTo(source.polygon[i].x, source.polygon[i].y);
+      const shape = source.shape;
+      if (shape.kind === "rect") {
+        ctx.rect(shape.x, shape.y, shape.width, shape.height);
+      } else if (shape.kind === "circle") {
+        ctx.moveTo(shape.x + shape.radius, shape.y);
+        ctx.arc(shape.x, shape.y, shape.radius, 0, Math.PI * 2);
+      } else if (shape.points.length > 0) {
+        ctx.moveTo(shape.points[0].x, shape.points[0].y);
+        for (let i = 1; i < shape.points.length; i++) ctx.lineTo(shape.points[i].x, shape.points[i].y);
         ctx.closePath();
       }
       if (includeHalo && source.haloRadius > 0) {
@@ -548,57 +547,6 @@ export class Renderer {
     return { canvas: this.fogOverlay, ctx: this.fogOverlayCtx! };
   }
 
-  /** Build the visible fog shape by casting rays until they hit a blocking wall. */
-  private visibilityPolygon(fog: FogSource): FogPoint[] {
-    const span = Math.PI * 2;
-    const samples = 96;
-    const angles: number[] = [];
-    const addAngle = (angle: number) => angles.push(angle);
-
-    for (let i = 0; i < samples; i++) addAngle((span * i) / samples);
-
-    if (this.maze && !fog.seesThroughWalls) {
-      const r2 = fog.radius * fog.radius;
-      const eps = 0.0008;
-      for (let i = 0; i < this.maze.walls.length; i++) {
-        if (!this.wallBlocksVision(i)) continue;
-        const w = this.maze.walls[i];
-        for (const p of [[w.x1, w.y1], [w.x2, w.y2]] as const) {
-          const dx = p[0] - fog.x;
-          const dy = p[1] - fog.y;
-          if (dx * dx + dy * dy > r2) continue;
-          const a = Math.atan2(dy, dx);
-          addAngle(a - eps);
-          addAngle(a);
-          addAngle(a + eps);
-        }
-      }
-    }
-
-    const points = angles
-      .map((angle) => ({ angle, order: normalizeAngle(angle), point: this.castFogRay(fog, angle) }))
-      .sort((a, b) => a.order - b.order)
-      .map((hit) => hit.point);
-    return points;
-  }
-
-  private castFogRay(fog: FogSource, angle: number): FogPoint {
-    const ox = fog.x;
-    const oy = fog.y;
-    const dx = Math.cos(angle);
-    const dy = Math.sin(angle);
-    let best = fog.radius;
-    if (this.maze && !fog.seesThroughWalls) {
-      for (let i = 0; i < this.maze.walls.length; i++) {
-        if (!this.wallBlocksVision(i)) continue;
-        const w = this.maze.walls[i];
-        const hit = raySegmentDistance(ox, oy, dx, dy, w.x1, w.y1, w.x2, w.y2);
-        if (hit !== null && hit < best) best = hit;
-      }
-    }
-    return { x: ox + dx * best, y: oy + dy * best };
-  }
-
   /**
    * Line-of-sight check for fog of war. An enemy is visible when any team reveal
    * source can see it; scoped tank sources skip the wall check (x-ray).
@@ -614,31 +562,10 @@ export class Renderer {
   }
 
   private isPointVisibleFromSource(x: number, y: number, fog: FogSource): boolean {
-    if (fog.rect) {
-      return (
-        x >= fog.rect.x &&
-        x <= fog.rect.x + fog.rect.width &&
-        y >= fog.rect.y &&
-        y <= fog.rect.y + fog.rect.height
-      );
-    }
     const localDx = x - fog.x;
     const localDy = y - fog.y;
     if (localDx * localDx + localDy * localDy <= fog.haloRadius * fog.haloRadius) return true;
-    const dx = x - fog.x;
-    const dy = y - fog.y;
-    if (dx * dx + dy * dy > fog.radius * fog.radius) return false;
-    if (fog.seesThroughWalls) return true; // x-ray — see through walls
-    if (!this.maze) return true;
-    // Cast a ray from the reveal source to the target; any blocking wall hides it.
-    for (let i = 0; i < this.maze.walls.length; i++) {
-      if (!this.wallBlocksVision(i)) continue;
-      const w = this.maze.walls[i];
-      if (segIntersect(fog.x, fog.y, x, y, w.x1, w.y1, w.x2, w.y2)) {
-        return false;
-      }
-    }
-    return true;
+    return pointInFogShape(x, y, fog.shape);
   }
 
   /**
@@ -1160,10 +1087,8 @@ export class Renderer {
 
   private drawWalls(maze: MazeDTO): void {
     const { ctx } = this;
-    // Inked wall lines. Destructible walls look identical whether full or
+    // Build the wall path once. Destructible walls look identical whether full or
     // damaged — only a fully destroyed wall (hp <= 0) vanishes from the draw.
-    ctx.strokeStyle = "#352f25";
-    ctx.lineWidth = maze.thickness;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
@@ -1173,11 +1098,17 @@ export class Renderer {
       ctx.moveTo(w.x1, w.y1);
       ctx.lineTo(w.x2, w.y2);
     }
+    // Light halo under the ink so a wall stays legible where it sits in the dark
+    // fog wash — otherwise an occluding wall is dark-on-dark and the shadow it
+    // casts looks like open space that's inexplicably fogged. The halo blends
+    // into the light floor, so lit walls are unaffected.
+    ctx.strokeStyle = "rgba(228,214,176,0.5)";
+    ctx.lineWidth = maze.thickness + 3;
     ctx.stroke();
-  }
-
-  private wallBlocksVision(index: number): boolean {
-    return !this.destructibleWalls || this.wallHp[index] > 0;
+    // Inked wall line.
+    ctx.strokeStyle = "#352f25";
+    ctx.lineWidth = maze.thickness;
+    ctx.stroke();
   }
 
   private isRectVisible(x: number, y: number, width: number, height: number, fog: FogView): boolean {
@@ -1368,34 +1299,8 @@ function angleLerp(a: number, b: number, f: number): number {
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * f;
 }
-function normalizeAngle(a: number): number {
-  const v = a % (Math.PI * 2);
-  return v < 0 ? v + Math.PI * 2 : v;
-}
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-
-/** Distance along a unit ray to its first intersection with a segment. */
-function raySegmentDistance(
-  ox: number,
-  oy: number,
-  rx: number,
-  ry: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number
-): number | null {
-  const sx = bx - ax;
-  const sy = by - ay;
-  const denom = rx * sy - ry * sx;
-  if (Math.abs(denom) < 1e-9) return null;
-  const qx = ax - ox;
-  const qy = ay - oy;
-  const t = (qx * sy - qy * sx) / denom;
-  const u = (qx * ry - qy * rx) / denom;
-  return t >= 0 && u >= 0 && u <= 1 ? t : null;
 }
 
 /** Squared distance from point (px,py) to segment (ax,ay)-(bx,by). */
@@ -1408,20 +1313,6 @@ function pointSegDist2(px: number, py: number, ax: number, ay: number, bx: numbe
   const cx = ax + t * dx;
   const cy = ay + t * dy;
   return (px - cx) ** 2 + (py - cy) ** 2;
-}
-
-/** True if segment A-B intersects segment C-D (used for fog-of-war raycasting). */
-function segIntersect(
-  ax: number, ay: number, bx: number, by: number,
-  cx: number, cy: number, dx: number, dy: number
-): boolean {
-  const d1x = bx - ax, d1y = by - ay;
-  const d2x = dx - cx, d2y = dy - cy;
-  const denom = d1x * d2y - d1y * d2x;
-  if (denom === 0) return false; // parallel or collinear
-  const t = ((cx - ax) * d2y - (cy - ay) * d2x) / denom;
-  const u = ((cx - ax) * d1y - (cy - ay) * d1x) / denom;
-  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
 }
 
 function roundRect(

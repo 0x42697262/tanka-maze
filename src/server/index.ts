@@ -445,7 +445,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     ctfRespawnBonus: clampInt(c.ctfRespawnBonus, 0, 60, d.ctfRespawnBonus),
     adv: sanitizeAdvanced(c.adv),
     fogOfWar: typeof c.fogOfWar === "boolean" ? c.fogOfWar : d.fogOfWar,
-    visionRadius: clampInt(c.visionRadius, 80, 800, d.visionRadius),
+    visionRadius: clampInt(c.visionRadius, 80, 1600, d.visionRadius),
     fogBaseVision: oneOf(c.fogBaseVision, FOG_VISION_MODES, d.fogBaseVision),
     fogFlagVision: oneOf(c.fogFlagVision, FOG_VISION_MODES, d.fogFlagVision),
     fogHideCarriedFlag: typeof c.fogHideCarriedFlag === "boolean" ? c.fogHideCarriedFlag : d.fogHideCarriedFlag,
