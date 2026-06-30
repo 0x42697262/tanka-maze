@@ -445,9 +445,10 @@ function sanitizeConfig(raw: unknown): GameConfig {
     ctfRespawnBonus: clampInt(c.ctfRespawnBonus, 0, 60, d.ctfRespawnBonus),
     adv: sanitizeAdvanced(c.adv),
     fogOfWar: typeof c.fogOfWar === "boolean" ? c.fogOfWar : d.fogOfWar,
-    visionRadius: clampInt(c.visionRadius, 80, 800, d.visionRadius),
+    visionRadius: clampInt(c.visionRadius, 80, 1600, d.visionRadius),
     fogBaseVision: oneOf(c.fogBaseVision, FOG_VISION_MODES, d.fogBaseVision),
     fogFlagVision: oneOf(c.fogFlagVision, FOG_VISION_MODES, d.fogFlagVision),
+    fogHideCarriedFlag: typeof c.fogHideCarriedFlag === "boolean" ? c.fogHideCarriedFlag : d.fogHideCarriedFlag,
     hazardDensity: clampInt(c.hazardDensity, 0, 10, d.hazardDensity),
     hazardTypes,
     hazardDamage: clampInt(c.hazardDamage, 1, 20, d.hazardDamage),
@@ -458,6 +459,10 @@ function sanitizeConfig(raw: unknown): GameConfig {
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
     powerupDespawnSeconds: clampInt(c.powerupDespawnSeconds, 3, 60, d.powerupDespawnSeconds),
     powerupCharges: clampInt(c.powerupCharges, 1, 20, d.powerupCharges),
+    tankCollision: mode === "ffa"
+      ? typeof c.tankCollision === "boolean" ? c.tankCollision : d.tankCollision
+      : false,
+    radar: typeof c.radar === "boolean" ? c.radar : d.radar,
   };
 }
 

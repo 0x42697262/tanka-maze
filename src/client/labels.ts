@@ -127,6 +127,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Walls", WALL_LABEL[c.wallStyle]],
       ["Size", SIZE_LABEL[c.mapSize]],
       ["Destructible walls", onOff(c.destructibleWalls)],
+      ["Radar", onOff(c.radar)],
     ],
   });
 
@@ -135,6 +136,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     fog.push(["Radius", `${c.visionRadius}px`]);
     if (teamBased) fog.push(["Base vision", FOG_VISION_LABEL[c.fogBaseVision]]);
     if (ctf) fog.push(["Flag vision", FLAG_VISION_LABEL[c.fogFlagVision]]);
+    if (ctf) fog.push(["Hide carried flag", onOff(c.fogHideCarriedFlag)]);
   }
   groups.push({ title: "Fog of War", rows: fog });
 

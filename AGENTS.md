@@ -78,14 +78,15 @@ src/client/       Vite + canvas browser client (no framework)
   lobby.ts            menu lobby list + waiting room UI
   settings.ts         host config editor (gather/apply config, wall/move pickers)
   scoreboard.ts       Tab scoreboard overlay
-  hud.ts              kill log, ammo, leaderboard, round badge, respawn overlay
+  hud.ts              HUD strip (health/ammo/radar), kill log, leaderboard, match info, respawn overlay
   labels.ts           pure presentation: modeLabel, configSummary, configDetailsHtml
-  announce.ts         queued kill-streak banners
+  announce.ts         queued kill-streak banners + announcer SFX
+  audio.ts            Web Audio API engine: preloader, playSfx, BGM loop, vroom loop, global volumes
   dom.ts              $() helper, show(screen), toast, escapeHtml
   core/               Engine, FixedTimestepLoop, AssetLoader, AudioManager, EventBus, ObjectPool
   net/                interpolation/prediction/reconciliation scaffolding (not the active WS wrapper)
   vite-env.d.ts       VITE_WS_URL env typing
-  style.css           paper-&-ink theme
+  style.css           paper-&-ink theme; Outfit + Inter Google Fonts
 test/             node:test files (NOT in any tsconfig include)
   game.test.ts        Game simulation (largest; reaches into privates via `as any`)
   maze.test.ts        maze connectivity / CTF paths / wall styles (graph-theoretic)
@@ -347,6 +348,69 @@ Conventional Commits; no hooks enforce anything.
 
 ---
 
+## 6b. Audio system
+
+`src/client/audio.ts` owns all sound. It is a **client-only** module — never
+import it from `src/shared/` or `src/server/`.
+
+### Engine
+- Uses the **Web Audio API** (`AudioContext`). A single shared context is
+  created on first user interaction (the browser requires a gesture to unlock
+  it). The module exports `audioCtx` but callers should prefer `playSfx` /
+  `playVroom` / `playBgm`.
+- `loadAudio(name, url)` fetches and decodes an audio file into an
+  `AudioBuffer`, storing it in the `buffers` map. All calls are at module
+  top-level so they fire as soon as the client bundle loads.
+- **Each `playSfx` call creates a fresh `BufferSource`** — no re-use of
+  sources, so the same SFX can overlap freely (e.g. rapid fire).
+- Global volume knobs: `globalBgmVolume` (default 0.5) and `globalSfxVolume`
+  (default 1.0) are set by the in-game sliders. `playSfx` multiplies its
+  `volume` arg by `globalSfxVolume`; BGM/vroom loops multiply by
+  `globalBgmVolume`.
+
+### Sound files (`src/client/public/`)
+| File | Trigger |
+| --- | --- |
+| `bgm.mp3` | Looping background music, played during a match. |
+| `pew.ogg` | Any shot fired (normal or weapon power-up). |
+| `explosion.ogg` | Tank death — fired from `consumeEffects` on the interpolation clock. |
+| `reloading.ogg` | When `reloadIn` transitions from 0 → > 0. |
+| `vroom.ogg` | Tank engine noise while moving; looped via `playVroom` / `stopVroom`. |
+| `powerup.ogg` | When a power-up crate disappears under the local player's tank. |
+| `oof.ogg` | Non-lethal HP drop on the local player's tank. |
+| `first_blood.ogg` | Kill-streak tier 1 (FIRST BLOOD banner). |
+| `double_kill.ogg` | Kill-streak tier 2 (DOUBLE KILL banner). |
+| `triple_kill.ogg` | Kill-streak tier 3 (TRIPLE KILL banner). |
+| `maniac.ogg` | Kill-streak tier 4 (MANIAC banner). |
+| `savage.ogg` | Kill-streak tier 5 (SAVAGE banner). |
+
+### Where SFX are triggered
+- **`render.ts` → `detectTransients`**: iterates `lastTankState` diff each
+  snapshot. Fires `pew`, `reloading`, and `oof` (non-lethal HP drop).
+- **`render.ts` → `consumeEffects`**: fires `explosion` on the ~140 ms
+  interpolation clock so the bang lands when the bullet visually hits.
+- **`render.ts` → power-up crate tracking**: `lastPowerups` map tracks
+  `PowerupDTO.id` values. When a crate id disappears and the local player was
+  within pickup radius, fires `powerup`. This correctly handles duplicate
+  pickups (same buff refreshed) unlike a state-diff approach.
+- **`announce.ts` → `show()`**: fires the tier-appropriate announcer clip
+  alongside the kill-streak banner.
+- **`main.ts` / `input.ts`**: `playVroom` / `stopVroom` keyed to movement input.
+
+### Adding a new SFX
+1. Drop the file in `src/client/public/`.
+2. Add `loadAudio("name", "/file.mp3")` in `audio.ts`.
+3. Call `playSfx("name", volume)` from the appropriate client module.
+   - Triggered by a snapshot diff → `render.ts` `detectTransients`.
+   - Triggered by a UI event (button, banner) → the module that owns that event.
+
+### Adding a volume control
+Modify `globalBgmVolume` or `globalSfxVolume` in `audio.ts` from the settings
+UI. The sliders live in `#volume-bgm` / `#volume-sfx` inputs in `index.html`
+and are wired in `main.ts`.
+
+---
+
 ## 7. Testing
 
 - **Framework:** Node built-in `node:test` + `node:assert/strict`. No Jest,
@@ -441,6 +505,23 @@ Conventional Commits; no hooks enforce anything.
     complete below-full set; clients reset omitted walls to full HP before
     applying deltas so regenerated walls reappear.
 
+13. **Power-up pickup SFX uses crate-ID tracking, not state diffing.** The
+    client tracks `PowerupDTO.id` values in `Renderer.lastPowerups`. When an id
+    disappears and the local player was within pickup radius, `powerup.ogg`
+    plays. This correctly handles re-picking the same buff type (where a
+    state-diff would see no change).
+
+14. **SFX for non-lethal damage (`oof.ogg`) must not fire on death.** The
+    `detectTransients` check is `t.hp < prev.hp` — it fires whenever HP drops,
+    including the killing shot. The `explosion.ogg` is separately fired from
+    `consumeEffects` on `alive` → false. Both can fire on the same death tick;
+    that is intentional (oof + explosion overlap). If you want only the
+    explosion on death, add an `&& t.alive` guard to the oof check.
+
+15. **Tank collision is forced off outside FFA.** The `tankCollision` boolean in
+    `GameConfig` is strictly gated in `src/server/index.ts` via `sanitizeConfig`.
+    If the mode is not FFA, the sanitizer forces it to false, so tampered clients
+    cannot sneak collision physics into team modes.
 ---
 
 ## 9. Recipes

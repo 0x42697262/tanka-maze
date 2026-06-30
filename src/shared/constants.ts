@@ -100,7 +100,12 @@ export const LASER_RANGE = 15 * CELL;
 
 // Fog of war: non-wall visuals are clipped to the local/team sight area.
 // Scope doubles tank vision radius and grants x-ray through walls. Host-tunable live.
-export const VISION_RADIUS = 1000; // px base sight radius on a normal map
+// The default clears a normal map's corner-to-corner diagonal (~1074px) with margin, so
+// from anywhere on the map the whole map is in sight and only walls cast fog — no patchy
+// distance fog at far corners. Because effectiveVisionRadius and the map diagonal both
+// scale with √area, that comfortable coverage holds on every map size. Hosts who want
+// distance-limited fog can lower "Vision px".
+export const VISION_RADIUS = 1300; // px base sight radius (covers a normal map with margin)
 
 // Hazard zones: small terrain patches that affect tanks inside them each tick.
 // Lava deals damage; mud slows; ice removes friction (slide); heal restores HP.

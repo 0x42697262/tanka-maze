@@ -600,6 +600,10 @@ export class Game {
       if (tank.input.fire && tank.fireCooldown === 0) this.fire(tank);
     }
 
+    if (this.cfg.tankCollision) {
+      this.resolveTankCollisions();
+    }
+
     this.stepBullets(dt);
     if (this.cfg.destructibleWalls) {
       const bodies = [...this.tanks.values()].filter((t) => t.alive).map((t) => ({ x: t.x, y: t.y }));
@@ -630,6 +634,42 @@ export class Game {
     bullet.repathIn = 0;
     bullet.waypoint = null;
     return bullet;
+  }
+
+  private resolveTankCollisions(): void {
+    const alive = [...this.tanks.values()].filter((t) => t.alive);
+    for (let i = 0; i < alive.length; i++) {
+      for (let j = i + 1; j < alive.length; j++) {
+        const t1 = alive[i];
+        const t2 = alive[j];
+        const dx = t2.x - t1.x;
+        const dy = t2.y - t1.y;
+        const dist = Math.hypot(dx, dy);
+        const overlap = this.adv.tankRadius * 2 - dist;
+        
+        if (overlap > 0 && dist > 0.001) {
+          const nx = dx / dist;
+          const ny = dy / dist;
+          // Add a tiny extra push to prevent sticky floating-point issues
+          const half = overlap / 2 + 0.1;
+          
+          t1.x -= nx * half;
+          t1.y -= ny * half;
+          t2.x += nx * half;
+          t2.y += ny * half;
+          
+          // Re-check walls so tanks don't get pushed out of bounds or into geometry
+          if (this.circleHitsWall(t1.x, t1.y, this.adv.tankRadius)) {
+            t1.x += nx * half;
+            t1.y += ny * half;
+          }
+          if (this.circleHitsWall(t2.x, t2.y, this.adv.tankRadius)) {
+            t2.x -= nx * half;
+            t2.y -= ny * half;
+          }
+        }
+      }
+    }
   }
 
   private fire(tank: Tank): void {

@@ -326,6 +326,9 @@ export interface GameConfig {
   visionRadius: number; // px base sight radius (scope doubles this)
   fogBaseVision: FogVisionMode; // Team VS / CTF spawn bases: off, owning team, or all teams
   fogFlagVision: FogVisionMode; // CTF flags: off, owning team, or all teams
+  // CTF: hide a flag from the fog reveal while it's being carried, so a stolen
+  // flag can't be tracked across the map (you only see it with line of sight).
+  fogHideCarriedFlag: boolean;
   // Hazard zones: lava/mud/ice/heal terrain tiles placed on the map.
   hazardDensity: number; // 0 = off; 1-10 zones placed on round start
   hazardTypes: HazardType[]; // enabled terrain types to include in the spawn pool
@@ -340,6 +343,8 @@ export interface GameConfig {
   powerupEverySeconds: number; // spawn cadence
   powerupDespawnSeconds: number; // uncollected pickups vanish after this
   powerupCharges: number; // uses granted per pickup (weapon types)
+  tankCollision: boolean; // circle-to-circle pushing (FFA only)
+  radar: boolean; // HUD radar that pings nearby tanks (host toggle for all)
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
@@ -370,6 +375,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   visionRadius: VISION_RADIUS,
   fogBaseVision: "team",
   fogFlagVision: "team",
+  fogHideCarriedFlag: false,
   hazardDensity: 0,
   hazardTypes: [...HAZARD_TYPES],
   hazardDamage: HAZARD_DAMAGE,
@@ -380,6 +386,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,
   powerupCharges: 1,
+  tankCollision: false,
+  radar: true,
 };
 
 export type GameConfigInput = Partial<Omit<GameConfig, "adv">> & { adv?: Partial<AdvancedConfig> };

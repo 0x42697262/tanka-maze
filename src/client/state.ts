@@ -28,6 +28,11 @@ export const COLOR_KEY = "tanka-maze-color";
 export const SESSION_KEY = "tanka-maze-session";
 export const FPS_KEY = "tanka-maze-fps"; // "30" | "60" | "120"
 export const QUALITY_KEY = "tanka-maze-quality"; // "low" | "medium" | "high"
+export const THEME_KEY = "tanka-maze-theme";
+export const BGM_KEY = "tanka-maze-bgm";
+export const BGM_VOL_KEY = "tanka-maze-bgm-vol";
+export const SFX_VOL_KEY = "tanka-sfx-vol";
+export const RADAR_KEY = "tanka-maze-radar"; // personal radar toggle ("false" = off)
 
 /** Render-quality presets → devicePixelRatio cap. */
 export const QUALITY_DPR: Record<"low" | "medium" | "high", number> = {
@@ -73,6 +78,11 @@ export interface AppState {
   lastInputBytes: Uint8Array | null;
   roster: Map<number, RosterEntry>;
   arena: { w: number; h: number } | null;
+  theme: string;
+  bgmEnabled: boolean;
+  bgmVolume: number;
+  sfxVolume: number;
+  radarEnabled: boolean;
   moveMode: "relative" | "eight";
   fpsCap: 30 | 60 | 120;
   quality: "low" | "medium" | "high";
@@ -81,6 +91,8 @@ export interface AppState {
   roundCountdown: ReturnType<typeof setInterval> | null;
   scoreboardOpen: boolean;
   scoreboardTimer: ReturnType<typeof setInterval> | null;
+  matchStartTime: number | null;
+  matchEndTimeout: ReturnType<typeof setTimeout> | null;
 }
 
 export const state: AppState = {
@@ -93,6 +105,11 @@ export const state: AppState = {
   lastInputBytes: null,
   roster: new Map(),
   arena: null,
+  theme: "parchment",
+  bgmEnabled: localStorage.getItem(BGM_KEY) !== "false",
+  bgmVolume: parseFloat(localStorage.getItem(BGM_VOL_KEY) ?? "0.5"),
+  sfxVolume: parseFloat(localStorage.getItem(SFX_VOL_KEY) ?? "1.0"),
+  radarEnabled: localStorage.getItem(RADAR_KEY) !== "false",
   moveMode: "relative",
   fpsCap: 60,
   quality: "medium",
@@ -101,4 +118,6 @@ export const state: AppState = {
   roundCountdown: null,
   scoreboardOpen: false,
   scoreboardTimer: null,
+  matchStartTime: null,
+  matchEndTimeout: null,
 };

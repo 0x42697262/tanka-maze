@@ -55,9 +55,12 @@ export function renderSeriesBoard(): void {
   board.classList.remove("hidden");
 }
 
-export function renderAmmo(
+export function renderHud(
   me:
     | {
+        hp: number;
+        maxHp: number;
+        alive: boolean;
         ammo: number;
         maxAmmo: number;
         reloadIn: number;
@@ -70,24 +73,76 @@ export function renderAmmo(
       }
     | undefined
 ): void {
-  const el = $("ammo");
-  if (!me) {
-    el.innerHTML = "";
+  const strip = $("hud-strip");
+  if (!me || !state.inGame || !me.alive) {
+    strip.classList.add("hidden");
     return;
   }
-  let html = "";
+  strip.classList.remove("hidden");
+
+  // Health — hidden entirely on 1-HP games (default), where it conveys nothing.
+  const healthSection = $("hud-health-section");
+  if (me.maxHp <= 1) {
+    healthSection.classList.add("hidden");
+  } else {
+    healthSection.classList.remove("hidden");
+    const healthEl = $("hud-health");
+    let healthHtml = "";
+    for (let i = 0; i < me.maxHp; i++) {
+      const isFull = i < me.hp;
+      const ratio = me.hp / me.maxHp;
+      const colorClass = ratio > 0.5 ? "high" : ratio > 0.25 ? "med" : "low";
+      healthHtml += `<span class="health-seg ${isFull ? colorClass : ""}"></span>`;
+    }
+    healthEl.innerHTML = healthHtml;
+  }
+
+  // Ammo
+  const ammoEl = $("hud-ammo");
+  let ammoHtml = "";
   for (let i = 0; i < me.maxAmmo; i++) {
-    html += `<span class="pip ${i < me.ammo ? "" : "spent"}"></span>`;
+    ammoHtml += `<span class="pip ${i < me.ammo ? "" : "spent"}"></span>`;
   }
-  if (me.reloadIn > 0) html += `<span class="reload">reloading ${Math.ceil(me.reloadIn)}s</span>`;
-  if (me.charging) html += `<span class="weapon laser">charging…</span>`;
+  if (me.reloadIn > 0) ammoHtml += `<span class="reload">reloading ${Math.ceil(me.reloadIn)}s</span>`;
+  if (me.charging) ammoHtml += `<span class="weapon laser">charging…</span>`;
   else if (me.weapon) {
-    html += `<span class="weapon">${powerupDef(me.weapon as PowerupType).label} ×${me.weaponCharges}</span>`;
+    ammoHtml += `<span class="weapon">${powerupDef(me.weapon as PowerupType).label} ×${me.weaponCharges}</span>`;
   }
-  if (me.boosted) html += `<span class="weapon boost">» boost</span>`;
-  if (me.shielded) html += `<span class="weapon shield">◈ shield</span>`;
-  if (me.scoped) html += `<span class="weapon scope">ⓘ scope</span>`;
-  el.innerHTML = html;
+  if (me.boosted) ammoHtml += `<span class="weapon boost">» boost</span>`;
+  if (me.shielded) ammoHtml += `<span class="weapon shield">◈ shield</span>`;
+  if (me.scoped) ammoHtml += `<span class="weapon scope">ⓘ scope</span>`;
+  ammoEl.innerHTML = ammoHtml;
+
+  // Radar — shown only when both the host's game setting and the player's own
+  // toggle allow it. Blips are all red (real-radar look), regardless of team.
+  const radarSection = $("hud-radar-section");
+  const radarOn = (state.currentLobby?.config.radar ?? true) && state.radarEnabled;
+  if (!radarOn) {
+    radarSection.classList.add("hidden");
+  } else {
+    radarSection.classList.remove("hidden");
+    const radarEl = $("radar-dots");
+    let radarHtml = "";
+    const snap = renderer.latest();
+    if (snap) {
+      const meTank = snap.tanks.find(t => t.id === state.playerId);
+      if (meTank) {
+        const radarRadius = 600; // units to edge of radar
+        for (const t of snap.tanks) {
+          if (!t.alive || t.id === state.playerId) continue;
+          const dx = t.x - meTank.x;
+          const dy = t.y - meTank.y;
+          if (Math.hypot(dx, dy) <= radarRadius) {
+            // Map [-radarRadius, radarRadius] to [0%, 100%]
+            const px = ((dx / radarRadius) * 50) + 50;
+            const py = ((dy / radarRadius) * 50) + 50;
+            radarHtml += `<div class="radar-dot" style="left:${px}%; top:${py}%;"></div>`;
+          }
+        }
+      }
+    }
+    radarEl.innerHTML = radarHtml;
+  }
 }
 
 /** In-arena leaderboard. Team VS ranks by combined team points; else per-player. */
@@ -96,6 +151,33 @@ export function renderLeaderboard(): void {
   if (!snap) return;
   const ol = $("leaderboard-rows");
   ol.innerHTML = "";
+
+  // Match Info Panel
+  const mi = $("match-info");
+  if (state.inGame && state.currentLobby) {
+    mi.classList.remove("hidden");
+    $("mi-round").textContent = `${state.roundInfo.round} / ${state.roundInfo.total}`;
+    
+    if (state.matchStartTime) {
+      const ms = Math.floor((performance.now() - state.matchStartTime) / 1000);
+      const m = Math.floor(ms / 60).toString().padStart(2, "0");
+      const s = (ms % 60).toString().padStart(2, "0");
+      $("mi-time").textContent = `${m}:${s}`;
+    }
+
+    const mode = state.currentLobby.config.mode;
+    let objText = "Survive";
+    if (mode === "ctf") {
+      objText = state.currentLobby.config.ctfScoreMode === "deliver" ? "Capture flags" : "Control flags";
+    } else if (mode === "teams") {
+      objText = "Team Skirmish";
+    } else if (mode === "ffa") {
+      objText = "Eliminate everyone";
+    }
+    $("mi-obj").textContent = objText;
+  } else {
+    mi.classList.add("hidden");
+  }
 
   // Capture the Flag: rank teams — by flags captured (deliver) or points earned
   // (conquest/carry), live from the tanks in the snapshot.
@@ -180,7 +262,7 @@ export function renderLeaderboard(): void {
 
 export function updateRespawnOverlay(me: { alive: boolean; respawnIn: number } | undefined): void {
   const el = $("respawn");
-  if (me && !me.alive) {
+  if (me && !me.alive && !state.matchEndTimeout) {
     el.classList.remove("hidden");
     $("respawn-count").textContent = String(Math.max(0, Math.ceil(me.respawnIn)));
   } else {
