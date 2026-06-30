@@ -102,6 +102,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       visionRadius: num("vision-radius", d.visionRadius),
       fogBaseVision: sel("fog-base-vision") as FogVisionMode,
       fogFlagVision: sel("fog-flag-vision") as FogVisionMode,
+      fogHideCarriedFlag: sel("fog-hide-carried") === "on",
       hazardDensity: num("hazard-density", d.hazardDensity),
       hazardTypes,
       hazardDamage: num("hazard-damage", d.hazardDamage),
@@ -149,6 +150,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("vision-radius", cfg.visionRadius);
   set("fog-base-vision", cfg.fogBaseVision);
   set("fog-flag-vision", cfg.fogFlagVision);
+  set("fog-hide-carried", cfg.fogHideCarriedFlag ? "on" : "off");
   set("hazard-density", cfg.hazardDensity);
   for (const type of HAZARD_TYPES) set(`hazard-${type}`, cfg.hazardTypes.includes(type) ? "on" : "off");
   set("hazard-damage", cfg.hazardDamage);

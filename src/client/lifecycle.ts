@@ -73,7 +73,7 @@ export function applyRendererConfig(cfg: GameConfig): void {
   cfg = gameConfigWithDefaults(cfg);
   const adv = cfg.adv;
   renderer.setParams(adv.tankRadius, adv.bulletRadius);
-  renderer.setFog(cfg.fogOfWar, cfg.visionRadius, cfg.fogBaseVision, cfg.fogFlagVision);
+  renderer.setFog(cfg.fogOfWar, cfg.visionRadius, cfg.fogBaseVision, cfg.fogFlagVision, cfg.fogHideCarriedFlag);
   renderer.setDestructibleWalls(cfg.destructibleWalls, adv.wallHp);
   renderer.setScope({
     bulletSpeed: adv.bulletSpeed,

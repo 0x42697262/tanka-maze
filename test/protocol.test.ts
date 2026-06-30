@@ -80,6 +80,7 @@ describe("game config defaults", () => {
     assert.equal(cfg.visionRadius, DEFAULT_GAME_CONFIG.visionRadius);
     assert.equal(cfg.fogBaseVision, "team");
     assert.equal(cfg.fogFlagVision, "team");
+    assert.equal(cfg.fogHideCarriedFlag, true);
     assert.equal(cfg.adv.bulletSpeed, 420);
     assert.equal(cfg.adv.tankRadius, DEFAULT_ADVANCED.tankRadius);
   });

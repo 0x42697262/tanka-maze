@@ -448,6 +448,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     visionRadius: clampInt(c.visionRadius, 80, 800, d.visionRadius),
     fogBaseVision: oneOf(c.fogBaseVision, FOG_VISION_MODES, d.fogBaseVision),
     fogFlagVision: oneOf(c.fogFlagVision, FOG_VISION_MODES, d.fogFlagVision),
+    fogHideCarriedFlag: typeof c.fogHideCarriedFlag === "boolean" ? c.fogHideCarriedFlag : d.fogHideCarriedFlag,
     hazardDensity: clampInt(c.hazardDensity, 0, 10, d.hazardDensity),
     hazardTypes,
     hazardDamage: clampInt(c.hazardDamage, 1, 20, d.hazardDamage),

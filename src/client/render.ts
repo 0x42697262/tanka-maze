@@ -129,6 +129,7 @@ export class Renderer {
   private visionRadius = VISION_RADIUS;
   private fogBaseVision: FogVisionMode = "team";
   private fogFlagVision: FogVisionMode = "team";
+  private fogHideCarriedFlag = true;
   // Hazard zones: terrain tiles (lava/mud/ice/heal) drawn under the walls.
   private hazards: HazardZoneDTO[] = [];
   // Destructible walls: per-wall HP array (index matches MazeDTO.walls). Walls
@@ -176,12 +177,14 @@ export class Renderer {
     fogOfWar: boolean,
     visionRadius: number,
     fogBaseVision: FogVisionMode,
-    fogFlagVision: FogVisionMode
+    fogFlagVision: FogVisionMode,
+    fogHideCarriedFlag: boolean
   ): void {
     this.fogOfWar = fogOfWar;
     this.visionRadius = visionRadius;
     this.fogBaseVision = fogBaseVision;
     this.fogFlagVision = fogFlagVision;
+    this.fogHideCarriedFlag = fogHideCarriedFlag;
   }
 
   /** Hazard zones for the current game (lava/mud/ice/heal terrain tiles). */
@@ -987,6 +990,8 @@ export class Renderer {
     const stackIndex = this.flagStackIndex(interp.flags);
     for (const fl of interp.flags) {
       if (this.isPointVisible(fl.x, fl.y, fog)) continue; // already drawn crisply in sight
+      // A carried flag must not be trackable across the fog (only via line of sight).
+      if (this.fogHideCarriedFlag && fl.state === "carried") continue;
       if (!this.fogVisionIncludes(fl.team, fog.local.team, this.fogFlagVision)) continue;
       this.drawFlag(
         fl,
