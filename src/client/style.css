@@ -1016,21 +1016,20 @@ kbd {
   color: var(--stamp);
 }
 
-/* ---- HUD Strip ---- */
+/* ---- HUD Strip (paper-&-ink, kept compact so it doesn't cover the arena) ---- */
 .hud-strip {
   position: absolute;
-  bottom: 16px;
+  bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 24px;
-  background: rgba(47, 42, 34, 0.88); /* dark ink pill */
-  border: 1px solid rgba(200, 180, 150, 0.15);
-  border-radius: 30px;
-  padding: 8px 24px;
-  backdrop-filter: blur(4px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  gap: 14px;
+  background: var(--paper-2);
+  border: 1.5px solid var(--rule);
+  border-radius: 4px;
+  padding: 4px 12px;
+  box-shadow: 2px 3px 0 rgba(70, 55, 30, 0.2);
   pointer-events: none;
   z-index: 10;
 }
@@ -1038,13 +1037,13 @@ kbd {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
 }
 .hud-label {
   font-family: var(--font-hand);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: rgba(239, 230, 208, 0.6);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
   text-transform: uppercase;
   line-height: 1;
 }
@@ -1052,62 +1051,65 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 24px;
+  min-height: 16px;
 }
 
 /* Health */
-.health-bar { gap: 4px; }
+.health-bar { gap: 3px; }
 .health-seg {
-  width: 16px; height: 16px;
-  background: rgba(255, 255, 255, 0.1);
+  width: 10px; height: 10px;
+  background: transparent;
+  border: 1px solid var(--rule);
   border-radius: 2px;
-  transition: background 0.2s, box-shadow 0.2s;
+  transition: background 0.2s;
 }
-.health-seg.high { background: #46c24f; box-shadow: 0 0 6px rgba(70, 194, 79, 0.4); }
-.health-seg.med { background: #e6c23f; box-shadow: 0 0 6px rgba(230, 194, 63, 0.4); }
-.health-seg.low { background: #e6453f; box-shadow: 0 0 6px rgba(230, 69, 63, 0.4); }
+.health-seg.high { background: var(--leaf); border-color: var(--leaf); }
+.health-seg.med { background: #caa63a; border-color: #caa63a; }
+.health-seg.low { background: var(--stamp); border-color: var(--stamp); }
 
 /* Ammo */
 .ammo-row { gap: 4px; }
 .ammo-row .pip {
-  font-size: 15px;
-  color: var(--paper);
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ink);
 }
 .ammo-row .pip.spent {
-  color: rgba(239, 230, 208, 0.2);
+  background: transparent;
+  border: 1px solid var(--rule);
 }
 .ammo-row .reload {
   font-family: var(--font-hand);
-  font-size: 15px;
-  color: #ff5555;
+  font-size: 13px;
+  color: var(--stamp);
   margin-left: 4px;
 }
 .ammo-row .weapon {
   font-family: var(--font-hand);
-  font-size: 15px;
-  color: #55aaff;
+  font-size: 13px;
+  color: var(--blue);
   margin-left: 8px;
 }
-.ammo-row .weapon.boost { color: #55ff55; }
-.ammo-row .weapon.shield { color: #55ffff; }
-.ammo-row .weapon.laser { color: #ff55ff; }
-.ammo-row .weapon.scope { color: #88aaff; }
+.ammo-row .weapon.boost { color: var(--leaf); }
+.ammo-row .weapon.shield { color: var(--blue); }
+.ammo-row .weapon.laser { color: var(--stamp); }
+.ammo-row .weapon.scope { color: var(--ink-soft); }
 
-/* Radar */
+/* Radar — parchment dial with red contacts */
 .radar-circle {
   position: relative;
-  width: 48px; height: 48px;
+  width: 34px; height: 34px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: var(--paper-3);
+  border: 1.5px solid var(--rule);
   overflow: hidden;
 }
 .radar-circle::after {
   content: "";
   position: absolute;
   top: 50%; left: 50%;
-  width: 2px; height: 2px;
-  background: #fff;
+  width: 3px; height: 3px;
+  background: var(--ink);
   border-radius: 50%;
   transform: translate(-50%, -50%);
 }
@@ -1115,6 +1117,7 @@ kbd {
   position: absolute;
   width: 4px; height: 4px;
   border-radius: 50%;
+  background: var(--stamp);
   transform: translate(-50%, -50%);
 }
 

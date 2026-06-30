@@ -49,6 +49,7 @@ import {
   BGM_KEY,
   BGM_VOL_KEY,
   SFX_VOL_KEY,
+  RADAR_KEY,
 } from "./state.js";
 
 if (IS_TOUCH) document.body.classList.add("touch");
@@ -311,6 +312,14 @@ bgmToggle.addEventListener("change", () => {
 
 state.bgmEnabled = localStorage.getItem(BGM_KEY) !== "false";
 applyBgmSetting();
+
+// Personal radar toggle (the host's game setting can still force it off for all).
+const radarToggle = $("radar-toggle") as HTMLInputElement;
+radarToggle.checked = state.radarEnabled;
+radarToggle.addEventListener("change", () => {
+  state.radarEnabled = radarToggle.checked;
+  localStorage.setItem(RADAR_KEY, state.radarEnabled ? "true" : "false");
+});
 
 const bgmVolumeInput = $("bgm-volume") as HTMLInputElement;
 const sfxVolumeInput = $("sfx-volume") as HTMLInputElement;

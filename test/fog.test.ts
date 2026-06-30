@@ -10,7 +10,7 @@ describe("fog of war", () => {
     assert.equal(DEFAULT_GAME_CONFIG.visionRadius, VISION_RADIUS);
     assert.equal(DEFAULT_GAME_CONFIG.fogBaseVision, "team");
     assert.equal(DEFAULT_GAME_CONFIG.fogFlagVision, "team");
-    assert.equal(DEFAULT_GAME_CONFIG.fogHideCarriedFlag, true);
+    assert.equal(DEFAULT_GAME_CONFIG.fogHideCarriedFlag, false);
   });
 
   it("keeps the configured radius on a normal map", () => {

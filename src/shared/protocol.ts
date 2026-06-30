@@ -344,6 +344,7 @@ export interface GameConfig {
   powerupDespawnSeconds: number; // uncollected pickups vanish after this
   powerupCharges: number; // uses granted per pickup (weapon types)
   tankCollision: boolean; // circle-to-circle pushing (FFA only)
+  radar: boolean; // HUD radar that pings nearby tanks (host toggle for all)
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
@@ -386,6 +387,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   powerupDespawnSeconds: 12,
   powerupCharges: 1,
   tankCollision: false,
+  radar: true,
 };
 
 export type GameConfigInput = Partial<Omit<GameConfig, "adv">> & { adv?: Partial<AdvancedConfig> };

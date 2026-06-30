@@ -30,6 +30,7 @@ export const THEME_KEY = "tanka-maze-theme";
 export const BGM_KEY = "tanka-maze-bgm";
 export const BGM_VOL_KEY = "tanka-maze-bgm-vol";
 export const SFX_VOL_KEY = "tanka-sfx-vol";
+export const RADAR_KEY = "tanka-maze-radar"; // personal radar toggle ("false" = off)
 
 export const PRESET_COLORS = [
   "#e6453f",
@@ -72,6 +73,7 @@ export interface AppState {
   bgmEnabled: boolean;
   bgmVolume: number;
   sfxVolume: number;
+  radarEnabled: boolean;
   moveMode: "relative" | "eight";
   roundInfo: { round: number; total: number };
   roundStanding: RoundStanding[];
@@ -96,6 +98,7 @@ export const state: AppState = {
   bgmEnabled: localStorage.getItem(BGM_KEY) !== "false",
   bgmVolume: parseFloat(localStorage.getItem(BGM_VOL_KEY) ?? "0.5"),
   sfxVolume: parseFloat(localStorage.getItem(SFX_VOL_KEY) ?? "1.0"),
+  radarEnabled: localStorage.getItem(RADAR_KEY) !== "false",
   moveMode: "relative",
   roundInfo: { round: 1, total: 1 },
   roundStanding: [],

@@ -127,6 +127,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Walls", WALL_LABEL[c.wallStyle]],
       ["Size", SIZE_LABEL[c.mapSize]],
       ["Destructible walls", onOff(c.destructibleWalls)],
+      ["Radar", onOff(c.radar)],
     ],
   });
 

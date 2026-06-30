@@ -110,6 +110,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       hazardHealRate: num("hazard-heal-rate", d.hazardHealRate),
       destructibleWalls: sel("destructible-walls") === "on",
       tankCollision: sel("tank-collision") === "on",
+      radar: sel("radar") === "on",
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
       powerupDespawnSeconds: num("pwr-despawn", 12),
@@ -158,6 +159,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("hazard-heal-rate", cfg.hazardHealRate);
   set("destructible-walls", cfg.destructibleWalls ? "on" : "off");
   set("tank-collision", cfg.tankCollision ? "on" : "off");
+  set("radar", cfg.radar ? "on" : "off");
   set("powerups", cfg.powerups ? "on" : "off");
   set("pwr-every", cfg.powerupEverySeconds);
   set("pwr-charges", cfg.powerupCharges);

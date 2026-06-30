@@ -80,22 +80,28 @@ export function renderHud(
   }
   strip.classList.remove("hidden");
 
-  // Health
-  const healthEl = $("hud-health");
-  let healthHtml = "";
-  for (let i = 0; i < me.maxHp; i++) {
-    const isFull = i < me.hp;
-    const ratio = me.hp / me.maxHp;
-    const colorClass = ratio > 0.5 ? "high" : ratio > 0.25 ? "med" : "low";
-    healthHtml += `<span class="health-seg ${isFull ? colorClass : ""}"></span>`;
+  // Health — hidden entirely on 1-HP games (default), where it conveys nothing.
+  const healthSection = $("hud-health-section");
+  if (me.maxHp <= 1) {
+    healthSection.classList.add("hidden");
+  } else {
+    healthSection.classList.remove("hidden");
+    const healthEl = $("hud-health");
+    let healthHtml = "";
+    for (let i = 0; i < me.maxHp; i++) {
+      const isFull = i < me.hp;
+      const ratio = me.hp / me.maxHp;
+      const colorClass = ratio > 0.5 ? "high" : ratio > 0.25 ? "med" : "low";
+      healthHtml += `<span class="health-seg ${isFull ? colorClass : ""}"></span>`;
+    }
+    healthEl.innerHTML = healthHtml;
   }
-  healthEl.innerHTML = healthHtml;
 
   // Ammo
   const ammoEl = $("hud-ammo");
   let ammoHtml = "";
   for (let i = 0; i < me.maxAmmo; i++) {
-    ammoHtml += `<span class="pip ${i < me.ammo ? "" : "spent"}">⚫</span>`;
+    ammoHtml += `<span class="pip ${i < me.ammo ? "" : "spent"}"></span>`;
   }
   if (me.reloadIn > 0) ammoHtml += `<span class="reload">reloading ${Math.ceil(me.reloadIn)}s</span>`;
   if (me.charging) ammoHtml += `<span class="weapon laser">charging…</span>`;
@@ -107,28 +113,36 @@ export function renderHud(
   if (me.scoped) ammoHtml += `<span class="weapon scope">ⓘ scope</span>`;
   ammoEl.innerHTML = ammoHtml;
 
-  // Radar
-  const radarEl = $("radar-dots");
-  let radarHtml = "";
-  const snap = renderer.latest();
-  if (snap) {
-    const meTank = snap.tanks.find(t => t.id === state.playerId);
-    if (meTank) {
-      const radarRadius = 600; // units to edge of radar
-      for (const t of snap.tanks) {
-        if (!t.alive || t.id === state.playerId) continue;
-        const dx = t.x - meTank.x;
-        const dy = t.y - meTank.y;
-        if (Math.hypot(dx, dy) <= radarRadius) {
-          // Map [-radarRadius, radarRadius] to [0%, 100%]
-          const px = ((dx / radarRadius) * 50) + 50;
-          const py = ((dy / radarRadius) * 50) + 50;
-          radarHtml += `<div class="radar-dot" style="background:${t.color}; left:${px}%; top:${py}%;"></div>`;
+  // Radar — shown only when both the host's game setting and the player's own
+  // toggle allow it. Blips are all red (real-radar look), regardless of team.
+  const radarSection = $("hud-radar-section");
+  const radarOn = (state.currentLobby?.config.radar ?? true) && state.radarEnabled;
+  if (!radarOn) {
+    radarSection.classList.add("hidden");
+  } else {
+    radarSection.classList.remove("hidden");
+    const radarEl = $("radar-dots");
+    let radarHtml = "";
+    const snap = renderer.latest();
+    if (snap) {
+      const meTank = snap.tanks.find(t => t.id === state.playerId);
+      if (meTank) {
+        const radarRadius = 600; // units to edge of radar
+        for (const t of snap.tanks) {
+          if (!t.alive || t.id === state.playerId) continue;
+          const dx = t.x - meTank.x;
+          const dy = t.y - meTank.y;
+          if (Math.hypot(dx, dy) <= radarRadius) {
+            // Map [-radarRadius, radarRadius] to [0%, 100%]
+            const px = ((dx / radarRadius) * 50) + 50;
+            const py = ((dy / radarRadius) * 50) + 50;
+            radarHtml += `<div class="radar-dot" style="left:${px}%; top:${py}%;"></div>`;
+          }
         }
       }
     }
+    radarEl.innerHTML = radarHtml;
   }
-  radarEl.innerHTML = radarHtml;
 }
 
 /** In-arena leaderboard. Team VS ranks by combined team points; else per-player. */

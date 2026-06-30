@@ -462,6 +462,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     tankCollision: mode === "ffa"
       ? typeof c.tankCollision === "boolean" ? c.tankCollision : d.tankCollision
       : false,
+    radar: typeof c.radar === "boolean" ? c.radar : d.radar,
   };
 }
 
