@@ -132,6 +132,13 @@
               <option value="on">On</option>
             </select>
           </div>
+          <div class="row cfg-ffa">
+            <label for="tank-collision">Tank collision</label>
+            <select id="tank-collision">
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </div>
 
           <h3 class="cfg-h">Fog of War</h3>
           <div class="row two">
@@ -398,6 +405,14 @@
               </div>
             </div>
 
+            <!-- Match Result Cinematic Overlay -->
+            <div id="match-result" class="overlay hidden" style="z-index: 100;">
+              <div class="match-result-banner">
+                <h1 id="match-result-title">YOU WON!</h1>
+                <p id="match-result-subtitle">Game Over</p>
+              </div>
+            </div>
+
             <!-- Local respawn overlay -->
             <div id="respawn" class="respawn hidden">
               <div class="respawn-card">
@@ -494,9 +509,6 @@
           <button id="back-to-lobby" class="primary">Back to Lobby</button>
         </div>
       </div>
-
-      <!-- Audio -->
-      <audio id="bgm" src="/bgm.mp3" loop preload="auto"></audio>
 
       <!-- Per-player settings (client-side) -->
       <button id="settings-gear" class="settings-gear" title="Settings" aria-label="Settings">⚙</button>

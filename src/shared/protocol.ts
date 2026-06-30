@@ -340,6 +340,7 @@ export interface GameConfig {
   powerupEverySeconds: number; // spawn cadence
   powerupDespawnSeconds: number; // uncollected pickups vanish after this
   powerupCharges: number; // uses granted per pickup (weapon types)
+  tankCollision: boolean; // circle-to-circle pushing (FFA only)
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
@@ -380,6 +381,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,
   powerupCharges: 1,
+  tankCollision: false,
 };
 
 export type GameConfigInput = Partial<Omit<GameConfig, "adv">> & { adv?: Partial<AdvancedConfig> };

@@ -458,6 +458,9 @@ function sanitizeConfig(raw: unknown): GameConfig {
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
     powerupDespawnSeconds: clampInt(c.powerupDespawnSeconds, 3, 60, d.powerupDespawnSeconds),
     powerupCharges: clampInt(c.powerupCharges, 1, 20, d.powerupCharges),
+    tankCollision: mode === "ffa"
+      ? typeof c.tankCollision === "boolean" ? c.tankCollision : d.tankCollision
+      : false,
   };
 }
 

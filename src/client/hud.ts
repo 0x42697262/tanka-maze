@@ -248,7 +248,7 @@ export function renderLeaderboard(): void {
 
 export function updateRespawnOverlay(me: { alive: boolean; respawnIn: number } | undefined): void {
   const el = $("respawn");
-  if (me && !me.alive) {
+  if (me && !me.alive && !state.matchEndTimeout) {
     el.classList.remove("hidden");
     $("respawn-count").textContent = String(Math.max(0, Math.ceil(me.respawnIn)));
   } else {

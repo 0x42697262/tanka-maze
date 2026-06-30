@@ -79,6 +79,7 @@ export interface AppState {
   scoreboardOpen: boolean;
   scoreboardTimer: ReturnType<typeof setInterval> | null;
   matchStartTime: number | null;
+  matchEndTimeout: ReturnType<typeof setTimeout> | null;
 }
 
 export const state: AppState = {
@@ -102,4 +103,5 @@ export const state: AppState = {
   scoreboardOpen: false,
   scoreboardTimer: null,
   matchStartTime: null,
+  matchEndTimeout: null,
 };

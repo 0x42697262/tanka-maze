@@ -443,6 +443,7 @@ export class Lobby {
     this.game.step(dt); // physics every tick (smooth)
 
     if (this.game.isFinished) {
+      this.broadcastSnapshot(true); // Force send the final frame so clients see the kill
       this.broadcast({
         type: "gameOver",
         scores: this.game.scores(),

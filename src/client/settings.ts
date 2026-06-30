@@ -108,6 +108,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       hazardSlowMult: num("hazard-slow-mult", d.hazardSlowMult),
       hazardHealRate: num("hazard-heal-rate", d.hazardHealRate),
       destructibleWalls: sel("destructible-walls") === "on",
+      tankCollision: sel("tank-collision") === "on",
       powerups: sel("powerups") === "on",
       powerupEverySeconds: num("pwr-every", 8),
       powerupDespawnSeconds: num("pwr-despawn", 12),
@@ -154,6 +155,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("hazard-slow-mult", cfg.hazardSlowMult);
   set("hazard-heal-rate", cfg.hazardHealRate);
   set("destructible-walls", cfg.destructibleWalls ? "on" : "off");
+  set("tank-collision", cfg.tankCollision ? "on" : "off");
   set("powerups", cfg.powerups ? "on" : "off");
   set("pwr-every", cfg.powerupEverySeconds);
   set("pwr-charges", cfg.powerupCharges);
@@ -178,6 +180,8 @@ export function applyModeVisibility(): void {
   // CTF-only (flags to win) vs the point-scoring/rounds controls it replaces.
   toggle(".cfg-ctf", !ctf);
   toggle(".cfg-nctf", ctf);
+  // FFA-only controls (e.g. tank collision)
+  toggle(".cfg-ffa", mode !== "ffa");
   // Within CTF, "deliver" shows captures-per-round while the points-scoring modes
   // (conquest/carry) show points-to-win.
   const scoreMode = ctf ? ($("ctf-score-mode") as HTMLSelectElement).value : "";
