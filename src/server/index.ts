@@ -15,6 +15,7 @@ import {
   FOG_VISION_MODES,
   HAZARD_TYPES,
   POWERUP_DEFS,
+  POWERUP_TYPES,
   type AdvancedConfig,
   type ClientMessage,
   type GameConfig,
@@ -403,6 +404,10 @@ function sanitizeConfig(raw: unknown): GameConfig {
   const hazardTypes = Array.isArray(rawHazardTypes)
     ? HAZARD_TYPES.filter((t) => rawHazardTypes.includes(t))
     : d.hazardTypes;
+  const rawPowerupTypes = c.powerupTypes;
+  const powerupTypes = Array.isArray(rawPowerupTypes)
+    ? POWERUP_TYPES.filter((t) => rawPowerupTypes.includes(t))
+    : d.powerupTypes;
   let lives = clampInt(c.lives, 0, 99, d.lives);
   // Last Man Standing needs finite lives, or it could never end.
   if (mode === "lms" && lives < 1) lives = 3;
@@ -459,6 +464,8 @@ function sanitizeConfig(raw: unknown): GameConfig {
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
     powerupDespawnSeconds: clampInt(c.powerupDespawnSeconds, 3, 60, d.powerupDespawnSeconds),
     powerupCharges: clampInt(c.powerupCharges, 1, 20, d.powerupCharges),
+    powerupSpawnCount: clampInt(c.powerupSpawnCount, 1, 20, d.powerupSpawnCount),
+    powerupTypes,
     tankCollision: mode === "ffa"
       ? typeof c.tankCollision === "boolean" ? c.tankCollision : d.tankCollision
       : false,

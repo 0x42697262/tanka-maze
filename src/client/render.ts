@@ -20,6 +20,10 @@ import {
 // between. Must exceed the network send interval (≈66ms at 15 Hz) with margin.
 const INTERP_DELAY = 140;
 
+// Rapid fire's shots come fast — play its "pew" a bit faster/shorter so a
+// burst doesn't sound mushy at the configured fire rate.
+const RAPIDFIRE_PEW_RATE = 1.4;
+
 // Bullets are rendered in the owning tank's color so shots are identifiable by
 // shooter. Size varies a little by kind. Tracking rounds render as a triangle
 // (drawn separately), the rest as filled circles.
@@ -107,6 +111,10 @@ export class Renderer {
   // Last seen state per tank, to detect deaths and spawn explosions.
   private lastTankState = new Map<string, { x: number; y: number; alive: boolean; hp: number; color: string; ammo: number; weapon: string | null; weaponCharges: number; reloadIn: number; boosted: boolean; shielded: boolean; scoped: boolean }>();
   private lastPowerups = new Map<number, PowerupDTO>();
+  // Bullet ids seen last frame, to detect rapid-fire's scheduled shots — they
+  // add a bullet without changing ammo/weaponCharges (only the initiating
+  // click does), so the ammo/charge-delta check below can't see them.
+  private lastBulletIds = new Set<number>();
   // Transient effects (explosions, beams, kill events) are applied on the same
   // ~INTERP_DELAY-behind clock as the interpolated world, so a hit/death shows
   // exactly when the (delayed) bullet reaches the tank — not when the snapshot
@@ -206,6 +214,7 @@ export class Renderer {
     this.beams = [];
     this.lastTankState.clear();
     this.lastPowerups.clear();
+    this.lastBulletIds.clear();
     this.consumedUntil = 0;
     this.pendingEvents = [];
     this.displayedSnap = null;
@@ -260,6 +269,14 @@ export class Renderer {
   /** Spawn an explosion wherever a tank died, and play sounds for firing. */
   private detectTransients(snap: SnapshotDTO, nowMs: number): void {
     const seen = new Set<string>();
+    // New bullets this frame, per owner — catches rapid-fire's scheduled
+    // shots, which add a bullet without an ammo/weaponCharges change.
+    const newBulletsByOwner = new Map<string, number>();
+    for (const b of snap.bullets) {
+      if (this.lastBulletIds.has(b.id)) continue;
+      newBulletsByOwner.set(b.ownerId, (newBulletsByOwner.get(b.ownerId) ?? 0) + 1);
+    }
+    this.lastBulletIds = new Set(snap.bullets.map((b) => b.id));
     for (const t of snap.tanks) {
       seen.add(t.id);
       const prev = this.lastTankState.get(t.id);
@@ -275,9 +292,15 @@ export class Renderer {
           // Play firing sound if ammo dropped, or if they reloaded and fired in the same snapshot
           const firedNormal = t.ammo < prev.ammo || (prev.ammo === 0 && t.ammo > 0 && t.ammo < t.maxAmmo);
           const firedSpecial = !t.charging && t.weaponCharges < prev.weaponCharges && prev.weaponCharges > 0;
-          
+          const rapidFireRate = prev.weapon === "rapidfire" ? RAPIDFIRE_PEW_RATE : 1.0;
+
           if (firedNormal || firedSpecial) {
-            playSfx("pew", 0.3);
+            playSfx("pew", 0.3, rapidFireRate);
+          } else {
+            // A scheduled rapid-fire shot: a new bullet appeared for this tank
+            // with no ammo/charge change to explain it (see newBulletsByOwner).
+            const echoes = newBulletsByOwner.get(t.id) ?? 0;
+            for (let i = 0; i < echoes; i++) playSfx("pew", 0.3, RAPIDFIRE_PEW_RATE);
           }
           
           if (prev.reloadIn === 0 && t.reloadIn > 0) {

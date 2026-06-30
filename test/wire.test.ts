@@ -147,6 +147,24 @@ describe("wire: snapshot", () => {
     assert.equal(Math.round(out.flags[1].x), 700);
   });
 
+  it("truncates (not wraps) bullet counts past the 255-byte limit, so later fields don't desync", () => {
+    const manyBullets = Array.from({ length: 260 }, (_, i) => ({
+      id: i,
+      x: 10,
+      y: 20,
+      ownerId: "a",
+      kind: "normal" as const,
+    }));
+    const snap = emptySnap({
+      bullets: manyBullets,
+      powerups: [{ id: 1, x: 30, y: 40, type: "speed" as const }],
+    });
+    const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
+    assert.equal(out.bullets.length, 255); // truncated, not silently byte-wrapped
+    assert.equal(out.powerups.length, 1); // fields after bullets still decode correctly
+    assert.equal(out.powerups[0].type, "speed");
+  });
+
   it("slim snapshots update pose/status and inherit slow tank fields", () => {
     const prev = emptySnap({
       tanks: [

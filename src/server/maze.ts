@@ -56,6 +56,19 @@ export function ctfCenterRoom(cols: number, rows: number): number {
   return ratio < 0.75 ? 1 : 3;
 }
 
+/**
+ * Despawn-duration multiplier for uncollected power-up crates, scaled by map
+ * area: 1x on a small map, 2x on normal, 3x on large. Random maps land
+ * wherever their rolled area falls. Takes the maze's actual dimensions (not
+ * the nominal MapSize), so a "random" map scales by its rolled size.
+ */
+export function powerupDespawnMultiplier(cols: number, rows: number): number {
+  const ratio = (cols * rows) / (MAZE_COLS * MAZE_ROWS);
+  if (ratio < 0.75) return 1; // small
+  if (ratio < 1.5) return 2; // normal
+  return 3; // large
+}
+
 interface Segment {
   x1: number;
   y1: number;

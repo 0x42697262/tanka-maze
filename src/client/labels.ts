@@ -180,6 +180,13 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     pwr.push(["Spawn every", `${c.powerupEverySeconds}s`]);
     pwr.push(["Despawn after", `${c.powerupDespawnSeconds}s`]);
     pwr.push(["Charges / pickup", c.powerupCharges]);
+    pwr.push(["Per spawn tick", c.powerupSpawnCount]);
+    pwr.push([
+      "Spawn types",
+      c.powerupTypes.length > 0
+        ? POWERUP_DEFS.filter((d) => c.powerupTypes.includes(d.id)).map((d) => d.label).join(", ")
+        : "None",
+    ]);
   }
   groups.push({ title: "Power-ups", rows: pwr });
 

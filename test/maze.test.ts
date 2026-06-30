@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { WALL_STYLES } from "../src/shared/protocol.js";
-import { Maze, mazeDimensions, ctfPathCount, ctfCenterRoom } from "../src/server/maze.js";
+import {
+  Maze,
+  mazeDimensions,
+  ctfPathCount,
+  ctfCenterRoom,
+  powerupDespawnMultiplier,
+} from "../src/server/maze.js";
 
 /** Flood-fill the cell grid via `passable`; true if every cell is reachable. */
 function fullyConnected(m: Maze): boolean {
@@ -347,6 +353,14 @@ describe("maze: CTF true maze", () => {
       assert.ok(!colOpen(m.cols - 1), "right border is a straight corridor");
       assert.ok(fullyConnected(m), "not connected");
     }
+  });
+});
+
+describe("maze: power-up despawn scaling", () => {
+  it("powerupDespawnMultiplier scales: 1x small, 2x normal, 3x large", () => {
+    assert.equal(powerupDespawnMultiplier(7, 5), 1); // small
+    assert.equal(powerupDespawnMultiplier(10, 7), 2); // normal
+    assert.equal(powerupDespawnMultiplier(14, 10), 3); // large
   });
 });
 

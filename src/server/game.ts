@@ -1,5 +1,4 @@
 import {
-  MAX_POWERUPS_ON_MAP,
   POWERUP_RADIUS,
   FLAG_STEAL_COOLDOWN,
   HAZARD_DAMAGE,
@@ -18,7 +17,6 @@ import {
   WALL_EXPLOSION_DAMAGE,
 } from "../shared/constants.js";
 import {
-  POWERUP_TYPES,
   powerupDef,
   WEAPON_POWERUPS,
   type AdvancedConfig,
@@ -38,7 +36,7 @@ import {
   type FlagState,
 } from "../shared/protocol.js";
 import { ObjectPool } from "../shared/core/ObjectPool.js";
-import { Maze } from "./maze.js";
+import { Maze, powerupDespawnMultiplier } from "./maze.js";
 
 /** A terrain hazard zone that affects tanks standing inside it each tick. */
 interface HazardZone {
@@ -148,6 +146,10 @@ interface Tank {
   scopeShots: number;
   /** Seconds left on a laser windup (0 = not charging). */
   laserCharge: number;
+  /** Bullets still owed in an in-progress rapid-fire burst (0 = idle). */
+  rapidFireShotsLeft: number;
+  /** Seconds until the next scheduled rapid-fire burst shot. */
+  rapidFireTimer: number;
   team: number;
   /** Flags this tank has personally captured (Capture the Flag scoreboard stat). */
   captures: number;
@@ -246,6 +248,7 @@ export class Game {
   private powerups: Powerup[] = [];
   private nextPowerupId = 1;
   private powerupTimer: number;
+  private powerupDespawnMult: number;
   // Transient effects emitted during the last step (sent once, then cleared).
   private pendingBlasts: Array<{ x: number; y: number }> = [];
   private pendingBeams: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
@@ -274,6 +277,7 @@ export class Game {
     this.forwardSpeed = (TANK_SPEED * config.tankSpeedPct) / 100;
     this.reverseSpeed = (TANK_REVERSE_SPEED * config.tankSpeedPct) / 100;
     this.powerupTimer = config.powerupEverySeconds;
+    this.powerupDespawnMult = powerupDespawnMultiplier(maze.cols, maze.rows);
     this.spawns = shuffle(maze.openCellCenters());
     this.buildSpawnZones(players.map((p) => p.team ?? 0));
     this.maze.clearZones(this.spawnZones); // bases are open rooms (no inner walls)
@@ -338,6 +342,8 @@ export class Game {
       scopeTimer: 0,
       scopeShots: 0,
       laserCharge: 0,
+      rapidFireShotsLeft: 0,
+      rapidFireTimer: 0,
       team,
       captures: 0,
     });
@@ -455,6 +461,19 @@ export class Game {
         if (tank.laserCharge <= 0) {
           tank.laserCharge = 0;
           if (tank.alive && !this.roundOver) this.fireLaser(tank, tank.turretAngle);
+        }
+      }
+      // Rapid-fire burst: release the remaining queued shots on schedule. The
+      // decrement/reschedule below always runs once the timer crosses zero;
+      // only the actual shot is gated on alive/roundOver, so a burst
+      // interrupted by death or a round ending fizzles out silently instead
+      // of leaving rapidFireShotsLeft stuck (which would lock fire() forever).
+      if (tank.rapidFireShotsLeft > 0) {
+        tank.rapidFireTimer -= dt;
+        if (tank.rapidFireTimer <= 0) {
+          if (tank.alive && !this.roundOver) this.fireRapidFireShot(tank);
+          tank.rapidFireShotsLeft -= 1;
+          tank.rapidFireTimer = tank.rapidFireShotsLeft > 0 ? this.adv.rapidFireDelay : 0;
         }
       }
       if (tank.reloadTimer > 0) {
@@ -636,6 +655,28 @@ export class Game {
     return bullet;
   }
 
+  /** Spawns one ordinary bullet from the tank's current position/aim — used
+   *  by rapid fire for both the initial click and each scheduled burst shot. */
+  private fireRapidFireShot(tank: Tank): void {
+    const a = tank.turretAngle;
+    const muzzle = this.adv.tankRadius + this.adv.bulletRadius + 2;
+    this.bullets.push(this.createBullet({
+      id: this.nextBulletId++,
+      ownerId: tank.id,
+      x: tank.x + Math.cos(a) * muzzle,
+      y: tank.y + Math.sin(a) * muzzle,
+      vx: Math.cos(a) * this.adv.bulletSpeed + tank.vx,
+      vy: Math.sin(a) * this.adv.bulletSpeed + tank.vy,
+      bounces: 0,
+      maxBounces: this.adv.bulletBounces,
+      life: this.adv.bulletLifetime,
+      kind: "normal",
+      wallPierce: 0,
+      pierceTanks: false,
+      wasInWall: false,
+    }));
+  }
+
   private resolveTankCollisions(): void {
     const alive = [...this.tanks.values()].filter((t) => t.alive);
     for (let i = 0; i < alive.length; i++) {
@@ -673,7 +714,10 @@ export class Game {
   }
 
   private fire(tank: Tank): void {
-    if (tank.laserCharge > 0) return; // can't fire while a laser is winding up
+    // Can't start a new shot while a laser is winding up or a rapid-fire
+    // burst is still releasing its queued shots — both are uninterruptible,
+    // already-committed scheduled effects (see step()).
+    if (tank.laserCharge > 0 || tank.rapidFireShotsLeft > 0) return;
     const weapon = tank.weapon && WEAPON_POWERUPS.includes(tank.weapon) ? tank.weapon : null;
     const usingWeapon = weapon !== null;
 
@@ -723,6 +767,18 @@ export class Game {
           wasInWall: false,
         }));
       }
+      tank.weaponCharges -= 1;
+      if (tank.weaponCharges <= 0) tank.weapon = null;
+      return;
+    }
+
+    if (weapon === "rapidfire") {
+      // Fire the first shot immediately; the rest are released on a timer in
+      // step(), even if the player releases the trigger right after clicking.
+      this.fireRapidFireShot(tank);
+      const n = Math.max(1, Math.round(this.adv.rapidFireCount));
+      tank.rapidFireShotsLeft = n - 1;
+      tank.rapidFireTimer = tank.rapidFireShotsLeft > 0 ? this.adv.rapidFireDelay : 0;
       tank.weaponCharges -= 1;
       if (tank.weaponCharges <= 0) tank.weapon = null;
       return;
@@ -1108,19 +1164,22 @@ export class Game {
     for (const p of this.powerups) p.ttl -= dt;
     this.powerups = this.powerups.filter((p) => p.ttl > 0);
 
-    // Spawn on cadence.
+    // Spawn on cadence: release powerupSpawnCount crates at once, picked only
+    // from the enabled type pool. No cap on concurrent crates — despawn timing
+    // bounds the population naturally.
     this.powerupTimer -= dt;
     if (this.powerupTimer <= 0) {
       this.powerupTimer = this.cfg.powerupEverySeconds;
-      if (this.powerups.length < MAX_POWERUPS_ON_MAP && this.spawns.length > 0) {
-        const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+      const types = this.cfg.powerupTypes;
+      for (let i = 0; i < this.cfg.powerupSpawnCount && types.length > 0 && this.spawns.length > 0; i++) {
+        const type = types[Math.floor(Math.random() * types.length)];
         const cell = this.spawns[Math.floor(Math.random() * this.spawns.length)];
         this.powerups.push({
           id: this.nextPowerupId++,
           type,
           x: cell.x,
           y: cell.y,
-          ttl: this.cfg.powerupDespawnSeconds,
+          ttl: this.cfg.powerupDespawnSeconds * this.powerupDespawnMult,
         });
       }
     }
@@ -1331,6 +1390,7 @@ export class Game {
    */
   startNextRound(maze: Maze): void {
     this.maze = maze;
+    this.powerupDespawnMult = powerupDespawnMultiplier(maze.cols, maze.rows);
     this.spawns = shuffle(maze.openCellCenters());
     this.spawnIndex = 0;
     this.buildSpawnZones([...this.tanks.values()].map((t) => t.team));
@@ -1382,6 +1442,8 @@ export class Game {
       t.scopeTimer = 0;
       t.scopeShots = 0;
       t.laserCharge = 0;
+      t.rapidFireShotsLeft = 0;
+      t.rapidFireTimer = 0;
     }
   }
 
@@ -1442,6 +1504,8 @@ export class Game {
     tank.scopeTimer = 0;
     tank.scopeShots = 0;
     tank.laserCharge = 0;
+    tank.rapidFireShotsLeft = 0;
+    tank.rapidFireTimer = 0;
   }
 
   /** True when team spawn zones are active for this match (Team VS option, or CTF bases). */

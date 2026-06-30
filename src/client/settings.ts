@@ -6,6 +6,7 @@ import {
   DEFAULT_GAME_CONFIG,
   HAZARD_TYPES,
   POWERUP_DEFS,
+  POWERUP_TYPES,
   WALL_STYLES,
   gameConfigWithDefaults,
   type AdvancedConfig,
@@ -16,6 +17,7 @@ import {
   type GameMode,
   type HazardType,
   type MapSize,
+  type PowerupType,
   type WallStyle,
 } from "../shared/protocol.js";
 import { $ } from "./dom.js";
@@ -65,7 +67,9 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
   const d = DEFAULT_GAME_CONFIG;
   const sel = (id: string) => ($(id) as HTMLSelectElement).value;
   const num = (id: string, d: number) => Number(($(id) as HTMLInputElement).value) || d;
+  const checked = (id: string) => ($(id) as HTMLInputElement).checked;
   const hazardTypes = HAZARD_TYPES.filter((t) => sel(`hazard-${t}`) === "on") as HazardType[];
+  const powerupTypes = POWERUP_TYPES.filter((t) => checked(`pup-${t}`)) as PowerupType[];
   return {
     maxPlayers: num("max-players", 8),
     config: {
@@ -115,6 +119,8 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       powerupEverySeconds: num("pwr-every", 8),
       powerupDespawnSeconds: num("pwr-despawn", 12),
       powerupCharges: num("pwr-charges", 1),
+      powerupSpawnCount: num("pwr-count", 1),
+      powerupTypes,
     },
   };
 }
@@ -122,6 +128,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
 export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   const cfg = gameConfigWithDefaults(c);
   const set = (id: string, v: string | number) => (($(id) as HTMLInputElement).value = String(v));
+  const setChecked = (id: string, v: boolean) => (($(id) as HTMLInputElement).checked = v);
   set("max-players", maxPlayers);
   set("mode", cfg.mode);
   set("walls", cfg.wallStyle);
@@ -164,6 +171,8 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("pwr-every", cfg.powerupEverySeconds);
   set("pwr-charges", cfg.powerupCharges);
   set("pwr-despawn", cfg.powerupDespawnSeconds);
+  set("pwr-count", cfg.powerupSpawnCount);
+  for (const type of POWERUP_TYPES) setChecked(`pup-${type}`, cfg.powerupTypes.includes(type));
   for (const k of ADV_KEYS) set(`adv-${k}`, cfg.adv[k]);
   renderWallPicker();
   applyModeVisibility();

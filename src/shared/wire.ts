@@ -152,8 +152,10 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
   // Owner is sent as the tank's wire index (resolved back to color client-side).
   // 255 = unknown owner.
   const ownerIndex = new Map(s.tanks.map((t) => [t.id, t.index]));
-  dv.setUint8(o++, s.bullets.length);
-  for (const b of s.bullets) {
+  const bulletCount = Math.min(255, s.bullets.length);
+  dv.setUint8(o++, bulletCount);
+  for (let bi = 0; bi < bulletCount; bi++) {
+    const b = s.bullets[bi];
     dv.setUint16(o, b.id & 0xffff, true);
     o += 2;
     dv.setUint16(o, u16(b.x), true);
@@ -281,8 +283,10 @@ export function encodeSlimSnapshot(s: SnapshotDTO): Uint8Array {
 function encodeSnapshotTail(dv: DataView, offset: number, s: SnapshotDTO): number {
   let o = offset;
   const ownerIndex = new Map(s.tanks.map((t) => [t.id, t.index]));
-  dv.setUint8(o++, s.bullets.length);
-  for (const b of s.bullets) {
+  const bulletCount = Math.min(255, s.bullets.length);
+  dv.setUint8(o++, bulletCount);
+  for (let bi = 0; bi < bulletCount; bi++) {
+    const b = s.bullets[bi];
     dv.setUint16(o, b.id & 0xffff, true);
     o += 2;
     dv.setUint16(o, u16(b.x), true);

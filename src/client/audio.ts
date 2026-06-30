@@ -46,17 +46,18 @@ export function setSfxVolume(vol: number) {
   }
 }
 
-/** Instantly play a sound effect from memory. */
-export function playSfx(name: string, volume = 1.0) {
+/** Instantly play a sound effect from memory. `rate` is playback speed (1 = normal). */
+export function playSfx(name: string, volume = 1.0, rate = 1.0) {
   const buffer = buffers.get(name);
   if (!buffer) return;
   if (audioCtx.state === "suspended") audioCtx.resume();
-  
+
   const source = audioCtx.createBufferSource();
   source.buffer = buffer;
+  source.playbackRate.value = rate;
   const gainNode = audioCtx.createGain();
   gainNode.gain.value = volume * globalSfxVolume;
-  
+
   source.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   source.start();

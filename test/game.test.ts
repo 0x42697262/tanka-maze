@@ -108,6 +108,186 @@ describe("multishot", () => {
   });
 });
 
+describe("power-ups: despawn scaling", () => {
+  it("scales despawn ttl by map size (1x small, 2x normal, 3x large)", () => {
+    const cases: Array<[number, number, number]> = [
+      [7, 5, 1],
+      [10, 7, 2],
+      [14, 10, 3],
+    ];
+    for (const [cols, rows, mult] of cases) {
+      const g = makeGame({
+        cfg: { powerupEverySeconds: 0.01, powerupDespawnSeconds: 12 },
+        maze: new Maze(cols, rows, "open"),
+        players: [{ id: "a", name: "A" }],
+      });
+      g.step(0.02);
+      const powerups = (g as any).powerups;
+      assert.equal(powerups.length, 1);
+      assert.equal(powerups[0].ttl, 12 * mult);
+    }
+  });
+});
+
+describe("power-ups: despawn scaling recomputes on round restart", () => {
+  it("uses the new round's maze size, not the match's original one", () => {
+    const g = makeGame({
+      cfg: { powerupEverySeconds: 0.01, powerupDespawnSeconds: 12 },
+      maze: new Maze(7, 5, "open"), // small -> 1x
+      players: [{ id: "a", name: "A" }],
+    });
+    g.step(0.02);
+    assert.equal((g as any).powerups[0].ttl, 12);
+
+    g.startNextRound(new Maze(14, 10, "open")); // large -> 3x
+    g.step(0.02);
+    assert.equal((g as any).powerups[0].ttl, 36);
+  });
+});
+
+describe("power-ups: spawn count per tick", () => {
+  it("spawns powerupSpawnCount crates together each time the cadence ticks", () => {
+    const g = makeGame({ cfg: { powerupEverySeconds: 1, powerupSpawnCount: 4 }, players: [{ id: "a", name: "A" }] });
+    g.step(1);
+    assert.equal((g as any).powerups.length, 4);
+  });
+
+  it("has no ceiling on concurrent crates — only despawn timing bounds them", () => {
+    const g = makeGame({
+      cfg: { powerupEverySeconds: 1, powerupSpawnCount: 10, powerupDespawnSeconds: 60 },
+      players: [{ id: "a", name: "A" }],
+    });
+    g.step(1);
+    g.step(1);
+    assert.equal((g as any).powerups.length, 20); // well past the old hardcoded cap of 4
+  });
+});
+
+describe("power-ups: type pool", () => {
+  it("spawns only from the configured type pool", () => {
+    const g = makeGame({
+      cfg: { powerupEverySeconds: 1, powerupSpawnCount: 6, powerupTypes: ["speed"] },
+      players: [{ id: "a", name: "A" }],
+    });
+    g.step(1);
+    const types = new Set((g as any).powerups.map((p: any) => p.type));
+    assert.deepEqual(types, new Set(["speed"]));
+  });
+
+  it("spawns nothing when the type pool is empty", () => {
+    const g = makeGame({ cfg: { powerupEverySeconds: 1, powerupSpawnCount: 4, powerupTypes: [] }, players: [{ id: "a", name: "A" }] });
+    g.step(1);
+    assert.equal((g as any).powerups.length, 0);
+  });
+});
+
+describe("rapid fire", () => {
+  it("fires the first bullet immediately and queues the rest as one volley (one charge)", () => {
+    const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weapon = "rapidfire";
+    a.weaponCharges = 1;
+    fire(g, a);
+    assert.equal(bullets(g).length, 1);
+    assert.equal(a.rapidFireShotsLeft, 4);
+    assert.equal(a.weaponCharges, 0); // consumed once, not per-bullet
+  });
+
+  it("fires the remaining queued shots on schedule, one per configured delay", () => {
+    const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weapon = "rapidfire";
+    a.weaponCharges = 1;
+    fire(g, a);
+    for (let i = 0; i < 4; i++) {
+      assert.equal(bullets(g).length, i + 1);
+      g.step(0.15);
+    }
+    assert.equal(bullets(g).length, 5);
+    assert.equal(a.rapidFireShotsLeft, 0);
+  });
+
+  it("blocks re-firing while a burst is in progress", () => {
+    const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weapon = "rapidfire";
+    a.weaponCharges = 5;
+    fire(g, a);
+    assert.equal(bullets(g).length, 1);
+    a.fireCooldown = 0; // bypass the normal cooldown gate to isolate the burst guard itself
+    fire(g, a);
+    assert.equal(bullets(g).length, 1); // second click ignored — still mid-burst
+    assert.equal(a.weaponCharges, 4); // not consumed twice
+  });
+
+  it("a round restart mid-burst clears the queued shots (no phantom shots in the new round)", () => {
+    const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weapon = "rapidfire";
+    a.weaponCharges = 1;
+    fire(g, a);
+    g.step(0.15); // 2nd shot fires; 3 more still queued
+    assert.equal(a.rapidFireShotsLeft, 3);
+    g.startNextRound(new Maze(10, 8, "open"));
+    assert.equal(tank(g, "a").rapidFireShotsLeft, 0);
+    assert.equal(bullets(g).length, 0); // startNextRound clears the bullet list too
+    for (let i = 0; i < 5; i++) g.step(0.15);
+    assert.equal(bullets(g).length, 0); // nothing leaked from the old burst
+  });
+
+  it("a burst interrupted by death fizzles out silently and isn't stuck afterward", () => {
+    const g = makeGame({
+      cfg: { mode: "ffa", lives: 1 },
+      adv: { rapidFireCount: 5, rapidFireDelay: 0.15 },
+      players: [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }],
+    });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weapon = "rapidfire";
+    a.weaponCharges = 1;
+    fire(g, a);
+    const countAtDeath = bullets(g).length;
+    (g as any).kill(a, "b"); // a is eliminated (lives: 1); b and c stay alive, match continues
+    assert.equal(a.out, true);
+    for (let i = 0; i < 6; i++) g.step(0.15); // well past the burst's full duration
+    assert.equal(bullets(g).length, countAtDeath); // no bullets fired from the corpse
+    assert.equal(a.rapidFireShotsLeft, 0); // not stuck — fire()'s guard isn't permanently locked
+  });
+
+  it("completes normally if the tank disconnects mid-burst while still alive", () => {
+    const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weapon = "rapidfire";
+    a.weaponCharges = 1;
+    fire(g, a);
+    a.connected = false;
+    for (let i = 0; i < 4; i++) g.step(0.15);
+    assert.equal(bullets(g).length, 5);
+    assert.equal(a.rapidFireShotsLeft, 0);
+  });
+
+  it("a weapon picked up mid-burst doesn't interrupt the original burst", () => {
+    const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weapon = "rapidfire";
+    a.weaponCharges = 1;
+    fire(g, a);
+    g.step(0.15); // 2nd shot fires; 3 more still queued
+    apply(g, a, "sniper"); // pick up a different weapon mid-burst
+    assert.equal(a.weapon, "sniper");
+    for (let i = 0; i < 3; i++) g.step(0.15);
+    assert.equal(bullets(g).length, 5); // the original burst's remaining shots still completed
+    assert.equal(a.rapidFireShotsLeft, 0);
+    assert.equal(a.weapon, "sniper"); // tank keeps the newly picked-up weapon once the burst ends
+  });
+});
+
 describe("explosive", () => {
   it("detonates when its lifetime expires in open space, not only on a wall", () => {
     const g = makeGame({

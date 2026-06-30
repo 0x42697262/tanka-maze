@@ -62,7 +62,6 @@ export const BULLET_LIFETIME = 5; // seconds
 
 // Power-ups
 export const POWERUP_RADIUS = 12;
-export const MAX_POWERUPS_ON_MAP = 4;
 export const SPEED_BOOST_MULT = 1.6;
 export const SPEED_BOOST_SECONDS = 6;
 export const SHIELD_SECONDS = 6; // invulnerability duration from a shield pickup
@@ -75,6 +74,8 @@ export const TRACKING_LIFETIME = 6; // seconds a tracking round lives (its range
 export const TRACKING_BOUNCES = 6; // wall bounces a tracking round survives
 export const MULTISHOT_COUNT = 5; // pellets released by a multishot pickup
 export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multishot
+export const RAPIDFIRE_COUNT = 5; // bullets fired per rapid-fire burst
+export const RAPIDFIRE_DELAY = 0.15; // seconds between each burst shot
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
 export const SCOPE_SECONDS = 10; // duration of the line-of-sight scope buff
 
