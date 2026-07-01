@@ -430,27 +430,29 @@ describe("power-ups: combining", () => {
     assert.equal(charges(a, "explosive"), 3);
   });
 
-  it("a shot composes every held effect's flags (tracking + explosive = homing bomb)", () => {
+  it("a shot composes every held effect's axes (tracking + explosive = homing bomb)", () => {
     const g = makeGame({ players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
     a.weaponCharges = { tracking: 1, explosive: 1 };
     fire(g, a);
     const b = bullets(g)[0];
-    assert.equal(b.homing, true);
-    assert.equal(b.explosive, true);
+    assert.equal(b.homing, true); // steer axis from tracking
+    assert.ok(b.blastRadius > 0); // blast axis from explosive
+    assert.equal(b.tankContact, "detonate"); // detonate > consume
   });
 
-  it("sniper + explosive: bullet is explosive, fast (no momentum), and pierces", () => {
+  it("sniper + explosive resolves by the axioms: pierces walls, detonates on tanks", () => {
     const g = makeGame({ players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
     a.weaponCharges = { sniper: 1, explosive: 1 };
     fire(g, a);
     const b = bullets(g)[0];
-    assert.equal(b.explosive, true);
-    assert.equal(b.ignoreMomentum, true);
-    assert.equal(b.pierceTanks, true);
+    assert.equal(b.wallContact, "pierce"); // pierce > detonate at walls
+    assert.equal(b.tankContact, "detonate"); // detonate > pierce at tanks
+    assert.ok(b.blastRadius > 0);
+    assert.ok(b.wallPierce > 0); // sniper's wall-pierce budget
   });
 
   it("charges deplete per effect: an effect drops out of the combo when it runs out", () => {
@@ -459,14 +461,14 @@ describe("power-ups: combining", () => {
     a.turretAngle = 0;
     a.weaponCharges = { sniper: 2, explosive: 1 };
     fire(g, a); // first shot carries both
-    assert.equal(bullets(g)[0].explosive, true);
+    assert.ok(bullets(g)[0].blastRadius > 0); // explosive present
     assert.equal(charges(a, "sniper"), 1);
     assert.equal(charges(a, "explosive"), 0); // depleted, dropped
     const before = bullets(g).length;
     fire(g, a); // second shot: sniper only
     const b2 = bullets(g)[before];
-    assert.equal(b2.explosive, false);
-    assert.equal(b2.pierceTanks, true);
+    assert.equal(b2.blastRadius, 0); // no explosive left
+    assert.equal(b2.wallContact, "pierce"); // sniper still applies
     assert.equal(charges(a, "sniper"), 0);
   });
 
@@ -497,16 +499,34 @@ describe("power-ups: combining", () => {
     assert.equal(a.rapidFireShotsLeft, 1);
   });
 
-  it("laser stays exclusive: picking it up clears combinables and vice versa", () => {
-    const g = makeGame({ cfg: { combineWeapons: true, powerupCharges: 3 }, players: [{ id: "a", name: "A" }] });
+  it("laser composes as a beam carrier: multishot → several beams", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0.15, multishotCount: 3 },
+      players: [{ id: "a", name: "A" }],
+    });
     const a = tank(g, "a");
-    apply(g, a, "sniper");
-    apply(g, a, "tracking");
-    apply(g, a, "laser"); // laser clears the combinable set
-    assert.deepEqual(Object.keys(a.weaponCharges), ["laser"]);
-    apply(g, a, "explosive"); // a combinable drops the laser
-    assert.equal(charges(a, "laser"), 0);
-    assert.equal(charges(a, "explosive"), 3);
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, multishot: 1 };
+    fire(g, a); // begins the beam windup
+    assert.equal((g as any).pendingBeams.length, 0); // nothing fired yet (winding up)
+    g.step(0.15); // windup completes → beams fire
+    // Three beams, each contributing at least one path leg to the snapshot.
+    assert.ok((g as any).pendingBeams.length >= 3);
+  });
+
+  it("laser + explosive detonates at the beam's hit points", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0.15 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, explosive: 1 };
+    fire(g, a);
+    g.step(0.15); // beam fires, reflecting off walls → blasts at hit points
+    assert.ok((g as any).pendingBlasts.length > 0);
   });
 });
 

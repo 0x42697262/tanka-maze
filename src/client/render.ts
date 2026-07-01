@@ -700,8 +700,6 @@ export class Renderer {
    */
   private scopePaths(me: TankDTO, vel: { x: number; y: number }): Array<{ x: number; y: number }[]> {
     const a = me.turretAngle;
-    const ca = Math.cos(a);
-    const sa = Math.sin(a);
     const sc = this.scope;
     // A round lives `lifetime` seconds, so it travels its real speed × lifetime.
     const reach = (vx: number, vy: number, lifetime: number) => Math.hypot(vx, vy) * lifetime;
@@ -709,10 +707,18 @@ export class Renderer {
     const has = (w: PowerupType) => (me.weaponCharges[w] ?? 0) > 0;
 
     if (has("laser")) {
-      // Hitscan beam: reflects, no momentum, from just outside the hull (exclusive).
-      const lx = me.x + ca * (this.tankR + 2);
-      const ly = me.y + sa * (this.tankR + 2);
-      return [this.walkPath(lx, ly, ca, sa, { range: sc.laserRange, bounces: Infinity })];
+      // Beam carrier: a hitscan ray that reflects, from just outside the hull.
+      // Honors the fan (multishot → several beams); ignores the projectile axes.
+      const n = has("multishot") ? Math.max(1, Math.round(sc.multiCount)) : 1;
+      const spread = has("multishot") ? (sc.multiSpread * Math.PI) / 180 : 0;
+      const beams: Array<{ x: number; y: number }[]> = [];
+      for (let i = 0; i < n; i++) {
+        const ang = n > 1 ? a - spread / 2 + (spread / (n - 1)) * i : a;
+        const bx = me.x + Math.cos(ang) * (this.tankR + 2);
+        const by = me.y + Math.sin(ang) * (this.tankR + 2);
+        beams.push(this.walkPath(bx, by, Math.cos(ang), Math.sin(ang), { range: sc.laserRange, bounces: Infinity }));
+      }
+      return beams;
     }
 
     const homing = has("tracking");

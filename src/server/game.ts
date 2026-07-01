@@ -165,17 +165,31 @@ interface Tank {
 /** A composed per-shot spec: the merged per-bullet effects plus the emission
  *  fan. Built once per trigger pull from the held weapon effects, then applied
  *  to every pellet of the shot (and replayed for rapid-fire's deferred shots). */
+// Contested contact axes: multiple weapons may assign different values, resolved
+// by a fixed priority order (the "axioms"). Higher index wins.
+type WallContact = "bounce" | "detonate" | "pierce";
+type TankContact = "consume" | "pierce" | "detonate";
+const WALL_ORDER: WallContact[] = ["bounce", "detonate", "pierce"]; // pierce > detonate
+const TANK_ORDER: TankContact[] = ["consume", "pierce", "detonate"]; // detonate > pierce
+
 interface Recipe {
-  homing: boolean;
-  explosive: boolean;
-  ignoreMomentum: boolean;
-  wallPierce: number;
-  pierceTanks: boolean;
+  // Resolved per-bullet axes.
+  homing: boolean; // steer axis (homing > straight)
+  wallContact: WallContact;
+  tankContact: TankContact;
+  expiryDetonate: boolean;
+  inheritMomentum: boolean;
   speedMult: number;
+  wallPierce: number;
   maxBounces: number;
   life: number;
-  fanCount: number; // pellets per shot (multishot); 1 = single
+  blastRadius: number;
+  // Emission axes.
+  carrier: "projectile" | "beam";
+  fanCount: number; // pellets/beams per shot (multishot); 1 = single
   fanSpread: number; // total fan angle in radians (0 = single)
+  burstCount: number; // shots per trigger over time (rapid fire); 1 = single
+  burstDelay: number; // seconds between burst shots
 }
 
 interface Bullet {
@@ -191,14 +205,16 @@ interface Bullet {
   life: number;
   /** Homing: steers toward the nearest target each step (tracking). */
   homing: boolean;
-  /** Detonates in an area on contact/expiry (explosive). */
-  explosive: boolean;
-  /** Skips inheriting the tank's momentum at spawn (sniper). */
-  ignoreMomentum: boolean;
-  /** Walls this round can still punch through (sniper). */
+  /** What happens at a wall (resolved from held effects). */
+  wallContact: WallContact;
+  /** What happens on a tank (resolved from held effects). */
+  tankContact: TankContact;
+  /** Detonate when the round's lifetime runs out (explosive). */
+  expiryDetonate: boolean;
+  /** AoE radius when this round detonates (0 = none). */
+  blastRadius: number;
+  /** Walls this round can still punch through (wallContact === "pierce"). */
   wallPierce: number;
-  /** Passes through tanks, damaging each once (sniper). */
-  pierceTanks: boolean;
   /** Whether the round was inside a wall last step (wall-cross detection). */
   wasInWall: boolean;
   /** Tanks already damaged by a piercing round. */
@@ -239,10 +255,11 @@ export class Game {
     maxBounces: 0,
     life: 0,
     homing: false,
-    explosive: false,
-    ignoreMomentum: false,
+    wallContact: "bounce",
+    tankContact: "consume",
+    expiryDetonate: false,
+    blastRadius: 0,
     wallPierce: 0,
-    pierceTanks: false,
     wasInWall: false,
     hitIds: new Set<string>(),
     repathIn: 0,
@@ -485,12 +502,16 @@ export class Game {
       if (tank.boostTimer > 0) tank.boostTimer = Math.max(0, tank.boostTimer - dt);
       if (tank.shieldTimer > 0) tank.shieldTimer = Math.max(0, tank.shieldTimer - dt);
       if (tank.scopeTimer > 0) tank.scopeTimer = Math.max(0, tank.scopeTimer - dt);
-      // Laser windup: fire the beam once the charge completes.
+      // Laser windup: fire the beam (honoring its frozen recipe's fan + blast)
+      // once the charge completes.
       if (tank.laserCharge > 0) {
         tank.laserCharge -= dt;
         if (tank.laserCharge <= 0) {
           tank.laserCharge = 0;
-          if (tank.alive && !this.roundOver) this.fireLaser(tank, tank.turretAngle);
+          if (tank.alive && !this.roundOver) {
+            this.emitVolley(tank, tank.pendingRecipe ?? this.plainRecipe());
+          }
+          tank.pendingRecipe = null;
         }
       }
       // Rapid-fire burst: release the remaining queued shots on schedule. The
@@ -505,7 +526,8 @@ export class Game {
             this.emitVolley(tank, tank.pendingRecipe ?? this.plainRecipe());
           }
           tank.rapidFireShotsLeft -= 1;
-          tank.rapidFireTimer = tank.rapidFireShotsLeft > 0 ? this.adv.rapidFireDelay : 0;
+          const delay = tank.pendingRecipe?.burstDelay ?? this.adv.rapidFireDelay;
+          tank.rapidFireTimer = tank.rapidFireShotsLeft > 0 ? delay : 0;
           if (tank.rapidFireShotsLeft <= 0) tank.pendingRecipe = null;
         }
       }
@@ -679,10 +701,11 @@ export class Game {
     bullet.maxBounces = init.maxBounces;
     bullet.life = init.life;
     bullet.homing = init.homing;
-    bullet.explosive = init.explosive;
-    bullet.ignoreMomentum = init.ignoreMomentum;
+    bullet.wallContact = init.wallContact;
+    bullet.tankContact = init.tankContact;
+    bullet.expiryDetonate = init.expiryDetonate;
+    bullet.blastRadius = init.blastRadius;
     bullet.wallPierce = init.wallPierce;
-    bullet.pierceTanks = init.pierceTanks;
     bullet.wasInWall = init.wasInWall;
     bullet.hitIds.clear();
     bullet.repathIn = 0;
@@ -690,55 +713,68 @@ export class Game {
     return bullet;
   }
 
-  /** A plain (unarmed) shot recipe: a single ordinary bullet. */
+  /** The identity recipe: a single ordinary bullet with all axes at default. */
   private plainRecipe(): Recipe {
     return {
       homing: false,
-      explosive: false,
-      ignoreMomentum: false,
-      wallPierce: 0,
-      pierceTanks: false,
+      wallContact: "bounce",
+      tankContact: "consume",
+      expiryDetonate: false,
+      inheritMomentum: true,
       speedMult: 1,
+      wallPierce: 0,
       maxBounces: this.adv.bulletBounces,
       life: this.adv.bulletLifetime,
+      blastRadius: 0,
+      carrier: "projectile",
       fanCount: 1,
       fanSpread: 0,
+      burstCount: 1,
+      burstDelay: 0,
     };
   }
 
-  /** Compose the held combinable weapon effects into one per-shot recipe.
-   *  `held` is the list of held combinable weapon types (never laser). */
+  /**
+   * Compose the held weapon effects into one recipe by folding each weapon's
+   * registry-declared axis contributions with a fixed combine rule per axis
+   * (product / max / AND / OR / priority-max). No weapon is named here — behavior
+   * is entirely data-driven, so any combination (tested or not) resolves the same
+   * way, and adding a weapon means only adding a POWERUP_DEFS `effect`.
+   */
   private buildRecipe(held: PowerupType[]): Recipe {
-    const has = (t: PowerupType) => held.includes(t);
-    const homing = has("tracking");
-    const sniper = has("sniper");
-    const r: Recipe = {
-      homing,
-      explosive: has("explosive"),
-      ignoreMomentum: sniper,
-      wallPierce: sniper ? this.adv.sniperWallPierce : 0,
-      pierceTanks: sniper,
-      speedMult: sniper ? this.adv.sniperSpeedMult : 1,
-      // Tracking's longer life / own bounce budget win when homing; else defaults.
-      maxBounces: homing ? this.adv.trackingBounces : this.adv.bulletBounces,
-      life: homing ? this.adv.trackingLifetime : this.adv.bulletLifetime,
-      fanCount: 1,
-      fanSpread: 0,
-    };
-    if (has("multishot")) {
-      r.fanCount = Math.max(1, Math.round(this.adv.multishotCount));
-      r.fanSpread = (this.adv.multishotSpread * Math.PI) / 180;
+    const r = this.plainRecipe();
+    const adv = this.adv as unknown as Record<string, number>;
+    // Priority-max for a contested axis: keep whichever value ranks higher.
+    const pick = <T extends string>(order: T[], cur: T, next: T | undefined): T =>
+      next !== undefined && order.indexOf(next) > order.indexOf(cur) ? next : cur;
+    for (const w of held) {
+      const e = powerupDef(w).effect;
+      if (!e) continue;
+      if (e.steer === "homing") r.homing = true;
+      r.wallContact = pick(WALL_ORDER, r.wallContact, e.wallContact);
+      r.tankContact = pick(TANK_ORDER, r.tankContact, e.tankContact);
+      if (e.expiryDetonate) r.expiryDetonate = true;
+      if (e.inheritMomentum === false) r.inheritMomentum = false;
+      if (e.carrier === "beam") r.carrier = "beam";
+      if (e.speedMultKey) r.speedMult *= adv[e.speedMultKey]; // product
+      if (e.wallPierceKey) r.wallPierce = Math.max(r.wallPierce, adv[e.wallPierceKey]);
+      if (e.lifetimeKey) r.life = Math.max(r.life, adv[e.lifetimeKey]);
+      if (e.maxBouncesKey) r.maxBounces = Math.max(r.maxBounces, adv[e.maxBouncesKey]);
+      if (e.blastRadiusKey) r.blastRadius = Math.max(r.blastRadius, adv[e.blastRadiusKey]);
+      if (e.fanCountKey) r.fanCount = Math.max(r.fanCount, Math.round(adv[e.fanCountKey]));
+      if (e.fanSpreadKey) r.fanSpread = (adv[e.fanSpreadKey] * Math.PI) / 180;
+      if (e.burstCountKey) r.burstCount = Math.max(r.burstCount, Math.round(adv[e.burstCountKey]));
+      if (e.burstDelayKey) r.burstDelay = adv[e.burstDelayKey];
     }
     return r;
   }
 
-  /** Spawn one bullet at `angle` carrying the recipe's per-bullet effects. */
+  /** Spawn one bullet at `angle` carrying the recipe's resolved per-bullet axes. */
   private spawnBullet(tank: Tank, angle: number, r: Recipe): void {
     const muzzle = this.adv.tankRadius + this.adv.bulletRadius + 2;
     const speed = this.adv.bulletSpeed * r.speedMult;
-    // Sniper flies straight & fast (no momentum drift); others inherit it.
-    const ivx = r.ignoreMomentum ? 0 : tank.vx;
-    const ivy = r.ignoreMomentum ? 0 : tank.vy;
+    const ivx = r.inheritMomentum ? tank.vx : 0;
+    const ivy = r.inheritMomentum ? tank.vy : 0;
     this.bullets.push(this.createBullet({
       id: this.nextBulletId++,
       ownerId: tank.id,
@@ -750,25 +786,26 @@ export class Game {
       maxBounces: r.maxBounces,
       life: r.life,
       homing: r.homing,
-      explosive: r.explosive,
-      ignoreMomentum: r.ignoreMomentum,
+      wallContact: r.wallContact,
+      tankContact: r.tankContact,
+      expiryDetonate: r.expiryDetonate,
+      blastRadius: r.blastRadius,
       wallPierce: r.wallPierce,
-      pierceTanks: r.pierceTanks,
       wasInWall: false,
     }));
   }
 
-  /** Emit one shot: a multishot fan (if the recipe has one) or a single bullet. */
+  /** Emit one shot from a recipe: a beam (laser carrier) or a fan of projectiles.
+   *  A beam honors only the fan (multiple beams) and blast (detonate at hits). */
   private emitVolley(tank: Tank, r: Recipe): void {
     const a = tank.turretAngle;
-    const n = r.fanCount;
-    if (n <= 1) {
-      this.spawnBullet(tank, a, r);
+    const n = Math.max(1, r.fanCount);
+    const angleAt = (i: number) => (n > 1 ? a - r.fanSpread / 2 + (r.fanSpread / (n - 1)) * i : a);
+    if (r.carrier === "beam") {
+      for (let i = 0; i < n; i++) this.fireLaser(tank, angleAt(i), r.blastRadius);
       return;
     }
-    const step = r.fanSpread / (n - 1);
-    const start = a - r.fanSpread / 2;
-    for (let i = 0; i < n; i++) this.spawnBullet(tank, start + step * i, r);
+    for (let i = 0; i < n; i++) this.spawnBullet(tank, angleAt(i), r);
   }
 
   /** Decrement one held weapon effect's charge; drop it when it hits zero. */
@@ -821,10 +858,8 @@ export class Game {
     if (tank.laserCharge > 0 || tank.rapidFireShotsLeft > 0) return;
 
     const wc = tank.weaponCharges;
-    const heldLaser = (wc.laser ?? 0) > 0;
-    // Combinable = every held weapon effect except laser (which is exclusive).
-    const combinable = WEAPON_POWERUPS.filter((w) => w !== "laser" && (wc[w] ?? 0) > 0);
-    const usingWeapon = heldLaser || combinable.length > 0;
+    const held = WEAPON_POWERUPS.filter((w) => (wc[w] ?? 0) > 0);
+    const usingWeapon = held.length > 0;
 
     // Power-up shots don't draw from the magazine — only normal shots do.
     if (!usingWeapon) {
@@ -838,34 +873,35 @@ export class Game {
     // A committed shot consumes one scope charge (the aiming guide).
     if (tank.scopeShots > 0) tank.scopeShots -= 1;
 
-    if (heldLaser) {
-      // Laser is exclusive: begin the windup; the beam fires after laserDelay.
-      tank.laserCharge = this.adv.laserDelay;
-      this.consumeCharge(tank, "laser");
-      return;
-    }
+    const recipe = usingWeapon ? this.buildRecipe(held) : this.plainRecipe();
 
-    const recipe = usingWeapon ? this.buildRecipe(combinable) : this.plainRecipe();
-
-    if (usingWeapon && combinable.includes("rapidfire")) {
+    if (recipe.carrier === "beam") {
+      // Beam (laser): wind up, then fire in step() honoring the fan + blast.
+      // A beam ignores the burst axis. With no windup, fire immediately.
+      if (this.adv.laserDelay > 0) {
+        tank.laserCharge = this.adv.laserDelay;
+        tank.pendingRecipe = recipe;
+      } else {
+        this.emitVolley(tank, recipe);
+      }
+    } else if (recipe.burstCount > 1) {
       // Rapid fire: emit the first volley now, schedule the rest in step(),
-      // replaying this same (frozen) recipe. Cap total bullets/click so a
-      // multishot fan × long burst can't flood the arena.
-      let burst = Math.max(1, Math.round(this.adv.rapidFireCount));
+      // replaying this same (frozen) recipe. Cap fan × burst so a multishot
+      // fan × long burst can't flood the arena.
       const maxBurst = Math.max(1, Math.floor(MAX_VOLLEY_BULLETS / Math.max(1, recipe.fanCount)));
-      burst = Math.min(burst, maxBurst);
+      const burst = Math.min(recipe.burstCount, maxBurst);
       this.emitVolley(tank, recipe);
       tank.rapidFireShotsLeft = burst - 1;
-      tank.rapidFireTimer = tank.rapidFireShotsLeft > 0 ? this.adv.rapidFireDelay : 0;
+      tank.rapidFireTimer = tank.rapidFireShotsLeft > 0 ? recipe.burstDelay : 0;
       tank.pendingRecipe = tank.rapidFireShotsLeft > 0 ? recipe : null;
     } else {
       this.emitVolley(tank, recipe);
     }
 
     if (usingWeapon) {
-      // One charge per click per held effect (the burst's deferred shots don't
+      // One charge per click per held effect (deferred beam/burst shots don't
       // re-charge); an effect drops out of the combo when its charges run out.
-      for (const w of combinable) this.consumeCharge(tank, w);
+      for (const w of held) this.consumeCharge(tank, w);
     } else {
       tank.ammo -= 1;
       if (tank.ammo <= 0) tank.reloadTimer = this.adv.reloadSeconds; // forced reload
@@ -875,8 +911,9 @@ export class Game {
   /**
    * Hitscan laser: an instant beam that reflects off walls, accumulating up to
    * this.adv.laserRange total length, damaging each tank it crosses (once).
+   * `blastRadius > 0` (explosive combined) detonates at each tank/wall it hits.
    */
-  private fireLaser(tank: Tank, angle: number): void {
+  private fireLaser(tank: Tank, angle: number, blastRadius = 0): void {
     const STEP = 3;
     let dx = Math.cos(angle);
     let dy = Math.sin(angle);
@@ -894,6 +931,7 @@ export class Game {
         dx = -dx;
         bounces += 1;
         pts.push({ x, y });
+        if (blastRadius > 0) this.explode(x, y, tank.id, blastRadius); // detonate at each reflection
       } else {
         x = nx;
       }
@@ -902,6 +940,7 @@ export class Game {
         dy = -dy;
         bounces += 1;
         pts.push({ x, y });
+        if (blastRadius > 0) this.explode(x, y, tank.id, blastRadius);
       } else {
         y = ny;
       }
@@ -915,6 +954,7 @@ export class Game {
         if (this.isFriendly(tank.id, t)) continue; // teammates only when FF is on
         if ((t.x - x) ** 2 + (t.y - y) ** 2 <= this.adv.tankRadius * this.adv.tankRadius) {
           hit.add(t.id);
+          if (blastRadius > 0) this.explode(t.x, t.y, tank.id, blastRadius); // detonate at the target
           t.hp -= 1;
           if (t.hp <= 0) this.kill(t, tank.id);
         }
@@ -946,8 +986,7 @@ export class Game {
     for (const b of this.bullets) {
       b.life -= dt;
       if (b.life <= 0) {
-        // An explosive round detonates wherever it expires, not just on a wall.
-        if (b.explosive) this.explode(b.x, b.y, b.ownerId);
+        if (b.expiryDetonate) this.explode(b.x, b.y, b.ownerId, b.blastRadius);
         this.bulletPool.release(b);
         continue;
       }
@@ -959,48 +998,40 @@ export class Game {
       const sdt = dt / steps;
       let dead = false;
 
+      const R = this.adv.bulletRadius;
+      const damageWallAt = (x: number, y: number) => {
+        if (!this.cfg.destructibleWalls) return;
+        const w = this.maze.hitWall(x, y, R);
+        if (w) this.maze.damageWall(w, WALL_DAMAGE);
+      };
       for (let s = 0; s < steps && !dead; s++) {
-        // Only a pure sniper round uses the straight-line pierce path. Homing
-        // dominates the movement mode (it needs the steered bounce branch), and
-        // explosive dominates contact (it must detonate, not punch through), so
-        // sniper+tracking and sniper+explosive both fall through to the bounce
-        // branch below — pierce still applies to *tanks* via checkBulletHit.
-        if (b.pierceTanks && !b.homing && !b.explosive) {
-          // Sniper: flies straight through tanks; punches through up to
-          // `wallPierce` walls (-1 = unlimited), then stops. Also dies off-map.
+        // Wall behavior is resolved entirely by the wallContact axis — no weapon
+        // flags here, so any combination behaves the same as the axiom ordering says.
+        if (b.wallContact === "pierce") {
+          // Passes straight through walls, spending its pierce budget per wall
+          // entered; dies when the budget runs out or it leaves the arena.
           b.x += b.vx * sdt;
           b.y += b.vy * sdt;
           if (b.x < 0 || b.y < 0 || b.x > this.maze.width || b.y > this.maze.height) {
             dead = true;
           } else {
-            const inWall = this.circleHitsWall(b.x, b.y, this.adv.bulletRadius);
+            const inWall = this.circleHitsWall(b.x, b.y, R);
             if (inWall && !b.wasInWall) {
-              // Destructible walls: damage on pierce before checking wallPierce.
-              if (this.cfg.destructibleWalls) {
-                const w = this.maze.hitWall(b.x, b.y, this.adv.bulletRadius);
-                if (w) this.maze.damageWall(w, WALL_DAMAGE);
-              }
+              damageWallAt(b.x, b.y);
               if (b.wallPierce <= 0) dead = true;
               else b.wallPierce -= 1;
             }
             b.wasInWall = inWall;
           }
         } else {
-          // Explosive detonates on walls — unless it's also homing, in which
-          // case tracking suppresses wall-detonation so the bomb keeps chasing
-          // (it still explodes on a tank hit or at expiry).
-          const explodeOnWall = b.explosive && !b.homing;
+          const detonate = b.wallContact === "detonate";
           const nx = b.x + b.vx * sdt;
-          if (this.circleHitsWall(nx, b.y, this.adv.bulletRadius)) {
-            if (explodeOnWall) {
-              this.explode(b.x, b.y, b.ownerId);
+          if (this.circleHitsWall(nx, b.y, R)) {
+            if (detonate) {
+              this.explode(b.x, b.y, b.ownerId, b.blastRadius);
               dead = true;
             } else {
-              // Destructible walls: damage on bounce.
-              if (this.cfg.destructibleWalls) {
-                const w = this.maze.hitWall(nx, b.y, this.adv.bulletRadius);
-                if (w) this.maze.damageWall(w, WALL_DAMAGE);
-              }
+              damageWallAt(nx, b.y);
               b.vx = -b.vx;
               if (++b.bounces > b.maxBounces) dead = true;
             }
@@ -1009,15 +1040,12 @@ export class Game {
           }
           if (!dead) {
             const ny = b.y + b.vy * sdt;
-            if (this.circleHitsWall(b.x, ny, this.adv.bulletRadius)) {
-              if (explodeOnWall) {
-                this.explode(b.x, b.y, b.ownerId);
+            if (this.circleHitsWall(b.x, ny, R)) {
+              if (detonate) {
+                this.explode(b.x, b.y, b.ownerId, b.blastRadius);
                 dead = true;
               } else {
-                if (this.cfg.destructibleWalls) {
-                  const w = this.maze.hitWall(b.x, ny, this.adv.bulletRadius);
-                  if (w) this.maze.damageWall(w, WALL_DAMAGE);
-                }
+                damageWallAt(b.x, ny);
                 b.vy = -b.vy;
                 if (++b.bounces > b.maxBounces) dead = true;
               }
@@ -1159,14 +1187,14 @@ export class Game {
   }
 
   /** Area damage from an explosive round; emits a blast for clients to render. */
-  private explode(x: number, y: number, ownerId: string): void {
+  private explode(x: number, y: number, ownerId: string, radius = this.adv.explosionRadius): void {
     this.pendingBlasts.push({ x, y });
     // Destructible walls: AoE damage to nearby walls.
     if (this.cfg.destructibleWalls) {
-      this.maze.damageWallsInRadius(x, y, this.adv.explosionRadius, WALL_EXPLOSION_DAMAGE);
+      this.maze.damageWallsInRadius(x, y, radius, WALL_EXPLOSION_DAMAGE);
     }
     if (this.roundOver) return; // between rounds: blast shows, but no damage
-    const r2 = this.adv.explosionRadius * this.adv.explosionRadius;
+    const r2 = radius * radius;
     for (const tank of this.tanks.values()) {
       if (!tank.alive || tank.shieldTimer > 0) continue;
       if (this.isFriendly(ownerId, tank)) continue;
@@ -1187,19 +1215,20 @@ export class Game {
       if (!tank.alive) continue;
       if (tank.id === b.ownerId && b.bounces === 0) continue; // no point-blank self-hit
       if (this.isFriendly(b.ownerId, tank)) continue; // friendly fire off
-      if (b.pierceTanks && b.hitIds.has(tank.id)) continue; // already pierced this one
+      const pierces = b.tankContact === "pierce";
+      if (pierces && b.hitIds.has(tank.id)) continue; // already pierced this one
       const dx = tank.x - b.x;
       const dy = tank.y - b.y;
       if (dx * dx + dy * dy > rr * rr) continue;
 
-      if (b.explosive) {
-        // Explosive dominates tank contact: detonate rather than pierce.
-        this.explode(b.x, b.y, b.ownerId);
+      // Tank-contact axis: detonate > pierce > consume.
+      if (b.tankContact === "detonate") {
+        this.explode(b.x, b.y, b.ownerId, b.blastRadius);
         return true;
       }
       // Shield blocks the hit (no damage); the round is still stopped/passes.
       if (tank.shieldTimer > 0) {
-        if (b.pierceTanks) {
+        if (pierces) {
           b.hitIds.add(tank.id);
           continue;
         }
@@ -1207,7 +1236,7 @@ export class Game {
       }
       tank.hp -= 1;
       if (tank.hp <= 0) this.kill(tank, b.ownerId);
-      if (b.pierceTanks) {
+      if (pierces) {
         b.hitIds.add(tank.id);
         continue; // a piercing round keeps going
       }
@@ -1279,22 +1308,15 @@ export class Game {
       const wc = tank.weaponCharges;
       const grant = this.cfg.powerupCharges;
       const prev = wc[type] ?? 0;
-      const add = (n: number) => (stack && prev > 0 ? prev + n : n);
-      if (type === "laser") {
-        // Laser is exclusive: it never coexists with other weapon effects.
-        for (const k of Object.keys(wc) as PowerupType[]) delete wc[k];
-        wc.laser = add(grant);
-      } else {
-        // Any other weapon drops a held laser (exclusivity, both directions).
-        delete wc.laser;
-        // Without combining, a different weapon replaces the current one.
-        if (!this.cfg.combineWeapons) {
-          for (const k of Object.keys(wc) as PowerupType[]) {
-            if (k !== type) delete wc[k];
-          }
+      // Without combining, a different weapon replaces the current one (one at a
+      // time). With combining, weapons accumulate into the held set — laser is
+      // now just a member of it (a beam carrier), not an exclusive special case.
+      if (!this.cfg.combineWeapons) {
+        for (const k of Object.keys(wc) as PowerupType[]) {
+          if (k !== type) delete wc[k];
         }
-        wc[type] = add(grant);
       }
+      wc[type] = stack && prev > 0 ? prev + grant : grant;
       return;
     }
     // Buffs run their own composable command (timers/charges).
@@ -2129,9 +2151,10 @@ export class Game {
         x: round(b.x),
         y: round(b.y),
         ownerId: b.ownerId,
+        // Display flags derived from the resolved axes (drive rendering only).
         homing: b.homing,
-        explosive: b.explosive,
-        pierce: b.pierceTanks,
+        explosive: b.blastRadius > 0,
+        pierce: b.wallContact === "pierce" || b.tankContact === "pierce",
       })),
       powerups: this.powerups.map((p) => ({
         id: p.id,

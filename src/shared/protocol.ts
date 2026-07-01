@@ -174,6 +174,33 @@ export interface PowerupConfigField {
 }
 
 /**
+ * A weapon's contribution to the composable per-shot "axes". The server resolver
+ * (game.ts `buildRecipe`) folds these across every held weapon with one combine
+ * rule per axis — so behaviors compose without any per-combination code. Scalar
+ * axes name an AdvancedConfig key (kept host-tunable); enum/flag axes give a value.
+ *   - steer/wallContact/tankContact resolve by a fixed priority order (the axioms).
+ *   - inheritMomentum is AND-ed (any weapon may veto momentum inheritance).
+ *   - carrier "beam" turns the shot into a hitscan laser (honors fan + blast only).
+ */
+export interface WeaponEffect {
+  steer?: "homing";
+  wallContact?: "pierce" | "detonate";
+  tankContact?: "pierce" | "detonate";
+  expiryDetonate?: boolean;
+  inheritMomentum?: false;
+  carrier?: "beam";
+  speedMultKey?: keyof AdvancedConfig;
+  wallPierceKey?: keyof AdvancedConfig;
+  lifetimeKey?: keyof AdvancedConfig;
+  maxBouncesKey?: keyof AdvancedConfig;
+  blastRadiusKey?: keyof AdvancedConfig;
+  fanCountKey?: keyof AdvancedConfig;
+  fanSpreadKey?: keyof AdvancedConfig;
+  burstCountKey?: keyof AdvancedConfig;
+  burstDelayKey?: keyof AdvancedConfig;
+}
+
+/**
  * The single source of truth for every power-up. Adding one here wires it into
  * the spawn pool, the binary protocol, the crate art, the HUD label, the lobby
  * settings editor, and the read-only config panels — all derived from this list
@@ -191,6 +218,8 @@ export interface PowerupDef {
   emblem: string; // glyph drawn on the crate
   color: string; // emblem color
   config: PowerupConfigField[];
+  /** Weapon axis contributions, composed by the server resolver. */
+  effect?: WeaponEffect;
 }
 
 export const POWERUP_DEFS: PowerupDef[] = [
@@ -223,6 +252,13 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "sniperSpeedMult", label: "Sniper ×", min: 1, max: 30, step: 0.5 },
       { key: "sniperWallPierce", label: "Sniper walls", min: 0, max: 20, step: 1, int: true },
     ],
+    effect: {
+      wallContact: "pierce",
+      tankContact: "pierce",
+      inheritMomentum: false,
+      speedMultKey: "sniperSpeedMult",
+      wallPierceKey: "sniperWallPierce",
+    },
   },
   {
     id: "explosive",
@@ -231,6 +267,12 @@ export const POWERUP_DEFS: PowerupDef[] = [
     emblem: "✸",
     color: "#b23b2e",
     config: [{ key: "explosionRadius", label: "Blast radius", min: 10, max: 300, step: 2 }],
+    effect: {
+      wallContact: "detonate",
+      tankContact: "detonate",
+      expiryDetonate: true,
+      blastRadiusKey: "explosionRadius",
+    },
   },
   {
     id: "laser",
@@ -242,6 +284,7 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "laserDelay", label: "Laser windup", min: 0, max: 5, step: 0.1 },
       { key: "laserRange", label: "Laser range", min: 100, max: 5000, step: 50 },
     ],
+    effect: { carrier: "beam" },
   },
   {
     id: "tracking",
@@ -254,6 +297,11 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "trackingLifetime", label: "Track life s", min: 0.5, max: 30, step: 0.5 },
       { key: "trackingBounces", label: "Track bounces", min: 0, max: 50, step: 1, int: true },
     ],
+    effect: {
+      steer: "homing",
+      lifetimeKey: "trackingLifetime",
+      maxBouncesKey: "trackingBounces",
+    },
   },
   {
     id: "multishot",
@@ -265,6 +313,7 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "multishotCount", label: "Pellets", min: 1, max: 24, step: 1, int: true },
       { key: "multishotSpread", label: "Spread °", min: 0, max: 180, step: 5 },
     ],
+    effect: { fanCountKey: "multishotCount", fanSpreadKey: "multishotSpread" },
   },
   {
     id: "rapidfire",
@@ -276,6 +325,7 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "rapidFireCount", label: "Burst shots", min: 1, max: 20, step: 1, int: true },
       { key: "rapidFireDelay", label: "Burst delay s", min: 0.05, max: 1, step: 0.01 },
     ],
+    effect: { burstCountKey: "rapidFireCount", burstDelayKey: "rapidFireDelay" },
   },
   {
     id: "scope",
