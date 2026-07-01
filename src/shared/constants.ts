@@ -81,6 +81,11 @@ export const MULTISHOT_COUNT = 5; // pellets released by a multishot pickup
 export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multishot
 export const RAPIDFIRE_COUNT = 5; // bullets fired per rapid-fire burst
 export const RAPIDFIRE_DELAY = 0.15; // seconds between each burst shot
+// Safety bound on bullets emitted by one trigger pull when effects combine
+// (e.g. multishot fan × rapid-fire burst) so extreme configs can't flood the
+// arena / overrun the 255 wire cap. Rapid-fire burst length is clamped to keep
+// fanCount × burst under this.
+export const MAX_VOLLEY_BULLETS = 60;
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
 export const SCOPE_SECONDS = 10; // duration of the line-of-sight scope buff
 

@@ -364,6 +364,7 @@ export interface GameConfig {
   powerupSpawnCount: number; // crates spawned together each time the spawn cadence ticks (no cap on concurrent crates — despawn bounds them)
   powerupTypes: PowerupType[]; // enabled power-up types to include in the spawn pool
   powerupStacking: boolean; // same-type pickups stack (weapons add charges, buffs add duration) instead of replacing
+  combineWeapons: boolean; // hold multiple weapon effects at once; each shot composes them all (laser stays exclusive)
   tankCollision: boolean; // circle-to-circle pushing (FFA only)
   radar: boolean; // HUD radar that pings nearby tanks (host toggle for all)
 }
@@ -410,6 +411,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   powerupSpawnCount: 1,
   powerupTypes: [...POWERUP_TYPES],
   powerupStacking: true,
+  combineWeapons: false,
   tankCollision: false,
   radar: true,
 };
@@ -536,10 +538,9 @@ export interface TankDTO {
   maxAmmo: number;
   /** Seconds left on a reload, 0 when not reloading. */
   reloadIn: number;
-  /** Active power-up weapon, or null. */
-  weapon: PowerupType | null;
-  /** Charges left on the active weapon (0 for none / speed buff). */
-  weaponCharges: number;
+  /** Charges per held weapon effect (empty when unarmed). Multiple entries when
+   *  combining is on; laser is exclusive (never present alongside others). */
+  weaponCharges: Partial<Record<PowerupType, number>>;
   /** Lives remaining (finite-lives modes, e.g. LMS); 0 when lives are infinite. */
   livesLeft: number;
   /** Whether a speed boost is currently active. */
@@ -561,7 +562,10 @@ export interface BulletDTO {
   x: number;
   y: number;
   ownerId: string;
-  kind: BulletKind;
+  /** Composable effect flags (drive rendering; behavior lives server-side). */
+  homing: boolean;
+  explosive: boolean;
+  pierce: boolean;
   /** Travel direction (radians), filled client-side from interpolation. */
   dir?: number;
 }

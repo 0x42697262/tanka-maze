@@ -1,7 +1,7 @@
 // In-game overlays: kill log, ammo/weapon readout, leaderboard, round badge,
 // series board, and the respawn overlay.
 
-import { powerupDef, type PowerupType } from "../shared/protocol.js";
+import { powerupDef, WEAPON_POWERUPS, type TankDTO } from "../shared/protocol.js";
 import { $, escapeHtml } from "./dom.js";
 import { roundsToWin, standingHtml } from "./labels.js";
 import { renderer, state, TEAM_TINT } from "./state.js";
@@ -55,24 +55,7 @@ export function renderSeriesBoard(): void {
   board.classList.remove("hidden");
 }
 
-export function renderHud(
-  me:
-    | {
-        hp: number;
-        maxHp: number;
-        alive: boolean;
-        ammo: number;
-        maxAmmo: number;
-        reloadIn: number;
-        weapon: string | null;
-        weaponCharges: number;
-        boosted: boolean;
-        shielded: boolean;
-        charging: boolean;
-        scoped: boolean;
-      }
-    | undefined
-): void {
+export function renderHud(me: TankDTO | undefined): void {
   const strip = $("hud-strip");
   if (!me || !state.inGame || !me.alive) {
     strip.classList.add("hidden");
@@ -105,8 +88,12 @@ export function renderHud(
   }
   if (me.reloadIn > 0) ammoHtml += `<span class="reload">reloading ${Math.ceil(me.reloadIn)}s</span>`;
   if (me.charging) ammoHtml += `<span class="weapon laser">charging…</span>`;
-  else if (me.weapon) {
-    ammoHtml += `<span class="weapon">${powerupDef(me.weapon as PowerupType).label} ×${me.weaponCharges}</span>`;
+  else {
+    // One chip per held weapon effect (registry order); several when combining.
+    for (const w of WEAPON_POWERUPS) {
+      const charges = me.weaponCharges[w] ?? 0;
+      if (charges > 0) ammoHtml += `<span class="weapon">${powerupDef(w).label} ×${charges}</span>`;
+    }
   }
   if (me.boosted) ammoHtml += `<span class="weapon boost">» boost</span>`;
   if (me.shielded) ammoHtml += `<span class="weapon shield">◈ shield</span>`;
