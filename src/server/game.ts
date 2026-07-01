@@ -1,4 +1,5 @@
 import {
+  HOMING_GRACE_TANK_WIDTHS,
   MAX_BEAM_BLASTS,
   MAX_BEAM_SEGMENTS,
   MAX_POWERUPS_ON_MAP,
@@ -200,6 +201,8 @@ interface Bullet {
   life: number;
   /** Homing: steers toward the nearest target each step (tracking). */
   homing: boolean;
+  /** Homing: straight-flight distance still owed before steering engages (px). */
+  homingGrace: number;
   /** Passes through tanks (damaging each once) instead of being consumed (sniper). */
   tankPierce: boolean;
   /** Emit a blast at every wall/tank contact and on despawn (explosion). */
@@ -251,6 +254,7 @@ export class Game {
     maxBounces: 0,
     life: 0,
     homing: false,
+    homingGrace: 0,
     tankPierce: false,
     blastOnContact: false,
     blastRadius: 0,
@@ -697,6 +701,7 @@ export class Game {
     bullet.maxBounces = init.maxBounces;
     bullet.life = init.life;
     bullet.homing = init.homing;
+    bullet.homingGrace = init.homingGrace;
     bullet.tankPierce = init.tankPierce;
     bullet.blastOnContact = init.blastOnContact;
     bullet.blastRadius = init.blastRadius;
@@ -790,6 +795,7 @@ export class Game {
       maxBounces: r.maxBounces,
       life: r.life,
       homing: r.homing,
+      homingGrace: r.homing ? HOMING_GRACE_TANK_WIDTHS * (this.adv.tankRadius * 2) : 0,
       tankPierce: r.tankPierce,
       blastOnContact: r.blastOnContact,
       blastRadius: r.blastRadius,
@@ -807,10 +813,14 @@ export class Game {
     const n = Math.max(1, r.fanCount);
     const angleAt = (i: number) => (n > 1 ? a - r.fanSpread / 2 + (r.fanSpread / (n - 1)) * i : a);
     if (r.carrier === "beam") {
-      // Shared budget across the whole volley so a multishot fan of branching beams
-      // still can't overflow the wire's per-list Uint8 length.
-      const budget = { segments: 0, blasts: 0 };
-      for (let i = 0; i < n; i++) this.fireLaser(tank, angleAt(i), r, budget);
+      // Split the wire's segment/blast budget evenly across the fan so every beam
+      // gets drawn — a shared pool would let the first (curving/branching) beams eat
+      // it all and starve the rest. The per-beam totals still sum under the Uint8 cap.
+      const maxSegments = Math.max(8, Math.floor(MAX_BEAM_SEGMENTS / n));
+      const maxBlasts = Math.max(4, Math.floor(MAX_BEAM_BLASTS / n));
+      for (let i = 0; i < n; i++) {
+        this.fireLaser(tank, angleAt(i), r, { segments: 0, blasts: 0, maxSegments, maxBlasts });
+      }
       return;
     }
     for (let i = 0; i < n; i++) this.spawnBullet(tank, angleAt(i), r);
@@ -931,7 +941,7 @@ export class Game {
     tank: Tank,
     angle: number,
     r: Recipe,
-    budget: { segments: number; blasts: number }
+    budget: { segments: number; blasts: number; maxSegments: number; maxBlasts: number }
   ): void {
     const STEP = 3;
     const R = this.adv.bulletRadius;
@@ -939,7 +949,7 @@ export class Game {
     let pierceLeft = r.pierces ? r.wallPierce : 0; // shared across all branches
 
     const blastAt = (x: number, y: number) => {
-      if (!r.blastOnContact || budget.blasts >= MAX_BEAM_BLASTS) return;
+      if (!r.blastOnContact || budget.blasts >= budget.maxBlasts) return;
       budget.blasts += 1;
       this.explode(x, y, tank.id, r.blastRadius);
     };
@@ -966,6 +976,7 @@ export class Game {
       dy: number;
       remaining: number;
       bounces: number;
+      traveled: number; // distance from the muzzle (paces the homing grace)
     }
     const start: Ray = {
       x: tank.x + Math.cos(angle) * (this.adv.tankRadius + 2),
@@ -974,6 +985,7 @@ export class Game {
       dy: Math.sin(angle),
       remaining: this.adv.laserRange,
       bounces: 0,
+      traveled: 0,
     };
     const rays: Ray[] = [start];
 
@@ -982,10 +994,11 @@ export class Game {
     const turnPerStep = this.adv.trackingTurnRate * (STEP / this.adv.bulletSpeed);
     const repathDist = Math.max(this.maze.cell, this.adv.bulletSpeed * TRACKING_REPATH);
     const VERTEX_TURN = 0.15; // emit a polyline vertex once the curve bends this far (rad)
+    const homingGrace = HOMING_GRACE_TANK_WIDTHS * (this.adv.tankRadius * 2); // fly straight first
 
-    while (rays.length > 0 && budget.segments < MAX_BEAM_SEGMENTS) {
+    while (rays.length > 0 && budget.segments < budget.maxSegments) {
       const ray = rays.pop() as Ray;
-      let { x, y, dx, dy, remaining, bounces } = ray;
+      let { x, y, dx, dy, remaining, bounces, traveled } = ray;
       const pts: Array<{ x: number; y: number }> = [{ x, y }];
       let guard = 0;
       // Homing state (per leg): the point to curve toward, a distance accumulator
@@ -995,8 +1008,10 @@ export class Game {
       let lastVertexDir = Math.atan2(dy, dx);
 
       while (remaining > 0 && guard++ < 4000) {
-        // Homing: nudge the heading toward the target waypoint before advancing.
-        if (r.homing) {
+        // Homing: nudge the heading toward the target waypoint before advancing —
+        // but only after a short straight run, so a multishot fan spreads out of the
+        // muzzle before the legs curve in toward the same target (and converge).
+        if (r.homing && traveled >= homingGrace) {
           sinceRepath += STEP;
           if (sinceRepath >= repathDist) {
             sinceRepath = 0;
@@ -1032,7 +1047,7 @@ export class Game {
           const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
           if (t) {
             pierceLeft -= 1;
-            rays.push({ x, y, dx: -dx, dy, remaining, bounces: bounces + 1 });
+            rays.push({ x, y, dx: -dx, dy, remaining, bounces: bounces + 1, traveled });
             x = t.x;
             y = t.y;
             remaining = t.remaining;
@@ -1050,7 +1065,7 @@ export class Game {
           const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
           if (t) {
             pierceLeft -= 1;
-            rays.push({ x, y, dx, dy: -dy, remaining, bounces: bounces + 1 });
+            rays.push({ x, y, dx, dy: -dy, remaining, bounces: bounces + 1, traveled });
             x = t.x;
             y = t.y;
             remaining = t.remaining;
@@ -1063,6 +1078,7 @@ export class Game {
           y = ny;
         }
         remaining -= STEP;
+        traveled += STEP;
         if (x < 0 || y < 0 || x > this.maze.width || y > this.maze.height) break;
 
         for (const t of this.tanks.values()) {
@@ -1096,7 +1112,7 @@ export class Game {
       blastAt(x, y);
 
       // Emit each leg of this ray's path for the client to draw (bounded).
-      for (let i = 0; i < pts.length - 1 && budget.segments < MAX_BEAM_SEGMENTS; i++) {
+      for (let i = 0; i < pts.length - 1 && budget.segments < budget.maxSegments; i++) {
         budget.segments += 1;
         this.pendingBeams.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
       }
@@ -1207,6 +1223,12 @@ export class Game {
    * grid BFS picks the next cell toward the target, and the round curves to it.
    */
   private steerHoming(b: Bullet, dt: number): void {
+    // Fly straight until the grace distance is covered, so a multishot fan spreads
+    // out of the muzzle before its rounds curve in toward the same target.
+    if (b.homingGrace > 0) {
+      b.homingGrace -= Math.hypot(b.vx, b.vy) * dt;
+      return;
+    }
     b.repathIn -= dt;
     if (b.repathIn <= 0 || !b.waypoint) {
       const target = this.nearestTarget(b.x, b.y, b.ownerId);

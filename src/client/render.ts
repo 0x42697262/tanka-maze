@@ -880,6 +880,29 @@ export class Renderer {
     return { x: (tb.x - ta.x) / dt, y: (tb.y - ta.y) / dt };
   }
 
+  /** Laser windup preview: short flickering stub(s) along the aim. Fans into
+   *  several stubs when the tank also holds multishot, mirroring the fired volley's
+   *  spread. Assumes the context is already rotated so the turret aims along +x;
+   *  the caller sets the stroke style / alpha. */
+  private drawWindupStubs(
+    ctx: CanvasRenderingContext2D,
+    r: number,
+    charges: Partial<Record<PowerupType, number>>
+  ): void {
+    const hasMulti = (charges.multishot ?? 0) > 0;
+    const n = hasMulti ? Math.max(1, Math.round(this.scope.multiCount)) : 1;
+    const spread = hasMulti ? (this.scope.multiSpread * Math.PI) / 180 : 0;
+    for (let i = 0; i < n; i++) {
+      const off = n > 1 ? -spread / 2 + (spread / (n - 1)) * i : 0;
+      const c = Math.cos(off);
+      const s = Math.sin(off);
+      ctx.beginPath();
+      ctx.moveTo(c * (r + 4), s * (r + 4));
+      ctx.lineTo(c * (r + 54), s * (r + 54));
+      ctx.stroke();
+    }
+  }
+
   private drawBeams(nowMs: number, fog: FogView | null): void {
     const { ctx } = this;
     this.beams = this.beams.filter((b) => nowMs - b.start < BEAM_MS);
@@ -1656,10 +1679,7 @@ export class Renderer {
         ctx.globalAlpha = 0.4 + 0.3 * Math.sin(nowMs / 60);
         ctx.strokeStyle = "#ff4444";
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(r + 4, 0);
-        ctx.lineTo(r + 54, 0);
-        ctx.stroke();
+        this.drawWindupStubs(ctx, r, t.weaponCharges);
         ctx.restore();
       }
 
@@ -1896,10 +1916,7 @@ export class Renderer {
         ctx.globalAlpha = 0.6 + 0.35 * Math.abs(Math.sin(nowMs / 40));
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(r + 4, 0);
-        ctx.lineTo(r + 54, 0);
-        ctx.stroke();
+        this.drawWindupStubs(ctx, r, t.weaponCharges);
         ctx.restore();
       }
 
@@ -2194,10 +2211,7 @@ export class Renderer {
         ctx.globalAlpha = 0.5 + 0.3 * Math.sin(nowMs / 50);
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(r + 4, 0);
-        ctx.lineTo(r + 54, 0);
-        ctx.stroke();
+        this.drawWindupStubs(ctx, r, t.weaponCharges);
         ctx.restore();
       }
 
@@ -2304,10 +2318,7 @@ export class Renderer {
       ctx.globalAlpha = 0.4 + 0.35 * Math.abs(Math.sin(nowMs / 60));
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(r + 4, 0);
-      ctx.lineTo(r + 54, 0);
-      ctx.stroke();
+      this.drawWindupStubs(ctx, r, t.weaponCharges);
       ctx.globalAlpha = 1;
       ctx.restore();
     }

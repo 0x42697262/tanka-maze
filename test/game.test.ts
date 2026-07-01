@@ -763,6 +763,38 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     assert.ok(bt.hp < 5, "the beam penetrates the walls and strikes the shielded-clear target");
   });
 
+  it("laser + tracking + multishot keeps its fan at the muzzle before the legs curve in", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true, hp: 5 },
+      adv: { laserDelay: 0, multishotCount: 5, multishotSpread: 40 },
+      maze: new Maze(12, 9, "open"),
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    const a = tank(g, "a");
+    const bt = tank(g, "b");
+    a.shieldTimer = 0;
+    bt.shieldTimer = 0;
+    a.x = 150;
+    a.y = 400;
+    a.turretAngle = 0;
+    bt.x = 600; // a target dead ahead for every beam to home toward
+    bt.y = 400;
+    a.weaponCharges = { laser: 1, tracking: 1, multishot: 1 };
+    fire(g, a);
+    const beams = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+    // The launch legs start at the muzzle; their headings should still span the
+    // configured fan (~40°). Without the grace distance every leg would curve onto
+    // the target immediately and the spread would collapse toward zero.
+    const launchAngles = beams
+      .filter((s) => Math.hypot(s.x1 - a.x, s.y1 - a.y) < 20)
+      .map((s) => Math.atan2(s.y2 - s.y1, s.x2 - s.x1));
+    const spread = Math.max(...launchAngles) - Math.min(...launchAngles);
+    assert.ok(spread > (25 * Math.PI) / 180, `fan preserved at the muzzle (spread=${((spread * 180) / Math.PI).toFixed(0)}°)`);
+  });
+
   it("tracking + sniper aims straight while it can pierce, then paths once out of budget", () => {
     const g = makeGame({
       cfg: { combineWeapons: true },
@@ -784,6 +816,7 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     fire(g, a);
     const b = bullets(g)[0];
     assert.ok(b.wallPierce > 0);
+    b.homingGrace = 0; // isolate the steering choice from the straight-flight grace
 
     // With pierce budget left it ignores corridors and steers at the target itself.
     (g as any).steerHoming(b, 1 / 30);

@@ -87,6 +87,10 @@ export const RAPIDFIRE_DELAY = 0.15; // seconds between each burst shot
 // fanCount × burst under this.
 export const MAX_VOLLEY_BULLETS = 60;
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
+// A homing round (tracking bullet or curving laser) flies straight for this many
+// tank widths before its steering engages, so a multishot fan clears the muzzle and
+// spreads before the legs curve toward — and converge on — the same target.
+export const HOMING_GRACE_TANK_WIDTHS = 2;
 export const SCOPE_SECONDS = 10; // duration of the line-of-sight scope buff
 
 // Rounds: a match is "first to N round wins" for any number of sides (the
