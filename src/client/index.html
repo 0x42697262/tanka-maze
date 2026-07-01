@@ -79,6 +79,7 @@
 
           <details class="cfg-sec" open>
             <summary class="cfg-h">Lobby</summary>
+            <h4 class="adv-h">Rules</h4>
             <div class="row">
               <label for="mode">Mode</label>
               <select id="mode">
@@ -137,10 +138,9 @@
               <label for="ctf-respawn-bonus">Respawn +s per death</label>
               <input id="ctf-respawn-bonus" type="number" min="0" max="60" value="3" />
             </div>
-            <div class="row cfg-teams">
-              <label for="team-kill">Team-kill Penalty (pts)</label>
-              <input id="team-kill" type="number" min="0" max="500" value="60" />
-            </div>
+            <!-- CTF scoring lives under Rules (captures/points above), so this
+                 subgroup hides there entirely. -->
+            <h4 class="adv-h cfg-nctf">Scoring</h4>
             <div class="row two cfg-nctf">
               <label for="kill-points">Kill pts</label>
               <input id="kill-points" type="number" min="1" max="500" value="60" />
@@ -151,6 +151,11 @@
               <label for="win-score">Points to win</label>
               <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
             </div>
+            <div class="row cfg-teams">
+              <label for="team-kill">Team-kill Penalty (pts)</label>
+              <input id="team-kill" type="number" min="0" max="500" value="60" />
+            </div>
+            <h4 class="adv-h">Survival</h4>
             <div class="row two">
               <label for="hp">HP</label>
               <input id="hp" type="number" min="1" max="10" value="1" />
@@ -162,6 +167,7 @@
               <input id="cfg-respawn" type="number" min="1" max="10" value="3" />
             </div>
             <!-- Checkboxes grouped at the bottom of the section. -->
+            <h4 class="adv-h">Options</h4>
             <div class="row chk">
               <label for="friendly-fire">Friendly fire</label>
               <input id="friendly-fire" type="checkbox" />
