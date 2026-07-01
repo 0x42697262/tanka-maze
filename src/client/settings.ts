@@ -53,6 +53,18 @@ export function buildPowerupAdvInputs(): void {
     .join("");
 }
 
+/**
+ * Generate the spawn-type toggle checkboxes from the registry, so a new
+ * power-up appears automatically (ids are `pup-<id>`, matching the
+ * gatherConfig / applyConfigToControls loops over POWERUP_TYPES). Default
+ * checked, mirroring DEFAULT_GAME_CONFIG.powerupTypes (all enabled).
+ */
+export function buildPowerupTypeToggles(): void {
+  $("pup-types").innerHTML = POWERUP_DEFS.map(
+    (def) => `<label><input type="checkbox" id="pup-${def.id}" checked /> ${def.label}</label>`
+  ).join("");
+}
+
 export function gatherAdvanced(): AdvancedConfig {
   const d = DEFAULT_GAME_CONFIG.adv;
   const out = {} as AdvancedConfig;

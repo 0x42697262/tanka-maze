@@ -62,6 +62,11 @@ export const BULLET_LIFETIME = 5; // seconds
 
 // Power-ups
 export const POWERUP_RADIUS = 12;
+// Hard ceiling on concurrent crates. Not a gameplay cap (hosts tune spawn count
+// / despawn freely) but a protocol-safety limit: the binary snapshot encodes the
+// crate-list length in a single byte, so the population must never exceed 255 or
+// the count wraps and the stream desyncs. 255 is far above any playable density.
+export const MAX_POWERUPS_ON_MAP = 255;
 export const SPEED_BOOST_MULT = 1.6;
 export const SPEED_BOOST_SECONDS = 6;
 export const SHIELD_SECONDS = 6; // invulnerability duration from a shield pickup

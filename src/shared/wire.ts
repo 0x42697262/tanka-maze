@@ -166,8 +166,10 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint8(o++, ownerIndex.get(b.ownerId) ?? 255);
   }
 
-  dv.setUint8(o++, s.powerups.length);
-  for (const p of s.powerups) {
+  const powerupCount = Math.min(255, s.powerups.length);
+  dv.setUint8(o++, powerupCount);
+  for (let pi = 0; pi < powerupCount; pi++) {
+    const p = s.powerups[pi];
     dv.setUint8(o++, pupCode(p.type));
     dv.setUint16(o, u16(p.x), true);
     o += 2;
@@ -297,8 +299,10 @@ function encodeSnapshotTail(dv: DataView, offset: number, s: SnapshotDTO): numbe
     dv.setUint8(o++, ownerIndex.get(b.ownerId) ?? 255);
   }
 
-  dv.setUint8(o++, s.powerups.length);
-  for (const p of s.powerups) {
+  const powerupCount = Math.min(255, s.powerups.length);
+  dv.setUint8(o++, powerupCount);
+  for (let pi = 0; pi < powerupCount; pi++) {
+    const p = s.powerups[pi];
     dv.setUint8(o++, pupCode(p.type));
     dv.setUint16(o, u16(p.x), true);
     o += 2;

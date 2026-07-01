@@ -292,10 +292,19 @@ export class Renderer {
           // Play firing sound if ammo dropped, or if they reloaded and fired in the same snapshot
           const firedNormal = t.ammo < prev.ammo || (prev.ammo === 0 && t.ammo > 0 && t.ammo < t.maxAmmo);
           const firedSpecial = !t.charging && t.weaponCharges < prev.weaponCharges && prev.weaponCharges > 0;
-          const rapidFireRate = prev.weapon === "rapidfire" ? RAPIDFIRE_PEW_RATE : 1.0;
+          const isRapid = prev.weapon === "rapidfire";
+          const rapidFireRate = isRapid ? RAPIDFIRE_PEW_RATE : 1.0;
 
           if (firedNormal || firedSpecial) {
             playSfx("pew", 0.3, rapidFireRate);
+            // A rapid-fire click can share a frame with its first scheduled
+            // shot(s) when the delay is shorter than the snapshot interval; sound
+            // those extras too. (Multishot fires one logical volley, so its extra
+            // pellets are intentionally left as a single pew.)
+            if (isRapid) {
+              const extra = (newBulletsByOwner.get(t.id) ?? 0) - 1;
+              for (let i = 0; i < extra; i++) playSfx("pew", 0.3, RAPIDFIRE_PEW_RATE);
+            }
           } else {
             // A scheduled rapid-fire shot: a new bullet appeared for this tank
             // with no ammo/charge change to explain it (see newBulletsByOwner).

@@ -1,4 +1,5 @@
 import {
+  MAX_POWERUPS_ON_MAP,
   POWERUP_RADIUS,
   FLAG_STEAL_COOLDOWN,
   HAZARD_DAMAGE,
@@ -1171,16 +1172,26 @@ export class Game {
     if (this.powerupTimer <= 0) {
       this.powerupTimer = this.cfg.powerupEverySeconds;
       const types = this.cfg.powerupTypes;
-      for (let i = 0; i < this.cfg.powerupSpawnCount && types.length > 0 && this.spawns.length > 0; i++) {
-        const type = types[Math.floor(Math.random() * types.length)];
-        const cell = this.spawns[Math.floor(Math.random() * this.spawns.length)];
-        this.powerups.push({
-          id: this.nextPowerupId++,
-          type,
-          x: cell.x,
-          y: cell.y,
-          ttl: this.cfg.powerupDespawnSeconds * this.powerupDespawnMult,
-        });
+      if (types.length > 0 && this.spawns.length > 0) {
+        // Draw distinct cells for this batch so crates don't stack invisibly on
+        // one tile (only wraps if a batch outnumbers the open cells). Population
+        // is capped at the protocol ceiling (see MAX_POWERUPS_ON_MAP).
+        const cells = shuffle([...this.spawns]);
+        for (
+          let i = 0;
+          i < this.cfg.powerupSpawnCount && this.powerups.length < MAX_POWERUPS_ON_MAP;
+          i++
+        ) {
+          const type = types[Math.floor(Math.random() * types.length)];
+          const cell = cells[i % cells.length];
+          this.powerups.push({
+            id: this.nextPowerupId++,
+            type,
+            x: cell.x,
+            y: cell.y,
+            ttl: this.cfg.powerupDespawnSeconds * this.powerupDespawnMult,
+          });
+        }
       }
     }
 

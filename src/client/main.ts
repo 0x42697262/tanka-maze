@@ -34,6 +34,7 @@ import {
   applyConfigToControls,
   applyMoveSetting,
   buildPowerupAdvInputs,
+  buildPowerupTypeToggles,
   gatherConfig,
 } from "./settings.js";
 import {
@@ -266,6 +267,7 @@ $("start").onclick = () => net.send({ type: "startGame" });
 
 // In-lobby game settings (host).
 buildPowerupAdvInputs();
+buildPowerupTypeToggles();
 applyConfigToControls(DEFAULT_GAME_CONFIG, 8);
 $("lobby-config").addEventListener("change", (e) => {
   if (!state.currentLobby || state.currentLobby.hostId !== state.playerId) return;
