@@ -116,7 +116,7 @@ export const LASER_RANGE = 15 * CELL;
 // transmitted leg), so a single trigger can spawn a tree of segments and blasts.
 // These cap the tree so its segment/blast lists stay well under the wire's per-list
 // Uint8 length (255) and the sim can't be flooded by an extreme pierce budget.
-export const MAX_BEAM_SEGMENTS = 96;
+export const MAX_BEAM_SEGMENTS = 160;
 export const MAX_BEAM_BLASTS = 96;
 
 // Fog of war: non-wall visuals are clipped to the local/team sight area.

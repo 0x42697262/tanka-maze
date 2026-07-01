@@ -995,6 +995,10 @@ export class Game {
     const repathDist = Math.max(this.maze.cell, this.adv.bulletSpeed * TRACKING_REPATH);
     const VERTEX_TURN = 0.15; // emit a polyline vertex once the curve bends this far (rad)
     const homingGrace = HOMING_GRACE_TANK_WIDTHS * (this.adv.tankRadius * 2); // fly straight first
+    // Cap how many segments any single leg may draw, so the main pierce leg's long
+    // return-bouncing can't hog a beam's budget and starve the reflect branches —
+    // that lets every beam of a multishot fan show its bounces (not just the center).
+    const perRayCap = Math.max(16, Math.floor(budget.maxSegments / 3));
 
     while (rays.length > 0 && budget.segments < budget.maxSegments) {
       const ray = rays.pop() as Ray;
@@ -1036,29 +1040,23 @@ export class Game {
         }
 
         // Wall contact: blast, spawn both legs (reflect + pierce-through, when the
-        // budget allows), and pick which one *continues* as this ray. Both legs
-        // always exist; only the main leg differs:
-        //   - homing → the pierce-through is main, so the shot drives its budget
-        //     forward toward the target (a reflected main would curve back and waste
-        //     the shared pierce budget before the forward leg is processed);
-        //   - plain → the reflection is main, so a beam's natural bounce stays the
-        //     prominent, first-emitted path even when a multishot fan truncates each
-        //     beam's segment budget; penetration spins off as the branch.
+        // budget allows), and continue as the pierce-through (main leg) while
+        // spinning the bounce off as a branch. Keeping the penetration as the main
+        // leg spends the shared pierce budget on forward progress first, so the beam
+        // drives its full sniper depth through wall after wall (a reflected main leg
+        // would bounce around and drain the budget before the forward leg used it).
+        // The reflect branches still draw the beam's bounces (see the per-ray cap).
         const nx = x + dx * STEP;
         if (this.circleHitsWall(nx, y, R)) {
           blastAt(x, y);
           const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
-          if (r.homing && t) {
+          if (t) {
             pierceLeft -= 1;
             rays.push({ x, y, dx: -dx, dy, remaining, bounces: bounces + 1, traveled });
             x = t.x;
             y = t.y;
             remaining = t.remaining;
           } else {
-            if (t) {
-              pierceLeft -= 1;
-              rays.push({ ...t, bounces, traveled });
-            }
             dx = -dx;
             bounces += 1;
           }
@@ -1070,17 +1068,13 @@ export class Game {
         if (this.circleHitsWall(x, ny, R)) {
           blastAt(x, y);
           const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
-          if (r.homing && t) {
+          if (t) {
             pierceLeft -= 1;
             rays.push({ x, y, dx, dy: -dy, remaining, bounces: bounces + 1, traveled });
             x = t.x;
             y = t.y;
             remaining = t.remaining;
           } else {
-            if (t) {
-              pierceLeft -= 1;
-              rays.push({ ...t, bounces, traveled });
-            }
             dy = -dy;
             bounces += 1;
           }
@@ -1123,7 +1117,7 @@ export class Game {
       blastAt(x, y);
 
       // Emit each leg of this ray's path for the client to draw (bounded).
-      for (let i = 0; i < pts.length - 1 && budget.segments < budget.maxSegments; i++) {
+      for (let i = 0; i < pts.length - 1 && i < perRayCap && budget.segments < budget.maxSegments; i++) {
         budget.segments += 1;
         this.pendingBeams.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
       }

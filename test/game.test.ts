@@ -8,7 +8,7 @@ import {
   type InputState,
 } from "../src/shared/protocol.js";
 import { Game } from "../src/server/game.js";
-import { HAZARD_ZONE_FRACTION, TEAMKILL_STREAK_WINDOW, WALL_REGEN_SECONDS } from "../src/shared/constants.js";
+import { HAZARD_ZONE_FRACTION, MAX_BEAM_BLASTS, MAX_BEAM_SEGMENTS, TEAMKILL_STREAK_WINDOW, WALL_REGEN_SECONDS } from "../src/shared/constants.js";
 import { Maze } from "../src/server/maze.js";
 
 // Deterministic RNG for this file. The sim's spawn/hazard placement uses
@@ -795,32 +795,65 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     assert.ok(spread > (25 * Math.PI) / 180, `fan preserved at the muzzle (spread=${((spread * 180) / Math.PI).toFixed(0)}°)`);
   });
 
-  it("a plain (non-homing) sniper beam reflects off the interior wall as its main leg, and still transmits", () => {
+  it("laser + sniper drives its full pierce depth straight through a row of walls", () => {
     const g = makeGame({
       cfg: { combineWeapons: true },
-      adv: { laserDelay: 0, sniperWallPierce: 3 },
+      adv: { laserDelay: 0, sniperWallPierce: 10 },
       maze: new Maze(12, 9, "open"),
       players: [{ id: "a", name: "A" }],
     });
-    (g as any).maze.walls.push({ x1: 400, y1: 150, x2: 400, y2: 650, hp: Infinity, maxHp: Infinity });
+    for (const wx of [300, 400, 500, 600, 700, 800]) {
+      (g as any).maze.walls.push({ x1: wx, y1: 150, x2: wx, y2: 650, hp: Infinity, maxHp: Infinity });
+    }
     const a = tank(g, "a");
     a.x = 150;
-    a.y = 350;
+    a.y = 400;
     a.turretAngle = 0;
     a.weaponCharges = { laser: 1, sniper: 1 };
     fire(g, a);
     const beams = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
-    // The main leg is emitted first; for a plain beam it reflects at the interior
-    // wall (~x=400). If penetration were the main leg it would drive straight to the
-    // far border and only reflect there — so the first leftward segment tells them apart.
-    const firstLeftward = beams.find((s) => s.x2 < s.x1 - 1);
-    assert.ok(firstLeftward, "the beam reflects somewhere");
-    assert.ok(
-      firstLeftward!.x1 < 700,
-      `main leg reflects at the interior wall, not the border (x=${firstLeftward!.x1.toFixed(0)})`
-    );
-    // Penetration still composes: a transmit branch crosses to the far side of the wall.
-    assert.ok(Math.max(...beams.flatMap((s) => [s.x1, s.x2])) > 500, "a transmit branch crosses the wall");
+    // Pierce budget 10 must punch straight through all six walls — the reflected legs
+    // must not steal the shared budget (which would stall it after the first wall).
+    const maxX = Math.max(...beams.flatMap((s) => [s.x1, s.x2]));
+    assert.ok(maxX > 820, `beam penetrates the whole row (maxX=${maxX.toFixed(0)})`);
+  });
+
+  it("laser + sniper + multishot: every beam shows its reflections, not just the center", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0, multishotCount: 5, multishotSpread: 26 },
+      maze: new Maze(12, 9, "open"),
+      players: [{ id: "a", name: "A" }],
+    });
+    for (const wx of [360, 500, 640, 780]) {
+      (g as any).maze.walls.push({ x1: wx, y1: 120, x2: wx, y2: 680, hp: Infinity, maxHp: Infinity });
+    }
+    const a = tank(g, "a");
+    a.x = 120;
+    a.y = 400;
+    a.turretAngle = 0;
+    const W = (g as any).maze.width;
+    const H = (g as any).maze.height;
+    const onBorder = (x: number, y: number) => x < 8 || y < 8 || x > W - 8 || y > H - 8;
+    const r = (g as any).buildRecipe(["laser", "sniper", "multishot"]);
+    const n = r.fanCount;
+    const angleAt = (i: number) => a.turretAngle - r.fanSpread / 2 + (r.fanSpread / (n - 1)) * i;
+    const maxSegments = Math.max(8, Math.floor(MAX_BEAM_SEGMENTS / n));
+    // Fire each fan beam with its own budget (as emitVolley does). The per-ray cap
+    // keeps the main pierce leg from hogging the budget, so each beam's reflect
+    // branches draw — every beam reflects inside the maze, not only the center.
+    for (let i = 0; i < n; i++) {
+      (g as any).pendingBeams = [];
+      (g as any).fireLaser(a, angleAt(i), r, { segments: 0, blasts: 0, maxSegments, maxBlasts: 20 });
+      const segs = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+      let interiorReflects = 0;
+      for (let k = 1; k < segs.length; k++) {
+        const p = segs[k - 1];
+        const q = segs[k];
+        if ((p.x2 - p.x1) * (q.x2 - q.x1) < 0 && !onBorder(q.x1, q.y1)) interiorReflects++;
+      }
+      assert.ok(interiorReflects >= 4, `beam ${i} reflects inside the maze (interior=${interiorReflects})`);
+    }
   });
 
   it("tracking + sniper aims straight while it can pierce, then paths once out of budget", () => {
@@ -873,8 +906,8 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     a.turretAngle = 0;
     a.weaponCharges = { laser: 1, sniper: 1, explosive: 1 };
     fire(g, a);
-    assert.ok((g as any).pendingBeams.length <= 96, "segments capped");
-    assert.ok((g as any).pendingBlasts.length <= 96, "blasts capped");
+    assert.ok((g as any).pendingBeams.length <= MAX_BEAM_SEGMENTS, "segments capped");
+    assert.ok((g as any).pendingBlasts.length <= MAX_BEAM_BLASTS, "blasts capped");
   });
 });
 
