@@ -319,8 +319,9 @@ hr.rule {
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-wrap: wrap; /* slider drops to its own line instead of overflowing */
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
 }
 /* Pill-style value field with − / + steppers; native spinners hidden. */
 .num-field {
@@ -1575,6 +1576,15 @@ kbd {
 #pause-host #lobby-config .row,
 #pause-host #lobby-config .toggle-list {
   break-inside: avoid;
+}
+/* The columns are narrow (240px): paired value rows go one-per-line, and every
+   slider takes a full-width line of its own so nothing bleeds into the
+   neighboring column (multicol overflow is not clipped). */
+#pause-host #lobby-config .row.two {
+  grid-template-columns: auto 1fr;
+}
+#pause-host #lobby-config .num-combo input[type="range"] {
+  flex: 1 1 100%;
 }
 /* Advanced section spans the full width and flows in its own columns. */
 #pause-host #lobby-config #adv-sec {
