@@ -111,6 +111,8 @@ export class Renderer {
   // Last seen state per tank, to detect deaths and spawn explosions.
   private lastTankState = new Map<string, { x: number; y: number; alive: boolean; hp: number; color: string; ammo: number; weaponChargeSum: number; hadRapid: boolean; reloadIn: number; boosted: boolean; shielded: boolean; scoped: boolean }>();
   private lastPowerups = new Map<number, PowerupDTO>();
+  private brickPattern: CanvasPattern | null = null;
+  private steelPattern: CanvasPattern | null = null;
   // Bullet ids seen last frame, to detect rapid-fire's scheduled shots — they
   // add a bullet without changing ammo/weaponCharges (only the initiating
   // click does), so the ammo/charge-delta check below can't see them.
@@ -399,8 +401,18 @@ export class Renderer {
       const tankColors = new Map(interp.tanks.map((t) => [t.id, t.color]));
       for (const b of interp.bullets) {
         if (fog && !this.isPointVisible(b.x, b.y, fog)) continue;
+        // Radius derives from the composed effect flags (beta's axis model); the
+        // fill honors the active visual theme, else the owner's tint.
         const rad = Math.max(1, this.bulletR + bulletDr(b));
-        ctx.fillStyle = bulletColor(tankColors.get(b.ownerId));
+        if (state.realisticEnabled) {
+          ctx.fillStyle = "#3a3a2a"; // Dark olive tracer rounds
+        } else if (state.modernEnabled) {
+          ctx.fillStyle = "#00f8f8"; // Glowing cyan plasma bullets
+        } else if (state.battleCityEnabled) {
+          ctx.fillStyle = "#f8f8f8"; // High-visibility retro white bullets
+        } else {
+          ctx.fillStyle = bulletColor(tankColors.get(b.ownerId));
+        }
         if (b.homing) {
           // Triangle pointing in the travel direction.
           ctx.save();
@@ -616,7 +628,7 @@ export class Renderer {
    * calls stay in maze/world coordinates through the canvas transform. Input code
    * reads the stored world size so mouse aiming is not multiplied by DPR.
    */
-  private resizeDrawingBuffer(worldWidth: number, worldHeight: number): void {
+  public resizeDrawingBuffer(worldWidth: number, worldHeight: number): void {
     this.worldWidth = worldWidth;
     this.worldHeight = worldHeight;
     this.dpr = this.currentDpr();
@@ -628,6 +640,7 @@ export class Renderer {
   }
 
   private currentDpr(): number {
+    if (state.retroEnabled) return 0.25;
     return Math.max(1, Math.min(this.maxDpr, window.devicePixelRatio || 1));
   }
 
@@ -907,33 +920,120 @@ export class Renderer {
       const def = powerupDef(p.type);
       const s = POWERUP_RADIUS;
       ctx.save();
-      ctx.translate(p.x, p.y + bob);
+      
+      if (state.battleCityEnabled) {
+        // Battle City 8-bit retro powerup box (pulsing pixelated style)
+        ctx.translate(p.x, p.y + (Math.floor(nowMs / 180) % 2) * 1.5);
+        const flash = Math.floor(nowMs / 120) % 2 === 0;
+        ctx.fillStyle = flash ? "#f8b800" : "#d80000";
+        ctx.fillRect(-s, -s, s * 2, s * 2);
+        
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-s + 1, -s + 1, s * 2 - 2, s * 2 - 2);
+        
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 16px 'VT323', monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(def.emblem.substring(0, 1).toUpperCase(), 0, 0);
+      } else if (state.modernEnabled) {
+        // Modern 4K glowing holographic projection
+        ctx.translate(p.x, p.y + bob * 2.0);
+        
+        // Ground shadow/ripple
+        ctx.beginPath();
+        ctx.arc(0, s * 1.2 - bob, s * 1.2, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0, 248, 248, 0.12)";
+        ctx.fill();
+        
+        // Hologram base ring
+        ctx.strokeStyle = "rgba(0, 248, 248, 0.4)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(0, s * 1.1, s * 0.9, 0, Math.PI * 2);
+        ctx.stroke();
 
-      // Wooden crate body.
-      ctx.fillStyle = "#c79a5b";
-      ctx.fillRect(-s, -s, s * 2, s * 2);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "#6e4a1e";
-      ctx.strokeRect(-s, -s, s * 2, s * 2);
-      // Plank bracing.
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "rgba(110,74,30,0.7)";
-      ctx.beginPath();
-      ctx.moveTo(-s, -s);
-      ctx.lineTo(s, s);
-      ctx.moveTo(s, -s);
-      ctx.lineTo(-s, s);
-      ctx.stroke();
+        // Glowing core
+        const grad = ctx.createRadialGradient(0, 0, 1, 0, 0, s * 1.3);
+        grad.addColorStop(0, "rgba(0, 248, 248, 0.5)");
+        grad.addColorStop(0.5, "rgba(0, 248, 248, 0.2)");
+        grad.addColorStop(1, "rgba(0, 248, 248, 0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, s * 1.3, 0, Math.PI * 2);
+        ctx.fill();
 
-      // Power-up emblem.
-      ctx.fillStyle = def.color;
-      ctx.font = "bold 14px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.strokeStyle = "rgba(27,22,16,0.85)";
-      ctx.lineWidth = 3;
-      ctx.strokeText(def.emblem, 0, 1);
-      ctx.fillText(def.emblem, 0, 1);
+        // Neon bounds ring
+        ctx.strokeStyle = def.color;
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(0, 0, s, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0; // reset
+
+        // Float emblem
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 13px 'Orbitron', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(def.emblem, 0, 0);
+      } else if (state.realisticEnabled) {
+        // Realistic military supply crate (olive drab metal box with stenciling)
+        ctx.translate(p.x, p.y + bob * 0.5);
+        ctx.fillStyle = "#3e4830"; // Army olive drab
+        ctx.fillRect(-s, -s, s * 2, s * 2);
+        
+        ctx.strokeStyle = "#252b1b"; // Dark metal borders
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-s, -s, s * 2, s * 2);
+        
+        // Stencil warning stripes
+        ctx.fillStyle = "#b8860b"; // Warning yellow-green
+        ctx.fillRect(-s + 1, -s + 1, 4, 3);
+        ctx.fillRect(s - 5, -s + 1, 4, 3);
+
+        // Supply star emblem
+        ctx.strokeStyle = "rgba(221, 232, 192, 0.85)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        // Simple star outline
+        ctx.arc(0, 0, s * 0.45, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        ctx.fillStyle = "rgba(221, 232, 192, 0.85)";
+        ctx.font = "bold 11px 'Courier New', monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(def.emblem, 0, 0.5);
+      } else {
+        // Default paper style crate
+        ctx.translate(p.x, p.y + bob);
+        ctx.fillStyle = "#c79a5b";
+        ctx.fillRect(-s, -s, s * 2, s * 2);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#6e4a1e";
+        ctx.strokeRect(-s, -s, s * 2, s * 2);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(110,74,30,0.7)";
+        ctx.beginPath();
+        ctx.moveTo(-s, -s);
+        ctx.lineTo(s, s);
+        ctx.moveTo(s, -s);
+        ctx.lineTo(-s, s);
+        ctx.stroke();
+
+        ctx.fillStyle = def.color;
+        ctx.font = "bold 14px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.strokeStyle = "rgba(27,22,16,0.85)";
+        ctx.lineWidth = 3;
+        ctx.strokeText(def.emblem, 0, 1);
+        ctx.fillText(def.emblem, 0, 1);
+      }
       ctx.restore();
     }
     ctx.textBaseline = "alphabetic";
@@ -1090,10 +1190,95 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
+  private initPatterns(): void {
+    if (this.brickPattern && this.steelPattern) return;
+    const { ctx } = this;
+    
+    // Create brick canvas (8x8 pixels)
+    const bCanvas = document.createElement("canvas");
+    bCanvas.width = 8;
+    bCanvas.height = 8;
+    const bCtx = bCanvas.getContext("2d")!;
+    bCtx.fillStyle = "#a83800"; // Red-brown bricks
+    bCtx.fillRect(0, 0, 8, 8);
+    bCtx.fillStyle = "#f8b800"; // Retro yellowish-orange mortar
+    bCtx.fillRect(0, 7, 8, 1);
+    bCtx.fillRect(7, 0, 1, 8);
+    bCtx.fillRect(3, 0, 1, 4);
+    this.brickPattern = ctx.createPattern(bCanvas, "repeat");
+    
+    // Create steel canvas (16x16 pixels)
+    const sCanvas = document.createElement("canvas");
+    sCanvas.width = 16;
+    sCanvas.height = 16;
+    const sCtx = sCanvas.getContext("2d")!;
+    sCtx.fillStyle = "#b8b8b8"; // Light grey steel blocks
+    sCtx.fillRect(0, 0, 16, 16);
+    sCtx.fillStyle = "#ffffff"; // Highlights
+    sCtx.fillRect(0, 0, 16, 1);
+    sCtx.fillRect(0, 0, 1, 16);
+    sCtx.fillStyle = "#000000"; // Shadows
+    sCtx.fillRect(0, 15, 16, 1);
+    sCtx.fillRect(15, 0, 1, 16);
+    sCtx.fillStyle = "#808080"; // Inset grey
+    sCtx.fillRect(2, 2, 12, 12);
+    sCtx.fillStyle = "#b8b8b8";
+    sCtx.fillRect(4, 4, 8, 8);
+    this.steelPattern = ctx.createPattern(sCanvas, "repeat");
+  }
+
   private drawFloor(maze: MazeDTO): void {
     const { ctx } = this;
-    // Parchment arena floor.
-    ctx.fillStyle = "#e7d9b8";
+    if (state.realisticEnabled) {
+      // Sandy terrain base
+      ctx.fillStyle = "#8b7d5e";
+      ctx.fillRect(0, 0, maze.width, maze.height);
+      
+      // Subtle terrain noise overlay with darker splotches
+      ctx.save();
+      ctx.globalAlpha = 0.06;
+      const patchSize = 48;
+      for (let x = 0; x < maze.width; x += patchSize) {
+        for (let y = 0; y < maze.height; y += patchSize) {
+          const v = ((x * 7 + y * 13) % 37) / 37;
+          const shade = Math.floor(v * 40) - 20;
+          const r = 139 + shade, g = 125 + shade, b = 94 + shade;
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(x, y, patchSize, patchSize);
+        }
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (state.modernEnabled) {
+      ctx.fillStyle = "#090d16"; // Modern slate background
+      ctx.fillRect(0, 0, maze.width, maze.height);
+      
+      // Draw glowing cybernetic floor grid
+      ctx.save();
+      ctx.strokeStyle = "rgba(0, 248, 248, 0.04)";
+      ctx.lineWidth = 1;
+      const gridSize = 64;
+      ctx.beginPath();
+      for (let x = 0; x < maze.width; x += gridSize) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, maze.height);
+      }
+      for (let y = 0; y < maze.height; y += gridSize) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(maze.width, y);
+      }
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    if (state.battleCityEnabled) {
+      ctx.fillStyle = "#000000"; // Pitch black Battle City background
+    } else {
+      ctx.fillStyle = "#e7d9b8";
+    }
     ctx.fillRect(0, 0, maze.width, maze.height);
   }
 
@@ -1133,8 +1318,101 @@ export class Renderer {
 
   private drawWalls(maze: MazeDTO): void {
     const { ctx } = this;
-    // Build the wall path once. Destructible walls look identical whether full or
-    // damaged — only a fully destroyed wall (hp <= 0) vanishes from the draw.
+    if (state.realisticEnabled) {
+      // Concrete barrier walls with shadow depth effect
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      
+      // Shadow pass underneath
+      ctx.beginPath();
+      for (let i = 0; i < maze.walls.length; i++) {
+        if (this.destructibleWalls && this.wallHp[i] <= 0) continue;
+        const w = maze.walls[i];
+        ctx.moveTo(w.x1 + 2, w.y1 + 2);
+        ctx.lineTo(w.x2 + 2, w.y2 + 2);
+      }
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
+      ctx.lineWidth = maze.thickness + 2;
+      ctx.stroke();
+      
+      // Main concrete wall
+      ctx.beginPath();
+      for (let i = 0; i < maze.walls.length; i++) {
+        if (this.destructibleWalls && this.wallHp[i] <= 0) continue;
+        const w = maze.walls[i];
+        ctx.moveTo(w.x1, w.y1);
+        ctx.lineTo(w.x2, w.y2);
+      }
+      ctx.strokeStyle = "#5a5a50";
+      ctx.lineWidth = maze.thickness;
+      ctx.stroke();
+      
+      // Highlight edge on top
+      ctx.strokeStyle = "rgba(180, 175, 160, 0.3)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      ctx.restore();
+      return;
+    }
+
+    if (state.modernEnabled) {
+      // Draw futuristic glowing neon borders!
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      
+      // Pass 1: Soft outer neon bloom
+      ctx.beginPath();
+      for (let i = 0; i < maze.walls.length; i++) {
+        if (this.destructibleWalls && this.wallHp[i] <= 0) continue;
+        const w = maze.walls[i];
+        ctx.moveTo(w.x1, w.y1);
+        ctx.lineTo(w.x2, w.y2);
+      }
+      ctx.strokeStyle = "rgba(0, 248, 248, 0.15)";
+      ctx.lineWidth = maze.thickness + 6;
+      ctx.stroke();
+
+      // Pass 2: Secondary core glow
+      ctx.strokeStyle = "rgba(0, 248, 248, 0.4)";
+      ctx.lineWidth = maze.thickness + 2;
+      ctx.stroke();
+
+      // Pass 3: Bright white center wire
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.restore();
+      return;
+    }
+
+    if (state.battleCityEnabled) {
+      this.initPatterns();
+      for (let i = 0; i < maze.walls.length; i++) {
+        if (this.destructibleWalls && this.wallHp[i] <= 0) continue;
+        const w = maze.walls[i];
+        
+        // Boundaries are steel, interior walls are destructible bricks
+        const isBorder = w.x1 === 0 || w.y1 === 0 || w.x2 === maze.width || w.y2 === maze.height;
+        const isDestructible = this.destructibleWalls && !isBorder;
+        
+        ctx.fillStyle = (isDestructible ? this.brickPattern : this.steelPattern) || "#352f25";
+        
+        // Fill rectangles for clean alignment of repeating pixel patterns
+        const thickness = maze.thickness;
+        const x = Math.min(w.x1, w.x2) - thickness / 2;
+        const y = Math.min(w.y1, w.y2) - thickness / 2;
+        const width = Math.abs(w.x2 - w.x1) + thickness;
+        const height = Math.abs(w.y2 - w.y1) + thickness;
+        ctx.fillRect(x, y, width, height);
+      }
+      return;
+    }
+
+    // Default Tanka Maze wall drawing code:
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
@@ -1144,14 +1422,9 @@ export class Renderer {
       ctx.moveTo(w.x1, w.y1);
       ctx.lineTo(w.x2, w.y2);
     }
-    // Light halo under the ink so a wall stays legible where it sits in the dark
-    // fog wash — otherwise an occluding wall is dark-on-dark and the shadow it
-    // casts looks like open space that's inexplicably fogged. The halo blends
-    // into the light floor, so lit walls are unaffected.
     ctx.strokeStyle = "rgba(228,214,176,0.5)";
     ctx.lineWidth = maze.thickness + 3;
     ctx.stroke();
-    // Inked wall line.
     ctx.strokeStyle = "#352f25";
     ctx.lineWidth = maze.thickness;
     ctx.stroke();
@@ -1174,6 +1447,802 @@ export class Renderer {
     ctx.translate(t.x, t.y);
     ctx.globalAlpha = t.alive ? 1 : 0.25;
 
+    const r = this.tankR;
+
+    if (state.realisticEnabled) {
+      // Local-player subtle ground shadow marker
+      if (isLocal && t.alive) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 6, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0, 0, 0, 0.12)";
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.save();
+      ctx.rotate(t.bodyAngle);
+      
+      // Realistic military olive/tan colors
+      let hullColor = "#4a5a3c"; // Enemy: olive drab
+      let darkColor = "#3a4a2c";
+      if (isLocal) {
+        hullColor = "#5b6b32"; // Player: woodland green
+        darkColor = "#4a5a28";
+      } else if (t.team !== -1) {
+        const localTeam = this.displayedSnap?.tanks.find(tk => tk.id === state.playerId)?.team;
+        if (t.team === localTeam) {
+          hullColor = "#6b7b42"; // Teammate: lighter green
+          darkColor = "#5a6a38";
+        }
+      }
+
+      // Resolve chassis style
+      let style = state.realisticStyle;
+      if (!isLocal) {
+        const hash = t.id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const styles = ["abrams", "leopard", "t90", "bradley"] as const;
+        style = styles[hash % styles.length];
+      }
+
+      // Tracks/treads — all styles have them
+      const trackW = style === "bradley" ? r * 0.3 : r * 0.38;
+      const trackH = style === "leopard" ? r * 2.3 : r * 2.1;
+      const trackOff = style === "bradley" ? r * 0.82 : r * 0.92;
+      
+      ctx.fillStyle = "#1a1a18";
+      ctx.fillRect(-trackH/2, -trackOff - trackW/2, trackH, trackW);
+      ctx.fillRect(-trackH/2, trackOff - trackW/2, trackH, trackW);
+      // Track link detail — subtle horizontal ridges
+      ctx.strokeStyle = "rgba(80, 75, 65, 0.5)";
+      ctx.lineWidth = 0.8;
+      for (let xo = -trackH/2 + 4; xo < trackH/2; xo += 5) {
+        ctx.beginPath();
+        ctx.moveTo(xo, -trackOff - trackW/2);
+        ctx.lineTo(xo, -trackOff + trackW/2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(xo, trackOff - trackW/2);
+        ctx.lineTo(xo, trackOff + trackW/2);
+        ctx.stroke();
+      }
+
+      // Hull shapes per style
+      if (style === "abrams") {
+        // Angular front wedge hull — M1A2 style
+        ctx.fillStyle = hullColor;
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.85, -r * 0.8);
+        ctx.lineTo(r * 0.5, -r * 0.8);
+        ctx.lineTo(r * 0.95, -r * 0.4);
+        ctx.lineTo(r * 0.95, r * 0.4);
+        ctx.lineTo(r * 0.5, r * 0.8);
+        ctx.lineTo(-r * 0.85, r * 0.8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = darkColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        // Engine deck hatches
+        ctx.fillStyle = darkColor;
+        ctx.fillRect(-r * 0.8, -r * 0.35, r * 0.5, r * 0.7);
+        ctx.strokeStyle = "rgba(0,0,0,0.3)";
+        ctx.strokeRect(-r * 0.8, -r * 0.35, r * 0.5, r * 0.7);
+      } else if (style === "leopard") {
+        // Smooth wedge hull — German precision
+        ctx.fillStyle = hullColor;
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.9, -r * 0.75);
+        ctx.lineTo(r * 0.7, -r * 0.65);
+        ctx.lineTo(r * 1.0, 0);
+        ctx.lineTo(r * 0.7, r * 0.65);
+        ctx.lineTo(-r * 0.9, r * 0.75);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = darkColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        // Side skirts
+        ctx.fillStyle = shade(hullColor, -12);
+        ctx.fillRect(-r * 0.85, -r * 0.8, r * 1.5, r * 0.12);
+        ctx.fillRect(-r * 0.85, r * 0.68, r * 1.5, r * 0.12);
+      } else if (style === "t90") {
+        // Rounded turret-forward hull — Russian school
+        ctx.fillStyle = hullColor;
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.85, -r * 0.78);
+        ctx.lineTo(r * 0.6, -r * 0.78);
+        ctx.quadraticCurveTo(r * 0.95, -r * 0.5, r * 0.95, 0);
+        ctx.quadraticCurveTo(r * 0.95, r * 0.5, r * 0.6, r * 0.78);
+        ctx.lineTo(-r * 0.85, r * 0.78);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = darkColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        // ERA blocks (reactive armor)
+        ctx.fillStyle = shade(hullColor, -18);
+        for (let bx = -r*0.3; bx < r*0.6; bx += r*0.22) {
+          ctx.fillRect(bx, -r*0.82, r*0.18, r*0.12);
+          ctx.fillRect(bx, r*0.7, r*0.18, r*0.12);
+        }
+      } else {
+        // Bradley IFV — boxy and compact
+        ctx.fillStyle = hullColor;
+        ctx.fillRect(-r * 0.8, -r * 0.7, r * 1.6, r * 1.4);
+        ctx.strokeStyle = darkColor;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-r * 0.8, -r * 0.7, r * 1.6, r * 1.4);
+        // Front vision block
+        ctx.fillStyle = "rgba(120, 180, 120, 0.3)";
+        ctx.fillRect(r * 0.4, -r * 0.15, r * 0.25, r * 0.3);
+        ctx.strokeStyle = darkColor;
+        ctx.strokeRect(r * 0.4, -r * 0.15, r * 0.25, r * 0.3);
+      }
+
+      ctx.restore(); // End body rotation
+
+      // Turret + barrel
+      ctx.save();
+      ctx.rotate(t.turretAngle);
+      
+      if (style === "abrams") {
+        // Long smoothbore barrel
+        ctx.fillStyle = "#2a2a24";
+        ctx.fillRect(r * 0.1, -2.5, r * 1.7, 5);
+        ctx.fillStyle = "#1a1a18";
+        ctx.fillRect(r * 1.7, -3.5, r * 0.15, 7); // muzzle brake
+        // Flat angular turret
+        ctx.fillStyle = shade(hullColor, 8);
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.45, -r * 0.48);
+        ctx.lineTo(r * 0.15, -r * 0.48);
+        ctx.lineTo(r * 0.35, -r * 0.25);
+        ctx.lineTo(r * 0.35, r * 0.25);
+        ctx.lineTo(r * 0.15, r * 0.48);
+        ctx.lineTo(-r * 0.45, r * 0.48);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = darkColor;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else if (style === "leopard") {
+        // Barrel
+        ctx.fillStyle = "#2a2a24";
+        ctx.fillRect(r * 0.1, -2, r * 1.8, 4);
+        // Wedge turret
+        ctx.fillStyle = shade(hullColor, 8);
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.5, -r * 0.4);
+        ctx.lineTo(r * 0.3, -r * 0.38);
+        ctx.lineTo(r * 0.45, 0);
+        ctx.lineTo(r * 0.3, r * 0.38);
+        ctx.lineTo(-r * 0.5, r * 0.4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = darkColor;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else if (style === "t90") {
+        // Barrel
+        ctx.fillStyle = "#2a2a24";
+        ctx.fillRect(r * 0.05, -2.5, r * 1.6, 5);
+        // Round cast turret
+        ctx.fillStyle = shade(hullColor, 8);
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.52, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = darkColor;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        // Bradley autocannon (small caliber)
+        ctx.fillStyle = "#2a2a24";
+        ctx.fillRect(r * 0.1, -1.5, r * 1.5, 3);
+        // Small turret box
+        ctx.fillStyle = shade(hullColor, 8);
+        ctx.fillRect(-r * 0.35, -r * 0.35, r * 0.7, r * 0.7);
+        ctx.strokeStyle = darkColor;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-r * 0.35, -r * 0.35, r * 0.7, r * 0.7);
+      }
+      
+      ctx.restore();
+      
+      // Laser windup
+      if (t.charging && t.alive) {
+        ctx.save();
+        ctx.rotate(t.turretAngle);
+        ctx.globalAlpha = 0.4 + 0.3 * Math.sin(nowMs / 60);
+        ctx.strokeStyle = "#ff4444";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(r + 4, 0);
+        ctx.lineTo(r + 54, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Shield — subtle green force field
+      if (t.shielded && t.alive) {
+        ctx.save();
+        const pulse = 0.9 + 0.1 * Math.sin(nowMs / 120);
+        ctx.strokeStyle = "rgba(100, 180, 80, 0.4)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.45 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      
+      ctx.restore();
+
+      // Health bar
+      if (t.alive && t.maxHp > 1) {
+        const bw = r * 2;
+        const bx = t.x - r;
+        const by = t.y - r - 6;
+        const frac = Math.max(0, Math.min(1, t.hp / t.maxHp));
+        ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+        ctx.fillRect(bx, by, bw, 3);
+        ctx.fillStyle = frac > 0.5 ? "#5a8a3a" : frac > 0.25 ? "#b8a030" : "#aa3030";
+        ctx.fillRect(bx, by, bw * frac, 3);
+      }
+
+      // Name / respawn label
+      ctx.font = "bold 11px 'Inter', sans-serif";
+      ctx.textAlign = "center";
+      if (t.alive) {
+        ctx.fillStyle = isLocal ? "#c8d8a0" : "#a0a898";
+        const above = t.y - r - (t.maxHp > 1 ? 13 : 8);
+        const labelY = above < 10 ? t.y + r + 14 : above;
+        ctx.fillText(t.name, t.x, labelY);
+      } else {
+        ctx.fillStyle = "#706858";
+        ctx.fillText(`${Math.ceil(t.respawnIn)}`, t.x, t.y + 4);
+      }
+      return;
+    }
+
+    if (state.modernEnabled) {
+      // High-tech glow under the local player
+      if (isLocal && t.alive) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 10, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0, 248, 248, 0.05)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0, 248, 248, 0.25)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.save();
+      ctx.rotate(t.bodyAngle);
+      
+      // Determine neon colors
+      // Self/teammates = cyan (#00f8f8), enemies = hot pink/rose (#f43f5e)
+      let neonColor = "#f43f5e";
+      if (isLocal) {
+        neonColor = "#00f8f8";
+      } else if (t.team !== -1) {
+        const localTeam = this.displayedSnap?.tanks.find(tk => tk.id === state.playerId)?.team;
+        if (t.team === localTeam) {
+          neonColor = "#00f8f8";
+        }
+      }
+
+      // Resolve modern tank styles
+      let style = state.modernStyle;
+      if (!isLocal) {
+        const hash = t.id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const styles = ["railgun", "hover", "plasma", "siege"] as const;
+        style = styles[hash % styles.length];
+      }
+
+      // Draw Chassis based on futuristic style
+      if (style === "hover") {
+        // Hover pods (no tracks)
+        ctx.fillStyle = "#1e293b";
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.15)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        
+        ctx.fillStyle = neonColor;
+        ctx.beginPath();
+        ctx.arc(-r * 0.5, -r * 0.5, r * 0.22, 0, Math.PI * 2);
+        ctx.arc(-r * 0.5, r * 0.5, r * 0.22, 0, Math.PI * 2);
+        ctx.arc(r * 0.5, 0, r * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (style === "plasma") {
+        // Hexagonal energy chassis
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath();
+        ctx.moveTo(-r, -r * 0.55);
+        ctx.lineTo(-r * 0.5, -r);
+        ctx.lineTo(r * 0.5, -r);
+        ctx.lineTo(r, -r * 0.55);
+        ctx.lineTo(r, r * 0.55);
+        ctx.lineTo(r * 0.5, r);
+        ctx.lineTo(-r * 0.5, r);
+        ctx.lineTo(-r, r * 0.55);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = neonColor;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else if (style === "siege") {
+        // Heavy armor plates
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(-r * 1.1, -r * 0.9, r * 2.2, r * 1.8);
+        ctx.strokeStyle = "rgba(255,255,255,0.1)";
+        ctx.strokeRect(-r * 1.1, -r * 0.9, r * 2.2, r * 1.8);
+        
+        // Front & back treads
+        ctx.fillStyle = "#1e293b";
+        ctx.fillRect(-r * 1.25, -r * 1.05, r * 0.7, r * 0.35);
+        ctx.fillRect(-r * 1.25, r * 0.7, r * 0.7, r * 0.35);
+        ctx.fillRect(r * 0.55, -r * 1.05, r * 0.7, r * 0.35);
+        ctx.fillRect(r * 0.55, r * 0.7, r * 0.7, r * 0.35);
+      } else {
+        // Railgun: sleek carbon wing plates
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath();
+        ctx.moveTo(-r * 1.1, -r * 0.8);
+        ctx.lineTo(-r * 0.4, -r * 0.8);
+        ctx.lineTo(r * 0.8, -r * 0.4);
+        ctx.lineTo(r * 0.8, r * 0.4);
+        ctx.lineTo(-r * 0.4, r * 0.8);
+        ctx.lineTo(-r * 1.1, r * 0.8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(-r * 0.95, -r * 0.95, r * 1.9, r * 0.22);
+        ctx.fillRect(-r * 0.95, r * 0.73, r * 1.9, r * 0.22);
+      }
+
+      // Glowing power core
+      const corePulse = 0.8 + 0.2 * Math.abs(Math.sin(nowMs / 180));
+      const grad = ctx.createRadialGradient(0, 0, 1, 0, 0, r * 0.45);
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.3, neonColor);
+      grad.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.45 * corePulse, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore(); // End body rotation
+
+      // Turret + barrel
+      ctx.save();
+      ctx.rotate(t.turretAngle);
+      
+      if (style === "hover") {
+        // Dual energy rail capacitor barrel
+        ctx.fillStyle = "#334155";
+        ctx.fillRect(0, -4.5, r * 1.6, 3);
+        ctx.fillRect(0, 1.5, r * 1.6, 3);
+        ctx.fillStyle = neonColor;
+        ctx.fillRect(r * 0.4, -1, r * 1.2, 2);
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
+        ctx.fillStyle = "#1e293b";
+        ctx.fill();
+        ctx.strokeStyle = neonColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else if (style === "plasma") {
+        // Plasma condenser rings barrel
+        ctx.fillStyle = "#334155";
+        ctx.fillRect(0, -3.5, r * 1.5, 7);
+        ctx.fillStyle = neonColor;
+        ctx.fillRect(r * 0.4, -4.5, r * 0.15, 9);
+        ctx.fillRect(r * 0.8, -4.5, r * 0.15, 9);
+        ctx.fillRect(r * 1.2, -4.5, r * 0.15, 9);
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#0f172a";
+        ctx.fill();
+        ctx.strokeStyle = neonColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else if (style === "siege") {
+        // Heavy artillery tube cannon
+        ctx.fillStyle = "#1e293b";
+        ctx.fillRect(0, -5, r * 1.9, 10);
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(r * 1.9 - 2, -6, 4, 12);
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = "#020617";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.2)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        // Railgun barrel
+        ctx.fillStyle = "#334155";
+        ctx.fillRect(0, -3, r * 1.7, 6);
+        ctx.fillStyle = neonColor;
+        ctx.fillRect(r * 0.2, -1, r * 1.4, 2);
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
+        ctx.fillStyle = "#0f172a";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      
+      ctx.restore();
+      
+      // Laser windup
+      if (t.charging && t.alive) {
+        ctx.save();
+        ctx.rotate(t.turretAngle);
+        ctx.globalAlpha = 0.6 + 0.35 * Math.abs(Math.sin(nowMs / 40));
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(r + 4, 0);
+        ctx.lineTo(r + 54, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Shield bubble
+      if (t.shielded && t.alive) {
+        ctx.save();
+        const pulse = 0.9 + 0.1 * Math.sin(nowMs / 100);
+        ctx.strokeStyle = neonColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.5 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = hexToRgba(neonColor, 0.05);
+        ctx.fill();
+        ctx.restore();
+      }
+      
+      ctx.restore();
+
+      // Health bar
+      if (t.alive && t.maxHp > 1) {
+        const bw = r * 2;
+        const bx = t.x - r;
+        const by = t.y - r - 6;
+        const frac = Math.max(0, Math.min(1, t.hp / t.maxHp));
+        ctx.fillStyle = "rgba(15, 23, 42, 0.6)";
+        ctx.fillRect(bx, by, bw, 3);
+        ctx.fillStyle = frac > 0.5 ? "#10b981" : frac > 0.25 ? "#f59e0b" : "#ef4444";
+        ctx.fillRect(bx, by, bw * frac, 3);
+      }
+
+      // Name / respawn label
+      ctx.font = "bold 11px 'Outfit', sans-serif";
+      ctx.textAlign = "center";
+      if (t.alive) {
+        ctx.fillStyle = isLocal ? "#00f8f8" : "#f1f5f9";
+        const above = t.y - r - (t.maxHp > 1 ? 13 : 8);
+        const labelY = above < 10 ? t.y + r + 14 : above;
+        ctx.fillText(t.name, t.x, labelY);
+      } else {
+        ctx.fillStyle = "#64748b";
+        ctx.fillText(`${Math.ceil(t.respawnIn)}`, t.x, t.y + 4);
+      }
+      return;
+    }
+
+    if (state.battleCityEnabled) {
+      // Local-player highlight: thin cyan circular dash glow
+      if (isLocal && t.alive) {
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 9, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0, 248, 248, 0.08)";
+        ctx.fill();
+        ctx.setLineDash([3, 2]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(0, 248, 248, 0.4)";
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      ctx.save();
+      ctx.rotate(t.bodyAngle);
+      
+      // Determine Battle City tank team colors
+      let baseColor = "#b8b8b8"; // Enemy: light grey
+      if (isLocal) {
+        baseColor = "#f8b800"; // Local player: yellow
+      } else if (t.team !== -1) {
+        const localTeam = this.displayedSnap?.tanks.find(tk => tk.id === state.playerId)?.team;
+        if (t.team === localTeam) {
+          baseColor = "#00a800"; // Teammate: green
+        }
+      }
+
+      // Resolve the style for this tank:
+      // Local player uses their selected custom style. Others are assigned one based on their ID hash.
+      let style = state.retroStyle;
+      if (!isLocal) {
+        const hash = t.id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const styles = ["basic", "fast", "heavy", "armored"] as const;
+        style = styles[hash % styles.length];
+      }
+
+      let treadW = r * 0.35;
+      let treadH = r * 2.2;
+      let treadOffsetX = r * 0.9;
+      
+      if (style === "fast") {
+        treadW = r * 0.28;
+        treadH = r * 2.4;
+        treadOffsetX = r * 0.85;
+      } else if (style === "heavy") {
+        treadW = r * 0.45;
+        treadH = r * 2.0;
+        treadOffsetX = r * 1.0;
+      }
+      
+      // Draw treads (black)
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(-treadH/2, -treadOffsetX - treadW/2, treadH, treadW);
+      ctx.fillRect(-treadH/2, treadOffsetX - treadW/2, treadH, treadW);
+      
+      // Tread animation teeth (white dashes)
+      ctx.fillStyle = "#ffffff";
+      const treadPulse = Math.floor(nowMs / 80) % 2;
+      for (let xOffset = -treadH/2 + 2; xOffset < treadH/2; xOffset += 6) {
+        const shiftedX = xOffset + (treadPulse * 3);
+        if (shiftedX > -treadH/2 && shiftedX < treadH/2 - 2) {
+          ctx.fillRect(shiftedX, -treadOffsetX - treadW/2 + 1, 2, treadW - 2);
+          ctx.fillRect(shiftedX, treadOffsetX - treadW/2 + 1, 2, treadW - 2);
+        }
+      }
+      
+      // Main body chassis and outlines based on style
+      if (style === "fast") {
+        // Sleeker, narrower chassis
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(-r * 1.0, -r * 0.7, r * 2.0, r * 1.4);
+        ctx.fillStyle = "#000000";
+        ctx.strokeRect(-r * 1.0, -r * 0.7, r * 2.0, r * 1.4);
+        // Hatch (pointing arrow)
+        ctx.fillStyle = shade(baseColor, -25);
+        ctx.beginPath();
+        ctx.moveTo(r * 0.2, 0);
+        ctx.lineTo(-r * 0.3, -r * 0.3);
+        ctx.lineTo(-r * 0.3, r * 0.3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#000000";
+        ctx.stroke();
+      } else if (style === "heavy") {
+        // Wide, blocky chassis
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(-r * 0.85, -r * 1.0, r * 1.7, r * 2.0);
+        ctx.fillStyle = "#000000";
+        ctx.strokeRect(-r * 0.85, -r * 1.0, r * 1.7, r * 2.0);
+        // Double round hatches
+        ctx.fillStyle = shade(baseColor, -25);
+        ctx.beginPath();
+        ctx.arc(-r * 0.2, -r * 0.3, r * 0.3, 0, Math.PI * 2);
+        ctx.arc(-r * 0.2, r * 0.3, r * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#000000";
+        ctx.beginPath();
+        ctx.arc(-r * 0.2, -r * 0.3, r * 0.3, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(-r * 0.2, r * 0.3, r * 0.3, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (style === "armored") {
+        // Standard body but with extra armor plating
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(-r * 0.85, -r * 0.85, r * 1.7, r * 1.7);
+        ctx.fillStyle = "#000000";
+        ctx.strokeRect(-r * 0.85, -r * 0.85, r * 1.7, r * 1.7);
+        // Side armor panels
+        ctx.fillStyle = shade(baseColor, -15);
+        ctx.fillRect(-r * 0.85, -r * 0.85, r * 1.7, r * 0.2);
+        ctx.fillRect(-r * 0.85, r * 0.65, r * 1.7, r * 0.2);
+        ctx.fillStyle = "#000000";
+        ctx.strokeRect(-r * 0.85, -r * 0.85, r * 1.7, r * 0.2);
+        ctx.strokeRect(-r * 0.85, r * 0.65, r * 1.7, r * 0.2);
+        // Octagonal hatch
+        ctx.fillStyle = shade(baseColor, -25);
+        const sz = r * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(-sz * 0.5, -sz);
+        ctx.lineTo(sz * 0.5, -sz);
+        ctx.lineTo(sz, -sz * 0.5);
+        ctx.lineTo(sz, sz * 0.5);
+        ctx.lineTo(sz * 0.5, sz);
+        ctx.lineTo(-sz * 0.5, sz);
+        ctx.lineTo(-sz, sz * 0.5);
+        ctx.lineTo(-sz, -sz * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#000000";
+        ctx.stroke();
+      } else {
+        // Basic: standard square body + center hatch
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(-r * 0.85, -r * 0.85, r * 1.7, r * 1.7);
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(-r * 0.85, -r * 0.85, r * 1.7, 2);
+        ctx.fillRect(-r * 0.85, r * 0.85 - 2, r * 1.7, 2);
+        ctx.fillRect(-r * 0.85, -r * 0.85, 2, r * 1.7);
+        ctx.fillRect(r * 0.85 - 2, -r * 0.85, 2, r * 1.7);
+        ctx.fillStyle = shade(baseColor, -25);
+        ctx.fillRect(-r * 0.4, -r * 0.4, r * 0.8, r * 0.8);
+        ctx.fillStyle = "#000000";
+        ctx.strokeRect(-r * 0.4, -r * 0.4, r * 0.8, r * 0.8);
+      }
+      
+      ctx.restore(); // End body rotation
+
+      // Turret + barrel
+      ctx.save();
+      ctx.rotate(t.turretAngle);
+      
+      if (style === "heavy") {
+        // Dual parallel barrels
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, -5.5, r * 1.4 + 1, 4);
+        ctx.fillRect(0, 1.5, r * 1.4 + 1, 4);
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(0, -4.5, r * 1.4, 2);
+        ctx.fillRect(0, 2.5, r * 1.4, 2);
+        
+        // Rectangular turret box
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(-r * 0.5 - 1, -r * 0.55 - 1, r * 1.0 + 2, r * 1.1 + 2);
+        ctx.fillStyle = shade(baseColor, 20);
+        ctx.fillRect(-r * 0.5, -r * 0.55, r * 1.0, r * 1.1);
+      } else if (style === "fast") {
+        // Long thin barrel
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, -2.5, r * 1.8 + 1, 5);
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(0, -1, r * 1.8, 2);
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(r * 1.8 - 2, -2.5, 2, 5);
+        
+        // Oval turret dome
+        ctx.fillStyle = "#000000";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r * 0.5 + 1, r * 0.4 + 1, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = shade(baseColor, 20);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r * 0.5, r * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (style === "armored") {
+        // Fat barrel + reinforced muzzle break
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, -4.5, r * 1.4 + 1, 9);
+        ctx.fillRect(r * 1.4 - 3, -6, 5, 12);
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(0, -3, r * 1.4, 6);
+        ctx.fillRect(r * 1.4 - 2, -4.5, 3, 9);
+        
+        // Octagonal turret dome
+        ctx.fillStyle = "#000000";
+        const tsz = r * 0.55;
+        ctx.beginPath();
+        ctx.moveTo(-tsz * 0.5 - 1, -tsz - 1);
+        ctx.lineTo(tsz * 0.5 + 1, -tsz - 1);
+        ctx.lineTo(tsz + 1, -tsz * 0.5 - 1);
+        ctx.lineTo(tsz + 1, tsz * 0.5 + 1);
+        ctx.lineTo(tsz * 0.5 + 1, tsz + 1);
+        ctx.lineTo(-tsz * 0.5 - 1, tsz + 1);
+        ctx.lineTo(-tsz - 1, tsz * 0.5 + 1);
+        ctx.lineTo(-tsz - 1, -tsz * 0.5 - 1);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.fillStyle = shade(baseColor, 20);
+        ctx.beginPath();
+        ctx.moveTo(-tsz * 0.5, -tsz);
+        ctx.lineTo(tsz * 0.5, -tsz);
+        ctx.lineTo(tsz, -tsz * 0.5);
+        ctx.lineTo(tsz, tsz * 0.5);
+        ctx.lineTo(tsz * 0.5, tsz);
+        ctx.lineTo(-tsz * 0.5, tsz);
+        ctx.lineTo(-tsz, tsz * 0.5);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        // Basic: standard single barrel & round turret dome
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, -3.5, r * 1.5 + 1, 7);
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(0, -2, r * 1.5, 4);
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(r * 1.5 - 2, -3.5, 2, 7);
+        
+        ctx.fillStyle = "#000000";
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.55 + 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = shade(baseColor, 20);
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      ctx.restore();
+      
+      // Laser windup
+      if (t.charging && t.alive) {
+        ctx.save();
+        ctx.rotate(t.turretAngle);
+        ctx.globalAlpha = 0.5 + 0.3 * Math.sin(nowMs / 50);
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(r + 4, 0);
+        ctx.lineTo(r + 54, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Shield bubble: cyan circle
+      if (t.shielded && t.alive) {
+        ctx.save();
+        const pulse = 0.85 + 0.15 * Math.sin(nowMs / 80);
+        ctx.strokeStyle = "#00f8f8";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.45 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      
+      ctx.restore();
+
+      // Health bar
+      if (t.alive && t.maxHp > 1) {
+        const bw = r * 2;
+        const bx = t.x - r;
+        const by = t.y - r - 6;
+        const frac = Math.max(0, Math.min(1, t.hp / t.maxHp));
+        ctx.fillStyle = "rgba(255, 255, 255, 0.2)"; // Light backdrop
+        ctx.fillRect(bx, by, bw, 3);
+        ctx.fillStyle = frac > 0.5 ? "#00a800" : frac > 0.25 ? "#f8b800" : "#a83800";
+        ctx.fillRect(bx, by, bw * frac, 3);
+      }
+
+      // Name / respawn label
+      ctx.font = "bold 13px 'VT323', monospace";
+      ctx.textAlign = "center";
+      if (t.alive) {
+        ctx.fillStyle = isLocal ? "#f8b800" : "#ffffff"; // Local is yellow, others white
+        const above = t.y - r - (t.maxHp > 1 ? 13 : 8);
+        const labelY = above < 10 ? t.y + r + 14 : above;
+        ctx.fillText(t.name, t.x, labelY);
+      } else {
+        ctx.fillStyle = "#808080"; // Grey death timer
+        ctx.fillText(`${Math.ceil(t.respawnIn)}`, t.x, t.y + 4);
+      }
+      return;
+    }
+
+    // Default Tanka Maze vector tank drawing code:
     // Local-player highlight: a soft, semi-transparent glow ring under your
     // tank so you can find yourself at a glance.
     if (isLocal && t.alive) {
@@ -1191,7 +2260,6 @@ export class Renderer {
     // Body (oriented to movement direction).
     ctx.save();
     ctx.rotate(t.bodyAngle);
-    const r = this.tankR;
     // Elongated hull: longer front-to-back (x) than it is wide (y).
     const halfLen = r * 1.3;
     const halfWid = r * 0.82;
