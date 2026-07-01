@@ -645,6 +645,124 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     assert.ok(branched.length > solo.length, "branching adds beam segments");
   });
 
+  it("laser + tracking curves the beam onto an enemy a straight beam would miss", () => {
+    const hpAfter = (withTracking: boolean) => {
+      const g = makeGame({
+        cfg: { combineWeapons: true, hp: 5 },
+        adv: { laserDelay: 0 },
+        maze: new Maze(12, 9, "open"),
+        players: [
+          { id: "a", name: "A" },
+          { id: "b", name: "B" },
+        ],
+      });
+      const a = tank(g, "a");
+      const bt = tank(g, "b");
+      a.shieldTimer = 0;
+      bt.shieldTimer = 0; // clear spawn protection so the beam can bite
+      a.x = 100;
+      a.y = 350;
+      a.turretAngle = 0; // aim +x, straight along y = 350
+      bt.x = 560;
+      bt.y = 410; // 60px off the aim line, downrange — a straight beam sails past (> tankRadius)
+      a.weaponCharges = withTracking ? { laser: 1, tracking: 1 } : { laser: 1 };
+      fire(g, a);
+      return bt.hp;
+    };
+    assert.equal(hpAfter(false), 5, "a straight laser misses the off-line enemy");
+    assert.ok(hpAfter(true) < 5, "the curving beam bends onto the enemy");
+  });
+
+  it("beam curvature scales with trackingTurnRate (wired to the tunable)", () => {
+    const closestApproach = (turnRate: number) => {
+      const g = makeGame({
+        cfg: { combineWeapons: true, hp: 5 },
+        // Short range so the forward arc never reflects back near the target.
+        adv: { laserDelay: 0, trackingTurnRate: turnRate, laserRange: 600 },
+        maze: new Maze(12, 9, "open"),
+        players: [
+          { id: "a", name: "A" },
+          { id: "b", name: "B" },
+        ],
+      });
+      const a = tank(g, "a");
+      const bt = tank(g, "b");
+      a.shieldTimer = 0;
+      bt.shieldTimer = 0;
+      a.x = 100;
+      a.y = 350;
+      a.turretAngle = 0;
+      bt.x = 400;
+      bt.y = 450; // 100px off the aim line
+      a.weaponCharges = { laser: 1, tracking: 1 };
+      fire(g, a);
+      const beams = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+      let best = Infinity;
+      for (const s of beams) {
+        best = Math.min(best, Math.hypot(s.x1 - bt.x, s.y1 - bt.y), Math.hypot(s.x2 - bt.x, s.y2 - bt.y));
+      }
+      return best;
+    };
+    assert.ok(closestApproach(8) < closestApproach(0.1), "a higher turn rate bends the beam closer to the target");
+  });
+
+  it("laser + tracking + sniper still branches through a wall while homing", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true, hp: 5 },
+      adv: { laserDelay: 0, sniperWallPierce: 3 },
+      maze: new Maze(12, 9, "open"),
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    (g as any).maze.walls.push({ x1: 400, y1: 200, x2: 400, y2: 520, hp: Infinity, maxHp: Infinity });
+    const a = tank(g, "a");
+    const bt = tank(g, "b");
+    a.shieldTimer = 0;
+    bt.shieldTimer = 0;
+    a.x = 150;
+    a.y = 350;
+    a.turretAngle = 0;
+    bt.x = 700; // beyond the wall, so homing aims through it and sniper pierces
+    bt.y = 350;
+    a.weaponCharges = { laser: 1, tracking: 1, sniper: 1 };
+    fire(g, a);
+    const beams = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+    const maxX = Math.max(...beams.flatMap((s) => [s.x1, s.x2]));
+    assert.ok(maxX > 500, "a transmitted leg crosses the wall (branching composes with homing)");
+  });
+
+  it("laser + tracking + sniper spends pierce on forward progress, reaching a target behind several walls", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true, hp: 5 },
+      adv: { laserDelay: 0, sniperWallPierce: 5 },
+      maze: new Maze(12, 9, "open"),
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    // Three vertical walls between shooter and target.
+    for (const wx of [300, 450, 600]) {
+      (g as any).maze.walls.push({ x1: wx, y1: 200, x2: wx, y2: 600, hp: Infinity, maxHp: Infinity });
+    }
+    const a = tank(g, "a");
+    const bt = tank(g, "b");
+    a.shieldTimer = 0;
+    bt.shieldTimer = 0;
+    a.x = 100;
+    a.y = 396;
+    a.turretAngle = 0;
+    bt.x = 750; // straight ahead, behind all three walls
+    bt.y = 396;
+    a.weaponCharges = { laser: 1, tracking: 1, sniper: 1 };
+    fire(g, a);
+    // The homing beam must drive its pierce budget forward through the walls — if it
+    // wasted budget on the reflected leg it would stall before reaching the target.
+    assert.ok(bt.hp < 5, "the beam penetrates the walls and strikes the shielded-clear target");
+  });
+
   it("tracking + sniper aims straight while it can pierce, then paths once out of budget", () => {
     const g = makeGame({
       cfg: { combineWeapons: true },

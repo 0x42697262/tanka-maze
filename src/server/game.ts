@@ -920,10 +920,12 @@ export class Game {
    * Hitscan laser: an instant beam, up to this.adv.laserRange total length,
    * damaging each tank it crosses once. It folds the same axes the projectile
    * carrier does — reflection is intrinsic to the beam, `blastOnContact` detonates
-   * at every wall/tank contact and at each leaf end, and `wallPierce > 0` makes it
+   * at every wall/tank contact and at each leaf end, `wallPierce > 0` makes it
    * *branch* at each wall (one reflected leg + one transmitted leg) until the shared
-   * pierce budget runs out. `budget` caps the whole volley's segments/blasts so a
-   * branching tree can't overflow the wire's per-list Uint8 length.
+   * pierce budget runs out, and `homing` makes it *curve* toward the nearest enemy
+   * (straight while it can pierce, else pathfinding through corridors) at the same
+   * turn radius a tracking round has. `budget` caps the whole volley's segments/
+   * blasts so a branching tree can't overflow the wire's per-list Uint8 length.
    */
   private fireLaser(
     tank: Tank,
@@ -975,25 +977,69 @@ export class Game {
     };
     const rays: Ray[] = [start];
 
+    // Homing (curving beam): turn the heading a little each STEP toward a target
+    // waypoint, at the same spatial turn rate a tracking round has (rad/s → rad/px).
+    const turnPerStep = this.adv.trackingTurnRate * (STEP / this.adv.bulletSpeed);
+    const repathDist = Math.max(this.maze.cell, this.adv.bulletSpeed * TRACKING_REPATH);
+    const VERTEX_TURN = 0.15; // emit a polyline vertex once the curve bends this far (rad)
+
     while (rays.length > 0 && budget.segments < MAX_BEAM_SEGMENTS) {
       const ray = rays.pop() as Ray;
       let { x, y, dx, dy, remaining, bounces } = ray;
       const pts: Array<{ x: number; y: number }> = [{ x, y }];
       let guard = 0;
+      // Homing state (per leg): the point to curve toward, a distance accumulator
+      // that paces target recomputes, and the heading at the last emitted vertex.
+      let waypoint: { x: number; y: number } | null = null;
+      let sinceRepath = repathDist; // force a target lookup on the first step
+      let lastVertexDir = Math.atan2(dy, dx);
 
       while (remaining > 0 && guard++ < 4000) {
-        // Wall contact on either axis: blast, branch a transmitted leg if the pierce
-        // budget remains, then reflect the current leg (intrinsic to the beam).
+        // Homing: nudge the heading toward the target waypoint before advancing.
+        if (r.homing) {
+          sinceRepath += STEP;
+          if (sinceRepath >= repathDist) {
+            sinceRepath = 0;
+            const target = this.nearestTarget(x, y, tank.id);
+            // While it can still pierce, aim straight at the target; otherwise
+            // snake through corridors — the same choice a tracking round makes.
+            waypoint = !target
+              ? null
+              : pierceLeft > 0
+                ? { x: target.x, y: target.y }
+                : this.nextHopToward(x, y, target.x, target.y) ?? { x: target.x, y: target.y };
+          }
+          if (waypoint) {
+            const cur = Math.atan2(dy, dx);
+            const want = Math.atan2(waypoint.y - y, waypoint.x - x);
+            let diff = ((want - cur + Math.PI) % (Math.PI * 2)) - Math.PI;
+            if (diff < -Math.PI) diff += Math.PI * 2;
+            const a = cur + Math.max(-turnPerStep, Math.min(turnPerStep, diff));
+            dx = Math.cos(a);
+            dy = Math.sin(a);
+          }
+        }
+
+        // Wall contact on either axis: blast, then — if the pierce budget remains —
+        // penetrate straight ahead as the main leg and spin the bounce off as a
+        // branch, else just reflect. Making the pierce the *main* leg spends the
+        // shared budget on forward progress first, so a curving (homing) beam keeps
+        // driving toward its target through walls instead of losing its budget to
+        // the reflected leg's wandering (processed last on the stack).
         const nx = x + dx * STEP;
         if (this.circleHitsWall(nx, y, R)) {
           blastAt(x, y);
-          if (pierceLeft > 0) {
+          const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
+          if (t) {
             pierceLeft -= 1;
-            const t = transmitThrough(x, y, dx, dy, remaining);
-            if (t) rays.push({ ...t, bounces });
+            rays.push({ x, y, dx: -dx, dy, remaining, bounces: bounces + 1 });
+            x = t.x;
+            y = t.y;
+            remaining = t.remaining;
+          } else {
+            dx = -dx;
+            bounces += 1;
           }
-          dx = -dx;
-          bounces += 1;
           pts.push({ x, y });
         } else {
           x = nx;
@@ -1001,13 +1047,17 @@ export class Game {
         const ny = y + dy * STEP;
         if (this.circleHitsWall(x, ny, R)) {
           blastAt(x, y);
-          if (pierceLeft > 0) {
+          const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
+          if (t) {
             pierceLeft -= 1;
-            const t = transmitThrough(x, y, dx, dy, remaining);
-            if (t) rays.push({ ...t, bounces });
+            rays.push({ x, y, dx, dy: -dy, remaining, bounces: bounces + 1 });
+            x = t.x;
+            y = t.y;
+            remaining = t.remaining;
+          } else {
+            dy = -dy;
+            bounces += 1;
           }
-          dy = -dy;
-          bounces += 1;
           pts.push({ x, y });
         } else {
           y = ny;
@@ -1025,6 +1075,19 @@ export class Game {
             blastAt(t.x, t.y); // detonate at the target
             t.hp -= 1;
             if (t.hp <= 0) this.kill(t, tank.id);
+          }
+        }
+
+        // Sample a curving leg into the polyline once it has bent far enough, so the
+        // client draws a smooth arc (straight legs stay two points). Reflections push
+        // their own vertices above; the segment cap still bounds the total.
+        if (r.homing) {
+          const d = Math.atan2(dy, dx);
+          let dd = ((d - lastVertexDir + Math.PI) % (Math.PI * 2)) - Math.PI;
+          if (dd < -Math.PI) dd += Math.PI * 2;
+          if (Math.abs(dd) >= VERTEX_TURN) {
+            pts.push({ x, y });
+            lastVertexDir = d;
           }
         }
       }
