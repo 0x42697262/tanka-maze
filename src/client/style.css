@@ -313,6 +313,68 @@ hr.rule {
   accent-color: var(--stamp);
 }
 
+/* ---- Numeric inputs: number field + slider combo (Photoshop style),
+       built by enhanceNumberInputs() in settings.ts ---- */
+.num-combo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.num-combo input[type="number"] {
+  flex: 0 0 auto;
+  width: 64px;
+  max-width: 64px;
+  padding: 6px 8px;
+  text-align: right;
+}
+.num-combo input[type="range"] {
+  flex: 1;
+  min-width: 36px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: ew-resize;
+}
+.num-combo input[type="range"]:focus {
+  border: none;
+  box-shadow: none;
+}
+.num-combo input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+.num-combo input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+.num-combo input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--stamp);
+  border: 2px solid var(--paper);
+  box-shadow: 0 0 0 1.5px var(--stamp-dark);
+}
+.num-combo input[type="range"]::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--stamp);
+  border: 2px solid var(--paper);
+  box-shadow: 0 0 0 1.5px var(--stamp-dark);
+}
+
 /* ---- Toggle lists (power-up / hazard spawn types): scrollable rows,
        click anywhere on a row to flip it ---- */
 .toggle-list {

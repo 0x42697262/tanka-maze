@@ -71,6 +71,48 @@ export function buildPowerupTypeToggles(): void {
   ).join("");
 }
 
+/**
+ * Pair every numeric input in the host editor with a range slider (Photoshop
+ * style: type a value or drag the slider next to it). The min/max/step come
+ * from the number input, so registry-generated Advanced inputs get sliders
+ * too. Dragging live-mirrors into the number field; the slider's native
+ * change event (fired on release) bubbles to the #lobby-config listener and
+ * commits the config exactly like typing does. Run once, after the generated
+ * inputs exist (buildPowerupAdvInputs).
+ */
+export function enhanceNumberInputs(): void {
+  $("lobby-config")
+    .querySelectorAll<HTMLInputElement>('input[type="number"]')
+    .forEach((num) => {
+      if (num.closest(".num-combo") || num.min === "" || num.max === "") return;
+      const wrap = document.createElement("span");
+      wrap.className = "num-combo";
+      num.replaceWith(wrap);
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = num.min;
+      slider.max = num.max;
+      slider.step = num.step || "1";
+      slider.value = num.value;
+      // The number field is the accessible control; the slider is a pointer aid.
+      slider.tabIndex = -1;
+      slider.setAttribute("aria-hidden", "true");
+      wrap.append(num, slider);
+      slider.addEventListener("input", () => (num.value = slider.value));
+      num.addEventListener("input", () => (slider.value = num.value));
+    });
+}
+
+/** Re-mirror sliders after values are written programmatically (no input event). */
+function syncNumberSliders(): void {
+  $("lobby-config")
+    .querySelectorAll<HTMLInputElement>('.num-combo input[type="number"]')
+    .forEach((num) => {
+      const slider = num.parentElement?.querySelector<HTMLInputElement>('input[type="range"]');
+      if (slider) slider.value = num.value;
+    });
+}
+
 export function gatherAdvanced(): AdvancedConfig {
   const d = DEFAULT_GAME_CONFIG.adv;
   const out = {} as AdvancedConfig;
@@ -196,6 +238,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   setChecked("pwr-combine", cfg.combineWeapons);
   for (const type of POWERUP_TYPES) setChecked(`pup-${type}`, cfg.powerupTypes.includes(type));
   for (const k of ADV_KEYS) set(`adv-${k}`, cfg.adv[k]);
+  syncNumberSliders();
   renderWallPicker();
   applyModeVisibility();
 }
