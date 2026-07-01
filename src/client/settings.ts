@@ -88,16 +88,35 @@ export function enhanceNumberInputs(): void {
       const wrap = document.createElement("span");
       wrap.className = "num-combo";
       num.replaceWith(wrap);
+      // Pill-style stepper field: [−] value [+] (native spinners are hidden in CSS).
+      const field = document.createElement("span");
+      field.className = "num-field";
+      const stepBtn = (dir: 1 | -1) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "num-step";
+        b.textContent = dir > 0 ? "+" : "−";
+        b.tabIndex = -1;
+        b.setAttribute("aria-hidden", "true");
+        b.onclick = () => {
+          if (dir > 0) num.stepUp();
+          else num.stepDown();
+          num.dispatchEvent(new Event("input")); // mirror into the slider
+          num.dispatchEvent(new Event("change", { bubbles: true })); // -> updateConfig
+        };
+        return b;
+      };
       const slider = document.createElement("input");
       slider.type = "range";
       slider.min = num.min;
       slider.max = num.max;
       slider.step = num.step || "1";
       slider.value = num.value;
-      // The number field is the accessible control; the slider is a pointer aid.
+      // The number field is the accessible control; slider + steppers are pointer aids.
       slider.tabIndex = -1;
       slider.setAttribute("aria-hidden", "true");
-      wrap.append(num, slider);
+      field.append(stepBtn(-1), num, stepBtn(1));
+      wrap.append(field, slider);
       slider.addEventListener("input", () => (num.value = slider.value));
       num.addEventListener("input", () => (slider.value = num.value));
     });
@@ -108,7 +127,9 @@ function syncNumberSliders(): void {
   $("lobby-config")
     .querySelectorAll<HTMLInputElement>('.num-combo input[type="number"]')
     .forEach((num) => {
-      const slider = num.parentElement?.querySelector<HTMLInputElement>('input[type="range"]');
+      const slider = num
+        .closest(".num-combo")
+        ?.querySelector<HTMLInputElement>('input[type="range"]');
       if (slider) slider.value = num.value;
     });
 }

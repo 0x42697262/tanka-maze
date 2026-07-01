@@ -322,12 +322,69 @@ hr.rule {
   align-items: center;
   gap: 8px;
 }
-.num-combo input[type="number"] {
+/* Pill-style value field with − / + steppers; native spinners hidden. */
+.num-field {
   flex: 0 0 auto;
-  width: 64px;
-  max-width: 64px;
-  padding: 6px 8px;
-  text-align: right;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(70, 55, 30, 0.07);
+  border-radius: 999px;
+  padding: 1px;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+.num-field:hover {
+  background: rgba(70, 55, 30, 0.11);
+}
+.num-field:focus-within {
+  background: #fbf6e9;
+  box-shadow: 0 0 0 2px rgba(47, 91, 140, 0.35);
+}
+.num-field input[type="number"] {
+  flex: 0 0 auto;
+  width: 48px;
+  max-width: 48px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 5px 0;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.num-field input[type="number"]:focus {
+  border: none;
+  box-shadow: none;
+}
+.num-field input::-webkit-outer-spin-button,
+.num-field input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.num-step {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-soft);
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+.num-step:hover {
+  background: rgba(70, 55, 30, 0.12);
+  color: var(--ink);
+}
+.num-step:active {
+  transform: none;
+  background: rgba(70, 55, 30, 0.2);
 }
 .num-combo input[type="range"] {
   flex: 1;
