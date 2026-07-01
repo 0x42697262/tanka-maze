@@ -299,24 +299,93 @@ hr.rule {
   width: 100%;
 }
 
-.pup-types {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-bottom: 12px;
-}
-.pup-types label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+/* ---- Checkbox rows (boolean settings) ---- */
+.row.chk label {
+  flex: 1;
   width: auto;
   cursor: pointer;
 }
-.pup-types input[type="checkbox"] {
+.row.chk input[type="checkbox"] {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   cursor: pointer;
+  accent-color: var(--stamp);
+}
+
+/* ---- Toggle lists (power-up / hazard spawn types): scrollable rows,
+       click anywhere on a row to flip it ---- */
+.toggle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 190px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  border: 1.5px solid var(--rule);
+  border-radius: 3px;
+  background: #fbf6e9;
+  padding: 6px;
+  margin-bottom: 12px;
+}
+.tog-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  padding: 6px 9px;
+  border: 1.5px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  cursor: pointer;
+  user-select: none;
+}
+.tog-item:hover {
+  border-color: var(--ink-soft);
+}
+.tog-item:has(input:checked) {
+  border-color: var(--leaf);
+  background: rgba(90, 125, 74, 0.08);
+}
+.tog-item input[type="checkbox"] {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.tog-emblem {
+  flex: 0 0 auto;
+  width: 20px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 15px;
+}
+.tog-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.tog-item input:not(:checked) ~ .tog-emblem,
+.tog-item input:not(:checked) ~ .tog-name {
+  opacity: 0.45;
+}
+.tog-state::after {
+  content: "OFF";
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  border: 1.5px solid var(--rule);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.tog-item input:checked ~ .tog-state::after {
+  content: "ON";
+  color: #f6ecd8;
+  background: var(--leaf);
+  border-color: transparent;
 }
 
 .swatches {
@@ -444,6 +513,37 @@ ol {
 .cfg-h:first-of-type {
   margin-top: 6px;
 }
+/* Collapsible settings sections (host editor) */
+.cfg-sec {
+  margin-bottom: 4px;
+}
+.cfg-sec > summary.cfg-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.cfg-sec > summary.cfg-h::-webkit-details-marker {
+  display: none;
+}
+.cfg-sec > summary.cfg-h::before {
+  content: "▸";
+  font-size: 12px;
+  color: var(--ink-soft);
+  transition: transform 0.12s ease;
+}
+.cfg-sec[open] > summary.cfg-h::before {
+  transform: rotate(90deg);
+}
+.cfg-sub {
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-style: italic;
+  margin: 6px 0 4px;
+}
 .adv-h {
   font-family: var(--font-hand);
   font-size: 13px;
@@ -455,19 +555,41 @@ ol {
   padding-bottom: 2px;
 }
 
-/* ---- Map (walls) image picker ---- */
+/* ---- Map (walls) carousel: one scrollable line + wrap-around arrows ---- */
 .walls-select {
   display: none;
 }
-.wall-picker {
+.wall-carousel {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 4px 0 8px;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 12px;
   break-inside: avoid;
+}
+.wall-nav {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  font-size: 20px;
+  line-height: 1;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-radius: 3px;
+  color: var(--ink);
+  box-shadow: none;
+}
+.wall-strip {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 2px;
 }
 .wall-opt {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   align-items: center;
   gap: 3px;
@@ -1322,22 +1444,24 @@ kbd {
   columns: 240px;
   column-gap: 22px;
 }
-#pause-host #lobby-config > h2,
-#pause-host #lobby-config .rule,
-#pause-host #lobby-config #adv-toggle {
+#pause-host #lobby-config > h2 {
   column-span: all;
 }
-/* Keep a section heading with its following rows, and never split a row. */
+/* Keep a section heading with its following rows, and never split a row
+   or a toggle list. */
 #pause-host #lobby-config .cfg-h,
 #pause-host #lobby-config .adv-h {
   break-after: avoid-column;
 }
-#pause-host #lobby-config .row {
+#pause-host #lobby-config .row,
+#pause-host #lobby-config .toggle-list {
   break-inside: avoid;
 }
-/* Advanced panel spans the full width and flows in its own columns. */
-#pause-host #lobby-config #adv-panel {
+/* Advanced section spans the full width and flows in its own columns. */
+#pause-host #lobby-config #adv-sec {
   column-span: all;
+}
+#pause-host #lobby-config #adv-panel {
   columns: 240px;
   column-gap: 22px;
 }

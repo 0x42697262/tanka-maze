@@ -48,20 +48,26 @@ export function buildPowerupAdvInputs(): void {
             .join("") +
           `</div>`;
       }
-      return `<h4 class="adv-h">Power-ups · ${def.label}</h4>${rows}`;
+      // The data-pup wrapper lets applyModeVisibility hide a power-up's tuning
+      // while its spawn toggle is off.
+      return `<div class="adv-pup" data-pup="${def.id}"><h4 class="adv-h">Power-ups · ${def.label}</h4>${rows}</div>`;
     })
     .join("");
 }
 
 /**
- * Generate the spawn-type toggle checkboxes from the registry, so a new
- * power-up appears automatically (ids are `pup-<id>`, matching the
- * gatherConfig / applyConfigToControls loops over POWERUP_TYPES). Default
+ * Generate the spawn-type toggle list from the registry, so a new power-up
+ * appears automatically (ids are `pup-<id>`, matching the gatherConfig /
+ * applyConfigToControls loops over POWERUP_TYPES). Each row is a label
+ * wrapping a hidden checkbox, so clicking anywhere on it toggles. Default
  * checked, mirroring DEFAULT_GAME_CONFIG.powerupTypes (all enabled).
  */
 export function buildPowerupTypeToggles(): void {
   $("pup-types").innerHTML = POWERUP_DEFS.map(
-    (def) => `<label><input type="checkbox" id="pup-${def.id}" checked /> ${def.label}</label>`
+    (def) =>
+      `<label class="tog-item"><input type="checkbox" id="pup-${def.id}" checked />` +
+      `<span class="tog-emblem" style="color:${def.color}">${def.emblem}</span>` +
+      `<span class="tog-name">${def.label}</span><span class="tog-state"></span></label>`
   ).join("");
 }
 
@@ -80,7 +86,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
   const sel = (id: string) => ($(id) as HTMLSelectElement).value;
   const num = (id: string, d: number) => Number(($(id) as HTMLInputElement).value) || d;
   const checked = (id: string) => ($(id) as HTMLInputElement).checked;
-  const hazardTypes = HAZARD_TYPES.filter((t) => sel(`hazard-${t}`) === "on") as HazardType[];
+  const hazardTypes = HAZARD_TYPES.filter((t) => checked(`hazard-${t}`)) as HazardType[];
   const powerupTypes = POWERUP_TYPES.filter((t) => checked(`pup-${t}`)) as PowerupType[];
   return {
     maxPlayers: num("max-players", 8),
@@ -89,7 +95,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       wallStyle: sel("walls") as WallStyle,
       mapSize: sel("map-size") as MapSize,
       rounds: num("rounds", 3),
-      allowLateJoin: sel("allow-late") === "on",
+      allowLateJoin: checked("allow-late"),
       tankSpeedPct: num("tank-speed", 100),
       hp: num("hp", 1),
       lives: Number(($("lives") as HTMLInputElement).value) || 0,
@@ -104,37 +110,37 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
           : num("win-score", 300),
       // CTF picks 2 or 4 from its own selector; Team VS uses the 2–4 spinner.
       teamCount: sel("mode") === "ctf" ? num("ctf-team-count", 2) : num("team-count", 2),
-      friendlyFire: sel("friendly-fire") === "on",
+      friendlyFire: checked("friendly-fire"),
       teamKillPenalty: Number(($("team-kill") as HTMLInputElement).value) || 0,
-      teamSpawnZones: sel("team-spawn-zones") === "on",
+      teamSpawnZones: checked("team-spawn-zones"),
       maxFlags: num("max-flags", 3),
-      flagTeamCarry: sel("flag-team-carry") === "on",
+      flagTeamCarry: checked("flag-team-carry"),
       flagStealMode: sel("flag-steal") as FlagStealMode,
       flagsPerRound: num("flags-per-round", 1),
       ctfScoreMode: sel("ctf-score-mode") as CtfScoreMode,
       ctfRespawnBonus: num("ctf-respawn-bonus", 3),
       adv: gatherAdvanced(),
-      fogOfWar: sel("fog-of-war") === "on",
+      fogOfWar: checked("fog-of-war"),
       visionRadius: num("vision-radius", d.visionRadius),
       fogBaseVision: sel("fog-base-vision") as FogVisionMode,
       fogFlagVision: sel("fog-flag-vision") as FogVisionMode,
-      fogHideCarriedFlag: sel("fog-hide-carried") === "on",
+      fogHideCarriedFlag: checked("fog-hide-carried"),
       hazardDensity: num("hazard-density", d.hazardDensity),
       hazardTypes,
       hazardDamage: num("hazard-damage", d.hazardDamage),
       hazardSlowMult: num("hazard-slow-mult", d.hazardSlowMult),
       hazardHealRate: num("hazard-heal-rate", d.hazardHealRate),
-      destructibleWalls: sel("destructible-walls") === "on",
-      tankCollision: sel("tank-collision") === "on",
-      radar: sel("radar") === "on",
-      powerups: sel("powerups") === "on",
+      destructibleWalls: checked("destructible-walls"),
+      tankCollision: checked("tank-collision"),
+      radar: checked("radar"),
+      powerups: checked("powerups"),
       powerupEverySeconds: num("pwr-every", 8),
       powerupDespawnSeconds: num("pwr-despawn", 12),
       powerupCharges: num("pwr-charges", 1),
       powerupSpawnCount: num("pwr-count", 1),
       powerupTypes,
-      powerupStacking: sel("pwr-stack") === "on",
-      combineWeapons: sel("pwr-combine") === "on",
+      powerupStacking: checked("pwr-stack"),
+      combineWeapons: checked("pwr-combine"),
     },
   };
 }
@@ -148,7 +154,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("walls", cfg.wallStyle);
   set("map-size", cfg.mapSize);
   set("rounds", cfg.rounds);
-  set("allow-late", cfg.allowLateJoin ? "on" : "off");
+  setChecked("allow-late", cfg.allowLateJoin);
   set("team-count", cfg.teamCount);
   set("ctf-team-count", cfg.teamCount >= 3 ? 4 : 2);
   set("tank-speed", cfg.tankSpeedPct);
@@ -158,48 +164,52 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("kill-points", cfg.killPoints);
   set("death-penalty", cfg.deathPenaltyPct);
   set("win-score", cfg.winScore);
-  set("friendly-fire", cfg.friendlyFire ? "on" : "off");
+  setChecked("friendly-fire", cfg.friendlyFire);
   set("team-kill", cfg.teamKillPenalty);
-  set("team-spawn-zones", cfg.teamSpawnZones ? "on" : "off");
+  setChecked("team-spawn-zones", cfg.teamSpawnZones);
   set("max-flags", cfg.maxFlags);
-  set("flag-team-carry", cfg.flagTeamCarry ? "on" : "off");
+  setChecked("flag-team-carry", cfg.flagTeamCarry);
   set("flag-steal", cfg.flagStealMode);
   set("flags-per-round", cfg.flagsPerRound);
   set("ctf-score-mode", cfg.ctfScoreMode);
   set("ctf-points", cfg.winScore); // conquest points-to-win mirrors winScore
   set("ctf-respawn-bonus", cfg.ctfRespawnBonus);
-  set("fog-of-war", cfg.fogOfWar ? "on" : "off");
+  setChecked("fog-of-war", cfg.fogOfWar);
   set("vision-radius", cfg.visionRadius);
   set("fog-base-vision", cfg.fogBaseVision);
   set("fog-flag-vision", cfg.fogFlagVision);
-  set("fog-hide-carried", cfg.fogHideCarriedFlag ? "on" : "off");
+  setChecked("fog-hide-carried", cfg.fogHideCarriedFlag);
   set("hazard-density", cfg.hazardDensity);
-  for (const type of HAZARD_TYPES) set(`hazard-${type}`, cfg.hazardTypes.includes(type) ? "on" : "off");
+  for (const type of HAZARD_TYPES) setChecked(`hazard-${type}`, cfg.hazardTypes.includes(type));
   set("hazard-damage", cfg.hazardDamage);
   set("hazard-slow-mult", cfg.hazardSlowMult);
   set("hazard-heal-rate", cfg.hazardHealRate);
-  set("destructible-walls", cfg.destructibleWalls ? "on" : "off");
-  set("tank-collision", cfg.tankCollision ? "on" : "off");
-  set("radar", cfg.radar ? "on" : "off");
-  set("powerups", cfg.powerups ? "on" : "off");
+  setChecked("destructible-walls", cfg.destructibleWalls);
+  setChecked("tank-collision", cfg.tankCollision);
+  setChecked("radar", cfg.radar);
+  setChecked("powerups", cfg.powerups);
   set("pwr-every", cfg.powerupEverySeconds);
   set("pwr-charges", cfg.powerupCharges);
   set("pwr-despawn", cfg.powerupDespawnSeconds);
   set("pwr-count", cfg.powerupSpawnCount);
-  set("pwr-stack", cfg.powerupStacking ? "on" : "off");
-  set("pwr-combine", cfg.combineWeapons ? "on" : "off");
+  setChecked("pwr-stack", cfg.powerupStacking);
+  setChecked("pwr-combine", cfg.combineWeapons);
   for (const type of POWERUP_TYPES) setChecked(`pup-${type}`, cfg.powerupTypes.includes(type));
   for (const k of ADV_KEYS) set(`adv-${k}`, cfg.adv[k]);
   renderWallPicker();
   applyModeVisibility();
 }
 
-/** Show only the settings relevant to the selected mode. */
+/**
+ * Show only the settings relevant to the selected mode, and hide dependent
+ * rows whose parent option is off (fog, power-ups, hazards, destructible walls).
+ */
 export function applyModeVisibility(): void {
   const mode = ($("mode") as HTMLSelectElement).value;
   const cfg = $("lobby-config");
   const ctf = mode === "ctf";
   const teamBased = mode === "teams" || ctf;
+  const on = (id: string) => ($(id) as HTMLInputElement).checked;
   const toggle = (sel: string, hidden: boolean) =>
     cfg.querySelectorAll(sel).forEach((el) => el.classList.toggle("hidden", hidden));
   // Team-only controls (team count, team-kill, spawn-zones) — CTF locks these,
@@ -219,10 +229,26 @@ export function applyModeVisibility(): void {
   toggle(".cfg-conquest", !points);
   // Carry forces team-carry on (flags only ride tanks), so its toggle is hidden.
   toggle(".cfg-flagcarry", !ctf || scoreMode === "carry");
-  const fogOn = ($("fog-of-war") as HTMLSelectElement).value === "on";
+  const fogOn = on("fog-of-war");
   toggle(".cfg-fog-on", !fogOn);
   toggle(".cfg-fog-team", !fogOn || !teamBased);
   toggle(".cfg-fog-flag", !fogOn || !ctf);
+  // Power-ups master switch hides every dependent row (incl. Advanced tuning),
+  // and each power-up's Advanced tuning follows its own spawn toggle.
+  const pwr = on("powerups");
+  toggle(".cfg-pwr-on", !pwr);
+  cfg.querySelectorAll<HTMLElement>(".adv-pup").forEach((el) => {
+    el.classList.toggle("hidden", !on(`pup-${el.dataset.pup}`));
+  });
+  // Hazards: sub-settings only matter with at least one zone; per-type tuning
+  // follows its spawn toggle.
+  const hz = Number(($("hazard-density") as HTMLInputElement).value) > 0;
+  toggle(".cfg-hz-on", !hz);
+  toggle(".cfg-hz-lava", !hz || !on("hazard-lava"));
+  toggle(".cfg-hz-mud", !hz || !on("hazard-mud"));
+  toggle(".cfg-hz-heal", !hz || !on("hazard-heal"));
+  // Wall HP tuning only matters when walls can take damage.
+  toggle(".cfg-dw-on", !on("destructible-walls"));
 }
 
 // ---- Map (walls) image picker ----
@@ -258,22 +284,57 @@ function wallThumb(style: WallStyle): string {
   );
 }
 
-/** Build the visual map (walls) picker, syncing selection to the hidden select. */
+/** Select a map, refresh the carousel highlight and notify the config editor. */
+function pickWall(style: WallStyle): void {
+  const sel = $("walls") as HTMLSelectElement;
+  sel.value = style;
+  syncWallPicker();
+  sel.dispatchEvent(new Event("change", { bubbles: true })); // -> updateConfig
+}
+
+/** Highlight the selected map and scroll it into the middle of the strip. */
+function syncWallPicker(): void {
+  $("wall-picker")
+    .querySelectorAll<HTMLButtonElement>(".wall-opt")
+    .forEach((b) => {
+      const selected = b.dataset.wall === ($("walls") as HTMLSelectElement).value;
+      b.classList.toggle("selected", selected);
+      if (selected) b.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    });
+}
+
+/**
+ * Build the map (walls) carousel: one horizontal strip of thumbnails with
+ * prev/next arrows that wrap around, syncing selection to the hidden select.
+ * The strip is built once; later calls only re-sync the highlight so the
+ * scroll position survives config refreshes.
+ */
 export function renderWallPicker(): void {
   const sel = $("walls") as HTMLSelectElement;
   const picker = $("wall-picker");
-  picker.innerHTML = WALL_STYLES.map(
-    (s) =>
-      `<button type="button" class="wall-opt${s === sel.value ? " selected" : ""}" ` +
-      `data-wall="${s}" title="${WALL_LABEL[s]}">${wallThumb(s)}<span>${WALL_LABEL[s]}</span></button>`
-  ).join("");
-  picker.querySelectorAll<HTMLButtonElement>(".wall-opt").forEach((b) => {
-    b.onclick = () => {
-      sel.value = b.dataset.wall ?? "maze";
-      renderWallPicker(); // refresh highlight
-      sel.dispatchEvent(new Event("change", { bubbles: true })); // -> updateConfig
-    };
-  });
+  if (!picker.querySelector(".wall-strip")) {
+    picker.innerHTML =
+      `<button type="button" class="wall-nav" data-dir="-1" aria-label="Previous map">‹</button>` +
+      `<div class="wall-strip">` +
+      WALL_STYLES.map(
+        (s) =>
+          `<button type="button" class="wall-opt" data-wall="${s}" title="${WALL_LABEL[s]}">` +
+          `${wallThumb(s)}<span>${WALL_LABEL[s]}</span></button>`
+      ).join("") +
+      `</div>` +
+      `<button type="button" class="wall-nav" data-dir="1" aria-label="Next map">›</button>`;
+    picker.querySelectorAll<HTMLButtonElement>(".wall-opt").forEach((b) => {
+      b.onclick = () => pickWall((b.dataset.wall ?? "maze") as WallStyle);
+    });
+    picker.querySelectorAll<HTMLButtonElement>(".wall-nav").forEach((b) => {
+      b.onclick = () => {
+        const step = Number(b.dataset.dir) || 1;
+        const i = WALL_STYLES.indexOf(sel.value as WallStyle);
+        pickWall(WALL_STYLES[(i + step + WALL_STYLES.length) % WALL_STYLES.length]);
+      };
+    });
+  }
+  syncWallPicker();
 }
 
 // ---- Per-player movement scheme picker ----

@@ -302,14 +302,13 @@ $("lobby-config").addEventListener("change", (e) => {
     if (usesPoints()) ($("ctf-points") as HTMLInputElement).value = String(100 * Math.max(1, ctfTeams() - 1));
     if (scoreMode() === "carry") {
       ($("flag-steal") as HTMLSelectElement).value = "off";
-      ($("flag-team-carry") as HTMLSelectElement).value = "on";
+      ($("flag-team-carry") as HTMLInputElement).checked = true;
     }
   }
   applyModeVisibility();
   const { maxPlayers, config } = gatherConfig();
   net.send({ type: "updateConfig", maxPlayers, config });
 });
-$("adv-toggle").onclick = () => $("adv-panel").classList.toggle("hidden");
 
 // Per-player settings (gear).
 $("settings-gear").onclick = () => $("settings-panel").classList.toggle("hidden");

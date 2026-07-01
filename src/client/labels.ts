@@ -131,27 +131,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     ],
   });
 
-  const fog: Row[] = [["Fog of war", onOff(c.fogOfWar)]];
-  if (c.fogOfWar) {
-    fog.push(["Radius", `${c.visionRadius}px`]);
-    if (teamBased) fog.push(["Base vision", FOG_VISION_LABEL[c.fogBaseVision]]);
-    if (ctf) fog.push(["Flag vision", FLAG_VISION_LABEL[c.fogFlagVision]]);
-    if (ctf) fog.push(["Hide carried flag", onOff(c.fogHideCarriedFlag)]);
-  }
-  groups.push({ title: "Fog of War", rows: fog });
-
-  const hazards: Row[] = [["Hazards", c.hazardDensity > 0 ? `${c.hazardDensity} zones` : "Off"]];
-  if (c.hazardDensity > 0) {
-    hazards.push([
-      "Types",
-      c.hazardTypes.length > 0 ? c.hazardTypes.map((t) => HAZARD_LABEL[t]).join(", ") : "None",
-    ]);
-    if (c.hazardTypes.includes("lava")) hazards.push(["Lava DPS", c.hazardDamage]);
-    if (c.hazardTypes.includes("mud")) hazards.push(["Mud slow", c.hazardSlowMult]);
-    if (c.hazardTypes.includes("heal")) hazards.push(["Heal HP/s", c.hazardHealRate]);
-  }
-  groups.push({ title: "Hazards", rows: hazards });
-
+  // Match & scoring together, mirroring the host editor's section order.
   const match: Row[] = [];
   // CTF is a round series: each round is won by capturing flagsPerRound flags,
   // the match by winning maxFlags rounds.
@@ -159,21 +139,23 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   else match.push(["Rounds", c.rounds > 1 ? `first to ${c.rounds} rounds` : "single round"]);
   match.push(["Max players", lobby.maxPlayers]);
   match.push(["Join after start", c.allowLateJoin ? "Allowed" : "Closed"]);
-  match.push(["Tank speed", `${c.tankSpeedPct}%`]);
-  match.push(["HP", c.hp]);
-  match.push(["Lives", c.lives > 0 ? c.lives : "∞"]);
-  match.push(["Respawn", `${c.respawnSeconds}s`]);
-  groups.push({ title: "Match", rows: match });
-
-  // No point-scoring in CTF — it's won by captures, so the scoring group is omitted.
+  // No point-scoring in CTF — it's won by captures, so those rows are omitted.
   if (!ctf) {
-    const scoring: Row[] = [
-      ["Kill", `${c.killPoints} pts`],
-      ["Death penalty", `${c.deathPenaltyPct}%`],
-    ];
-    if (hasWin) scoring.push(["Points to win", `${c.winScore}`]);
-    groups.push({ title: "Scoring", rows: scoring });
+    match.push(["Kill", `${c.killPoints} pts`]);
+    match.push(["Death penalty", `${c.deathPenaltyPct}%`]);
+    if (hasWin) match.push(["Points to win", `${c.winScore}`]);
   }
+  groups.push({ title: "Match & Scoring", rows: match });
+
+  groups.push({
+    title: "Tanks",
+    rows: [
+      ["Tank speed", `${c.tankSpeedPct}%`],
+      ["HP", c.hp],
+      ["Lives", c.lives > 0 ? c.lives : "∞"],
+      ["Respawn", `${c.respawnSeconds}s`],
+    ],
+  });
 
   const pwr: Row[] = [["Power-ups", onOff(c.powerups)]];
   if (c.powerups) {
@@ -191,6 +173,27 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     ]);
   }
   groups.push({ title: "Power-ups", rows: pwr });
+
+  const hazards: Row[] = [["Hazards", c.hazardDensity > 0 ? `${c.hazardDensity} zones` : "Off"]];
+  if (c.hazardDensity > 0) {
+    hazards.push([
+      "Types",
+      c.hazardTypes.length > 0 ? c.hazardTypes.map((t) => HAZARD_LABEL[t]).join(", ") : "None",
+    ]);
+    if (c.hazardTypes.includes("lava")) hazards.push(["Lava DPS", c.hazardDamage]);
+    if (c.hazardTypes.includes("mud")) hazards.push(["Mud slow", c.hazardSlowMult]);
+    if (c.hazardTypes.includes("heal")) hazards.push(["Heal HP/s", c.hazardHealRate]);
+  }
+  groups.push({ title: "Hazards", rows: hazards });
+
+  const fog: Row[] = [["Fog of war", onOff(c.fogOfWar)]];
+  if (c.fogOfWar) {
+    fog.push(["Radius", `${c.visionRadius}px`]);
+    if (teamBased) fog.push(["Base vision", FOG_VISION_LABEL[c.fogBaseVision]]);
+    if (ctf) fog.push(["Flag vision", FLAG_VISION_LABEL[c.fogFlagVision]]);
+    if (ctf) fog.push(["Hide carried flag", onOff(c.fogHideCarriedFlag)]);
+  }
+  groups.push({ title: "Fog of War", rows: fog });
 
   // Advanced engine tuning, grouped the same way as the host's editor.
   groups.push({
@@ -214,18 +217,19 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Lifetime", `${a.bulletLifetime}s`],
     ],
   });
-  groups.push({
-    title: "Adv · Map",
-    rows: [
-      ["Cell size", a.cellSize],
-      ["Wall thickness", a.wallThickness],
-      ["Wall HP", a.wallHp],
-    ],
-  });
+  const advMap: Row[] = [
+    ["Cell size", a.cellSize],
+    ["Wall thickness", a.wallThickness],
+  ];
+  // Wall HP only matters when walls can take damage.
+  if (c.destructibleWalls) advMap.push(["Wall HP", a.wallHp]);
+  groups.push({ title: "Adv · Map", rows: advMap });
   // Power-up tuning — generated from the registry so every power-up's config
-  // shows up here automatically (one group per power-up).
+  // shows up here automatically (one group per power-up). Groups for disabled
+  // power-ups (or with power-ups off entirely) are omitted.
   for (const def of POWERUP_DEFS) {
     if (def.config.length === 0) continue;
+    if (!c.powerups || !c.powerupTypes.includes(def.id)) continue;
     groups.push({
       title: `Adv · ${def.label}`,
       rows: def.config.map((field) => [field.label, a[field.key]] as Row),
