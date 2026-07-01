@@ -108,6 +108,12 @@ export const SPAWN_ZONE_CELLS = 2;
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;
+// A laser + sniper beam branches at every pierceable wall (one reflected leg + one
+// transmitted leg), so a single trigger can spawn a tree of segments and blasts.
+// These cap the tree so its segment/blast lists stay well under the wire's per-list
+// Uint8 length (255) and the sim can't be flooded by an extreme pierce budget.
+export const MAX_BEAM_SEGMENTS = 96;
+export const MAX_BEAM_BLASTS = 96;
 
 // Fog of war: non-wall visuals are clipped to the local/team sight area.
 // Scope doubles tank vision radius and grants x-ray through walls. Host-tunable live.

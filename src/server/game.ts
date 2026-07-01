@@ -1,4 +1,6 @@
 import {
+  MAX_BEAM_BLASTS,
+  MAX_BEAM_SEGMENTS,
   MAX_POWERUPS_ON_MAP,
   MAX_VOLLEY_BULLETS,
   POWERUP_RADIUS,
@@ -165,23 +167,16 @@ interface Tank {
 /** A composed per-shot spec: the merged per-bullet effects plus the emission
  *  fan. Built once per trigger pull from the held weapon effects, then applied
  *  to every pellet of the shot (and replayed for rapid-fire's deferred shots). */
-// Contested contact axes: multiple weapons may assign different values, resolved
-// by a fixed priority order (the "axioms"). Higher index wins.
-type WallContact = "bounce" | "detonate" | "pierce";
-type TankContact = "consume" | "pierce" | "detonate";
-const WALL_ORDER: WallContact[] = ["bounce", "detonate", "pierce"]; // pierce > detonate
-const TANK_ORDER: TankContact[] = ["consume", "pierce", "detonate"]; // detonate > pierce
-
 interface Recipe {
   // Resolved per-bullet axes.
   homing: boolean; // steer axis (homing > straight)
-  wallContact: WallContact;
-  tankContact: TankContact;
-  expiryDetonate: boolean;
+  tankPierce: boolean; // pass through tanks (sniper) instead of being consumed
+  blastOnContact: boolean; // emit a blast at every wall/tank contact + on despawn (explosion)
   inheritMomentum: boolean;
   speedMult: number;
-  wallPierce: number;
-  maxBounces: number;
+  pierces: boolean; // on the penetrate track (flies straight through walls) vs reflect track
+  wallPierce: number; // penetrate-track survival: walls the round passes straight through
+  maxBounces: number; // reflect-track survival: wall bounces the round survives
   life: number;
   blastRadius: number;
   // Emission axes.
@@ -205,15 +200,16 @@ interface Bullet {
   life: number;
   /** Homing: steers toward the nearest target each step (tracking). */
   homing: boolean;
-  /** What happens at a wall (resolved from held effects). */
-  wallContact: WallContact;
-  /** What happens on a tank (resolved from held effects). */
-  tankContact: TankContact;
-  /** Detonate when the round's lifetime runs out (explosive). */
-  expiryDetonate: boolean;
-  /** AoE radius when this round detonates (0 = none). */
+  /** Passes through tanks (damaging each once) instead of being consumed (sniper). */
+  tankPierce: boolean;
+  /** Emit a blast at every wall/tank contact and on despawn (explosion). */
+  blastOnContact: boolean;
+  /** AoE radius when this round emits a blast (0 = none). */
   blastRadius: number;
-  /** Walls this round can still punch through (wallContact === "pierce"). */
+  /** On the penetrate track: flies straight through walls (spending wallPierce)
+   *  and dies when the budget runs out, rather than reflecting. */
+  pierces: boolean;
+  /** Penetrate-track survival: walls this round can still punch straight through. */
   wallPierce: number;
   /** Whether the round was inside a wall last step (wall-cross detection). */
   wasInWall: boolean;
@@ -255,10 +251,10 @@ export class Game {
     maxBounces: 0,
     life: 0,
     homing: false,
-    wallContact: "bounce",
-    tankContact: "consume",
-    expiryDetonate: false,
+    tankPierce: false,
+    blastOnContact: false,
     blastRadius: 0,
+    pierces: false,
     wallPierce: 0,
     wasInWall: false,
     hitIds: new Set<string>(),
@@ -701,10 +697,10 @@ export class Game {
     bullet.maxBounces = init.maxBounces;
     bullet.life = init.life;
     bullet.homing = init.homing;
-    bullet.wallContact = init.wallContact;
-    bullet.tankContact = init.tankContact;
-    bullet.expiryDetonate = init.expiryDetonate;
+    bullet.tankPierce = init.tankPierce;
+    bullet.blastOnContact = init.blastOnContact;
     bullet.blastRadius = init.blastRadius;
+    bullet.pierces = init.pierces;
     bullet.wallPierce = init.wallPierce;
     bullet.wasInWall = init.wasInWall;
     bullet.hitIds.clear();
@@ -717,11 +713,11 @@ export class Game {
   private plainRecipe(): Recipe {
     return {
       homing: false,
-      wallContact: "bounce",
-      tankContact: "consume",
-      expiryDetonate: false,
+      tankPierce: false,
+      blastOnContact: false,
       inheritMomentum: true,
       speedMult: 1,
+      pierces: false,
       wallPierce: 0,
       maxBounces: this.adv.bulletBounces,
       life: this.adv.bulletLifetime,
@@ -744,28 +740,36 @@ export class Game {
   private buildRecipe(held: PowerupType[]): Recipe {
     const r = this.plainRecipe();
     const adv = this.adv as unknown as Record<string, number>;
-    // Priority-max for a contested axis: keep whichever value ranks higher.
-    const pick = <T extends string>(order: T[], cur: T, next: T | undefined): T =>
-      next !== undefined && order.indexOf(next) > order.indexOf(cur) ? next : cur;
+    // A lifecycle clamp (explosion sets 0) applied after the bounce fold so it
+    // wins over any weapon that raised the reflect budget (e.g. tracking).
+    let bounceOverride: number | undefined;
     for (const w of held) {
       const e = powerupDef(w).effect;
       if (!e) continue;
       if (e.steer === "homing") r.homing = true;
-      r.wallContact = pick(WALL_ORDER, r.wallContact, e.wallContact);
-      r.tankContact = pick(TANK_ORDER, r.tankContact, e.tankContact);
-      if (e.expiryDetonate) r.expiryDetonate = true;
-      if (e.inheritMomentum === false) r.inheritMomentum = false;
+      if (e.tankPierce) r.tankPierce = true; // OR
+      if (e.blastOnContact) r.blastOnContact = true; // OR
+      if (e.inheritMomentum === false) r.inheritMomentum = false; // AND (veto)
       if (e.carrier === "beam") r.carrier = "beam";
       if (e.speedMultKey) r.speedMult *= adv[e.speedMultKey]; // product
-      if (e.wallPierceKey) r.wallPierce = Math.max(r.wallPierce, adv[e.wallPierceKey]);
+      if (e.wallPierceKey) {
+        r.wallPierce = Math.max(r.wallPierce, adv[e.wallPierceKey]);
+        r.pierces = true; // this weapon puts the round on the penetrate track
+      }
       if (e.lifetimeKey) r.life = Math.max(r.life, adv[e.lifetimeKey]);
       if (e.maxBouncesKey) r.maxBounces = Math.max(r.maxBounces, adv[e.maxBouncesKey]);
+      if (e.maxBouncesOverride !== undefined) {
+        bounceOverride = Math.min(bounceOverride ?? e.maxBouncesOverride, e.maxBouncesOverride);
+      }
       if (e.blastRadiusKey) r.blastRadius = Math.max(r.blastRadius, adv[e.blastRadiusKey]);
       if (e.fanCountKey) r.fanCount = Math.max(r.fanCount, Math.round(adv[e.fanCountKey]));
       if (e.fanSpreadKey) r.fanSpread = (adv[e.fanSpreadKey] * Math.PI) / 180;
       if (e.burstCountKey) r.burstCount = Math.max(r.burstCount, Math.round(adv[e.burstCountKey]));
       if (e.burstDelayKey) r.burstDelay = adv[e.burstDelayKey];
     }
+    // Explosion clamps the reflect track to die-on-contact. Penetration (wallPierce)
+    // and beam reflection are separate survival tracks, so this can't kill them.
+    if (bounceOverride !== undefined) r.maxBounces = bounceOverride;
     return r;
   }
 
@@ -786,23 +790,27 @@ export class Game {
       maxBounces: r.maxBounces,
       life: r.life,
       homing: r.homing,
-      wallContact: r.wallContact,
-      tankContact: r.tankContact,
-      expiryDetonate: r.expiryDetonate,
+      tankPierce: r.tankPierce,
+      blastOnContact: r.blastOnContact,
       blastRadius: r.blastRadius,
+      pierces: r.pierces,
       wallPierce: r.wallPierce,
       wasInWall: false,
     }));
   }
 
   /** Emit one shot from a recipe: a beam (laser carrier) or a fan of projectiles.
-   *  A beam honors only the fan (multiple beams) and blast (detonate at hits). */
+   *  The beam folds the same axes the projectile carrier does (pierce → branch,
+   *  blastOnContact → detonate at each contact); reflection is intrinsic to it. */
   private emitVolley(tank: Tank, r: Recipe): void {
     const a = tank.turretAngle;
     const n = Math.max(1, r.fanCount);
     const angleAt = (i: number) => (n > 1 ? a - r.fanSpread / 2 + (r.fanSpread / (n - 1)) * i : a);
     if (r.carrier === "beam") {
-      for (let i = 0; i < n; i++) this.fireLaser(tank, angleAt(i), r.blastRadius);
+      // Shared budget across the whole volley so a multishot fan of branching beams
+      // still can't overflow the wire's per-list Uint8 length.
+      const budget = { segments: 0, blasts: 0 };
+      for (let i = 0; i < n; i++) this.fireLaser(tank, angleAt(i), r, budget);
       return;
     }
     for (let i = 0; i < n; i++) this.spawnBullet(tank, angleAt(i), r);
@@ -909,62 +917,126 @@ export class Game {
   }
 
   /**
-   * Hitscan laser: an instant beam that reflects off walls, accumulating up to
-   * this.adv.laserRange total length, damaging each tank it crosses (once).
-   * `blastRadius > 0` (explosive combined) detonates at each tank/wall it hits.
+   * Hitscan laser: an instant beam, up to this.adv.laserRange total length,
+   * damaging each tank it crosses once. It folds the same axes the projectile
+   * carrier does — reflection is intrinsic to the beam, `blastOnContact` detonates
+   * at every wall/tank contact and at each leaf end, and `wallPierce > 0` makes it
+   * *branch* at each wall (one reflected leg + one transmitted leg) until the shared
+   * pierce budget runs out. `budget` caps the whole volley's segments/blasts so a
+   * branching tree can't overflow the wire's per-list Uint8 length.
    */
-  private fireLaser(tank: Tank, angle: number, blastRadius = 0): void {
+  private fireLaser(
+    tank: Tank,
+    angle: number,
+    r: Recipe,
+    budget: { segments: number; blasts: number }
+  ): void {
     const STEP = 3;
-    let dx = Math.cos(angle);
-    let dy = Math.sin(angle);
-    let x = tank.x + dx * (this.adv.tankRadius + 2);
-    let y = tank.y + dy * (this.adv.tankRadius + 2);
-    let remaining = this.adv.laserRange;
-    const pts: Array<{ x: number; y: number }> = [{ x, y }];
-    const hit = new Set<string>();
-    let guard = 0;
-    let bounces = 0;
+    const R = this.adv.bulletRadius;
+    const hit = new Set<string>(); // one damage per tank across the whole tree
+    let pierceLeft = r.pierces ? r.wallPierce : 0; // shared across all branches
 
-    while (remaining > 0 && guard++ < 4000) {
-      const nx = x + dx * STEP;
-      if (this.circleHitsWall(nx, y, this.adv.bulletRadius)) {
-        dx = -dx;
-        bounces += 1;
-        pts.push({ x, y });
-        if (blastRadius > 0) this.explode(x, y, tank.id, blastRadius); // detonate at each reflection
-      } else {
-        x = nx;
-      }
-      const ny = y + dy * STEP;
-      if (this.circleHitsWall(x, ny, this.adv.bulletRadius)) {
-        dy = -dy;
-        bounces += 1;
-        pts.push({ x, y });
-        if (blastRadius > 0) this.explode(x, y, tank.id, blastRadius);
-      } else {
-        y = ny;
-      }
-      remaining -= STEP;
-      if (x < 0 || y < 0 || x > this.maze.width || y > this.maze.height) break;
+    const blastAt = (x: number, y: number) => {
+      if (!r.blastOnContact || budget.blasts >= MAX_BEAM_BLASTS) return;
+      budget.blasts += 1;
+      this.explode(x, y, tank.id, r.blastRadius);
+    };
+    // Spawn a transmitted branch that continues straight through the wall the beam
+    // just entered: march forward from the pre-wall point until it clears the wall
+    // (bounded), then it lives as its own ray. null if it can't cleanly exit.
+    const transmitThrough = (x: number, y: number, dx: number, dy: number, remaining: number) => {
+      let g = 0;
+      do {
+        x += dx * STEP;
+        y += dy * STEP;
+        remaining -= STEP;
+        if (remaining <= 0 || x < 0 || y < 0 || x > this.maze.width || y > this.maze.height) {
+          return null;
+        }
+      } while (this.circleHitsWall(x, y, R) && g++ < 60);
+      return this.circleHitsWall(x, y, R) ? null : { x, y, dx, dy, remaining };
+    };
 
-      for (const t of this.tanks.values()) {
-        if (!t.alive || t.shieldTimer > 0 || hit.has(t.id)) continue;
-        // Your own ricochet can come back and hit you (after at least one bounce).
-        if (t.id === tank.id && bounces === 0) continue;
-        if (this.isFriendly(tank.id, t)) continue; // teammates only when FF is on
-        if ((t.x - x) ** 2 + (t.y - y) ** 2 <= this.adv.tankRadius * this.adv.tankRadius) {
-          hit.add(t.id);
-          if (blastRadius > 0) this.explode(t.x, t.y, tank.id, blastRadius); // detonate at the target
-          t.hp -= 1;
-          if (t.hp <= 0) this.kill(t, tank.id);
+    interface Ray {
+      x: number;
+      y: number;
+      dx: number;
+      dy: number;
+      remaining: number;
+      bounces: number;
+    }
+    const start: Ray = {
+      x: tank.x + Math.cos(angle) * (this.adv.tankRadius + 2),
+      y: tank.y + Math.sin(angle) * (this.adv.tankRadius + 2),
+      dx: Math.cos(angle),
+      dy: Math.sin(angle),
+      remaining: this.adv.laserRange,
+      bounces: 0,
+    };
+    const rays: Ray[] = [start];
+
+    while (rays.length > 0 && budget.segments < MAX_BEAM_SEGMENTS) {
+      const ray = rays.pop() as Ray;
+      let { x, y, dx, dy, remaining, bounces } = ray;
+      const pts: Array<{ x: number; y: number }> = [{ x, y }];
+      let guard = 0;
+
+      while (remaining > 0 && guard++ < 4000) {
+        // Wall contact on either axis: blast, branch a transmitted leg if the pierce
+        // budget remains, then reflect the current leg (intrinsic to the beam).
+        const nx = x + dx * STEP;
+        if (this.circleHitsWall(nx, y, R)) {
+          blastAt(x, y);
+          if (pierceLeft > 0) {
+            pierceLeft -= 1;
+            const t = transmitThrough(x, y, dx, dy, remaining);
+            if (t) rays.push({ ...t, bounces });
+          }
+          dx = -dx;
+          bounces += 1;
+          pts.push({ x, y });
+        } else {
+          x = nx;
+        }
+        const ny = y + dy * STEP;
+        if (this.circleHitsWall(x, ny, R)) {
+          blastAt(x, y);
+          if (pierceLeft > 0) {
+            pierceLeft -= 1;
+            const t = transmitThrough(x, y, dx, dy, remaining);
+            if (t) rays.push({ ...t, bounces });
+          }
+          dy = -dy;
+          bounces += 1;
+          pts.push({ x, y });
+        } else {
+          y = ny;
+        }
+        remaining -= STEP;
+        if (x < 0 || y < 0 || x > this.maze.width || y > this.maze.height) break;
+
+        for (const t of this.tanks.values()) {
+          if (!t.alive || t.shieldTimer > 0 || hit.has(t.id)) continue;
+          // Your own ricochet can come back and hit you (after at least one bounce).
+          if (t.id === tank.id && bounces === 0) continue;
+          if (this.isFriendly(tank.id, t)) continue; // teammates only when FF is on
+          if ((t.x - x) ** 2 + (t.y - y) ** 2 <= this.adv.tankRadius * this.adv.tankRadius) {
+            hit.add(t.id);
+            blastAt(t.x, t.y); // detonate at the target
+            t.hp -= 1;
+            if (t.hp <= 0) this.kill(t, tank.id);
+          }
         }
       }
-    }
-    pts.push({ x, y });
+      pts.push({ x, y });
+      // A beam that runs out its range (or leaves the arena) despawns → leaf blast.
+      blastAt(x, y);
 
-    // Emit each leg of the reflected path for the client to draw.
-    for (let i = 0; i < pts.length - 1; i++) {
-      this.pendingBeams.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
+      // Emit each leg of this ray's path for the client to draw (bounded).
+      for (let i = 0; i < pts.length - 1 && budget.segments < MAX_BEAM_SEGMENTS; i++) {
+        budget.segments += 1;
+        this.pendingBeams.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
+      }
     }
   }
 
@@ -986,7 +1058,8 @@ export class Game {
     for (const b of this.bullets) {
       b.life -= dt;
       if (b.life <= 0) {
-        if (b.expiryDetonate) this.explode(b.x, b.y, b.ownerId, b.blastRadius);
+        // Despawn in open space (no contact): the blast axis fires one final time.
+        if (b.blastOnContact) this.explode(b.x, b.y, b.ownerId, b.blastRadius);
         this.bulletPool.release(b);
         continue;
       }
@@ -1004,51 +1077,51 @@ export class Game {
         const w = this.maze.hitWall(x, y, R);
         if (w) this.maze.damageWall(w, WALL_DAMAGE);
       };
+      // The blast axis fires at every wall contact; a contact that also kills the
+      // round (bounce/pierce budget spent) is its own despawn blast — no double-fire.
+      const blastAt = (x: number, y: number) => {
+        if (b.blastOnContact) this.explode(x, y, b.ownerId, b.blastRadius);
+      };
       for (let s = 0; s < steps && !dead; s++) {
-        // Wall behavior is resolved entirely by the wallContact axis — no weapon
-        // flags here, so any combination behaves the same as the axiom ordering says.
-        if (b.wallContact === "pierce") {
-          // Passes straight through walls, spending its pierce budget per wall
-          // entered; dies when the budget runs out or it leaves the arena.
+        // Wall behavior is resolved entirely by the axes (pierces / maxBounces /
+        // blastOnContact) — no weapon is named, so any combination composes alike.
+        if (b.pierces) {
+          // Penetrate track: fly straight through walls, spending the pierce budget
+          // per wall entered; blast at each contact; die when the budget/arena ends.
           b.x += b.vx * sdt;
           b.y += b.vy * sdt;
           if (b.x < 0 || b.y < 0 || b.x > this.maze.width || b.y > this.maze.height) {
+            blastAt(b.x, b.y);
             dead = true;
           } else {
             const inWall = this.circleHitsWall(b.x, b.y, R);
             if (inWall && !b.wasInWall) {
               damageWallAt(b.x, b.y);
+              blastAt(b.x, b.y);
               if (b.wallPierce <= 0) dead = true;
               else b.wallPierce -= 1;
             }
             b.wasInWall = inWall;
           }
         } else {
-          const detonate = b.wallContact === "detonate";
+          // Reflect track: bounce off walls; blast at each contact; die when out of
+          // bounces (explosion clamps maxBounces to 0 → die on first contact).
           const nx = b.x + b.vx * sdt;
           if (this.circleHitsWall(nx, b.y, R)) {
-            if (detonate) {
-              this.explode(b.x, b.y, b.ownerId, b.blastRadius);
-              dead = true;
-            } else {
-              damageWallAt(nx, b.y);
-              b.vx = -b.vx;
-              if (++b.bounces > b.maxBounces) dead = true;
-            }
+            damageWallAt(nx, b.y);
+            blastAt(b.x, b.y);
+            b.vx = -b.vx;
+            if (++b.bounces > b.maxBounces) dead = true;
           } else {
             b.x = nx;
           }
           if (!dead) {
             const ny = b.y + b.vy * sdt;
             if (this.circleHitsWall(b.x, ny, R)) {
-              if (detonate) {
-                this.explode(b.x, b.y, b.ownerId, b.blastRadius);
-                dead = true;
-              } else {
-                damageWallAt(b.x, ny);
-                b.vy = -b.vy;
-                if (++b.bounces > b.maxBounces) dead = true;
-              }
+              damageWallAt(b.x, ny);
+              blastAt(b.x, b.y);
+              b.vy = -b.vy;
+              if (++b.bounces > b.maxBounces) dead = true;
             } else {
               b.y = ny;
             }
@@ -1078,7 +1151,13 @@ export class Game {
         b.waypoint = null;
         return;
       }
-      b.waypoint = this.nextHopToward(b.x, b.y, target.x, target.y) ?? { x: target.x, y: target.y };
+      // A round that can still punch through walls has no reason to follow the maze
+      // — it steers straight at the target. Once the pierce budget is spent, it falls
+      // back to corridor pathfinding so it routes around walls instead of dying on one.
+      b.waypoint =
+        b.wallPierce > 0
+          ? { x: target.x, y: target.y }
+          : this.nextHopToward(b.x, b.y, target.x, target.y) ?? { x: target.x, y: target.y };
       b.repathIn = TRACKING_REPATH;
     }
     const wp = b.waypoint;
@@ -1215,20 +1294,25 @@ export class Game {
       if (!tank.alive) continue;
       if (tank.id === b.ownerId && b.bounces === 0) continue; // no point-blank self-hit
       if (this.isFriendly(b.ownerId, tank)) continue; // friendly fire off
-      const pierces = b.tankContact === "pierce";
-      if (pierces && b.hitIds.has(tank.id)) continue; // already pierced this one
+      if (b.tankPierce && b.hitIds.has(tank.id)) continue; // already pierced this one
       const dx = tank.x - b.x;
       const dy = tank.y - b.y;
       if (dx * dx + dy * dy > rr * rr) continue;
 
-      // Tank-contact axis: detonate > pierce > consume.
-      if (b.tankContact === "detonate") {
+      // Tank contact resolves three independent facets:
+      //  - blastOnContact: the blast delivers the damage (to this tank + any in radius);
+      //  - tankPierce: pass through (damaging each tank once) vs be consumed.
+      if (b.blastOnContact) {
         this.explode(b.x, b.y, b.ownerId, b.blastRadius);
-        return true;
+        if (b.tankPierce) {
+          b.hitIds.add(tank.id);
+          continue; // pierce through the (now-detonated) contact
+        }
+        return true; // consumed on impact
       }
       // Shield blocks the hit (no damage); the round is still stopped/passes.
       if (tank.shieldTimer > 0) {
-        if (pierces) {
+        if (b.tankPierce) {
           b.hitIds.add(tank.id);
           continue;
         }
@@ -1236,7 +1320,7 @@ export class Game {
       }
       tank.hp -= 1;
       if (tank.hp <= 0) this.kill(tank, b.ownerId);
-      if (pierces) {
+      if (b.tankPierce) {
         b.hitIds.add(tank.id);
         continue; // a piercing round keeps going
       }
@@ -2153,8 +2237,8 @@ export class Game {
         ownerId: b.ownerId,
         // Display flags derived from the resolved axes (drive rendering only).
         homing: b.homing,
-        explosive: b.blastRadius > 0,
-        pierce: b.wallContact === "pierce" || b.tankContact === "pierce",
+        explosive: b.blastOnContact,
+        pierce: b.wallPierce > 0 || b.tankPierce,
       })),
       powerups: this.powerups.map((p) => ({
         id: p.id,

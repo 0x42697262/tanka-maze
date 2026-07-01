@@ -439,20 +439,22 @@ describe("power-ups: combining", () => {
     const b = bullets(g)[0];
     assert.equal(b.homing, true); // steer axis from tracking
     assert.ok(b.blastRadius > 0); // blast axis from explosive
-    assert.equal(b.tankContact, "detonate"); // detonate > consume
+    assert.equal(b.blastOnContact, true); // explosion taps every contact
+    assert.equal(b.maxBounces, 0); // explosion clamps the reflect track to die-on-contact
   });
 
-  it("sniper + explosive resolves by the axioms: pierces walls, detonates on tanks", () => {
+  it("sniper + explosive composes the axes: penetrate track + blast on every contact", () => {
     const g = makeGame({ players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
     a.weaponCharges = { sniper: 1, explosive: 1 };
     fire(g, a);
     const b = bullets(g)[0];
-    assert.equal(b.wallContact, "pierce"); // pierce > detonate at walls
-    assert.equal(b.tankContact, "detonate"); // detonate > pierce at tanks
+    assert.equal(b.pierces, true); // sniper puts it on the straight penetrate track
+    assert.equal(b.tankPierce, true); // passes through tanks (damaging each once)
+    assert.equal(b.blastOnContact, true); // explosion blasts at every wall/tank
     assert.ok(b.blastRadius > 0);
-    assert.ok(b.wallPierce > 0); // sniper's wall-pierce budget
+    assert.ok(b.wallPierce > 0); // sniper's wall-pierce budget survives the explosion clamp
   });
 
   it("charges deplete per effect: an effect drops out of the combo when it runs out", () => {
@@ -468,7 +470,7 @@ describe("power-ups: combining", () => {
     fire(g, a); // second shot: sniper only
     const b2 = bullets(g)[before];
     assert.equal(b2.blastRadius, 0); // no explosive left
-    assert.equal(b2.wallContact, "pierce"); // sniper still applies
+    assert.equal(b2.pierces, true); // sniper still applies
     assert.equal(charges(a, "sniper"), 0);
   });
 
@@ -550,6 +552,150 @@ describe("explosive", () => {
     }
     assert.ok(blasts >= 1, "explosive should detonate on despawn");
     assert.equal(bullets(g).length, 0, "bullet removed after detonating");
+  });
+});
+
+describe("orthogonal axes: payload vs lifecycle compose across carriers", () => {
+  const recipe = (g: Game, held: string[]): any => (g as any).buildRecipe(held);
+
+  it("explosion clamps the reflect track to die-on-contact (no roaming bomb)", () => {
+    const g = makeGame({ players: [{ id: "a", name: "A" }] });
+    const r = recipe(g, ["explosive"]);
+    assert.equal(r.maxBounces, 0); // reflect track clamped
+    assert.equal(r.blastOnContact, true); // blast at every contact + despawn
+    assert.equal(r.pierces, false); // no penetrate track granted
+  });
+
+  it("sniper keeps the penetrate track even under explosion's clamp", () => {
+    const g = makeGame({ players: [{ id: "a", name: "A" }] });
+    const r = recipe(g, ["sniper", "explosive"]);
+    assert.equal(r.pierces, true); // straight penetrate track survives
+    assert.ok(r.wallPierce > 0);
+    assert.equal(r.maxBounces, 0); // reflect track still clamped (irrelevant while piercing)
+    assert.equal(r.blastOnContact, true);
+    assert.equal(r.tankPierce, true);
+  });
+
+  it("explosion + tracking + sniper: homes, penetrates, and blasts on contact", () => {
+    const g = makeGame({ cfg: { combineWeapons: true }, players: [{ id: "a", name: "A" }] });
+    const r = recipe(g, ["tracking", "sniper", "explosive"]);
+    assert.equal(r.homing, true);
+    assert.equal(r.pierces, true);
+    assert.ok(r.wallPierce > 0);
+    assert.equal(r.blastOnContact, true);
+  });
+
+  it("explosion + multishot: every pellet explodes on impact, fan count preserved", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { multishotCount: 3, fireCooldown: 0 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { multishot: 1, explosive: 1 };
+    fire(g, a);
+    const bs = bullets(g);
+    assert.equal(bs.length, 3); // fan preserved
+    for (const b of bs) {
+      assert.equal(b.blastOnContact, true);
+      assert.equal(b.maxBounces, 0); // each pellet dies on first contact
+      assert.equal(b.pierces, false);
+    }
+  });
+
+  it("laser + explosive blasts at the beam's terminal, even in open space", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0 },
+      maze: new Maze(12, 9, "open"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.x = 200;
+    a.y = 300;
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, explosive: 1 };
+    fire(g, a);
+    assert.ok((g as any).pendingBlasts.length > 0);
+  });
+
+  it("laser + sniper branches through a wall (reflect + transmit); laser alone only reflects", () => {
+    const beamsFor = (withSniper: boolean) => {
+      const g = makeGame({
+        cfg: { combineWeapons: true },
+        adv: { laserDelay: 0, sniperWallPierce: 3 },
+        players: [{ id: "a", name: "A" }],
+      });
+      // Inject a vertical interior wall at x = 400 (spanning y 200..500).
+      (g as any).maze.walls.push({ x1: 400, y1: 200, x2: 400, y2: 500, hp: Infinity, maxHp: Infinity });
+      const a = tank(g, "a");
+      a.x = 150;
+      a.y = 350;
+      a.turretAngle = 0; // fire straight at the wall
+      a.weaponCharges = withSniper ? { laser: 1, sniper: 1 } : { laser: 1 };
+      fire(g, a);
+      return (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+    };
+    const solo = beamsFor(false);
+    const branched = beamsFor(true);
+    const maxX = (segs: typeof solo) => Math.max(...segs.flatMap((s) => [s.x1, s.x2]));
+    assert.ok(maxX(solo) < 410, "laser alone reflects off the wall, never crossing it");
+    assert.ok(maxX(branched) > 500, "laser + sniper transmits a leg through the wall");
+    assert.ok(branched.length > solo.length, "branching adds beam segments");
+  });
+
+  it("tracking + sniper aims straight while it can pierce, then paths once out of budget", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { sniperWallPierce: 5 },
+      maze: new Maze(10, 8, "open"),
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    const a = tank(g, "a");
+    const bt = tank(g, "b");
+    a.x = 132; // cell (1,3)
+    a.y = 308;
+    a.turretAngle = 0;
+    bt.x = 484; // cell (5,3): 4 cells away on the same row
+    bt.y = 308;
+    a.weaponCharges = { tracking: 1, sniper: 1 };
+    fire(g, a);
+    const b = bullets(g)[0];
+    assert.ok(b.wallPierce > 0);
+
+    // With pierce budget left it ignores corridors and steers at the target itself.
+    (g as any).steerHoming(b, 1 / 30);
+    assert.ok(Math.abs(b.waypoint.x - bt.x) < 1 && Math.abs(b.waypoint.y - bt.y) < 1);
+
+    // Spent, it falls back to the maze BFS — a nearer intermediate hop, not the target.
+    b.wallPierce = 0;
+    b.repathIn = 0; // force a recompute
+    (g as any).steerHoming(b, 1 / 30);
+    assert.ok(b.waypoint.x < bt.x - 40);
+  });
+
+  it("a branching beam stays within the wire's segment/blast caps", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0, sniperWallPierce: 20, explosionRadius: 20 },
+      players: [{ id: "a", name: "A" }],
+    });
+    // A dense field of short interior walls to force lots of branching.
+    for (let gx = 120; gx < 760; gx += 80) {
+      (g as any).maze.walls.push({ x1: gx, y1: 100, x2: gx, y2: 600, hp: Infinity, maxHp: Infinity });
+    }
+    const a = tank(g, "a");
+    a.x = 60;
+    a.y = 350;
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, sniper: 1, explosive: 1 };
+    fire(g, a);
+    assert.ok((g as any).pendingBeams.length <= 96, "segments capped");
+    assert.ok((g as any).pendingBlasts.length <= 96, "blasts capped");
   });
 });
 

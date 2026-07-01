@@ -177,16 +177,27 @@ export interface PowerupConfigField {
  * A weapon's contribution to the composable per-shot "axes". The server resolver
  * (game.ts `buildRecipe`) folds these across every held weapon with one combine
  * rule per axis — so behaviors compose without any per-combination code. Scalar
- * axes name an AdvancedConfig key (kept host-tunable); enum/flag axes give a value.
- *   - steer/wallContact/tankContact resolve by a fixed priority order (the axioms).
- *   - inheritMomentum is AND-ed (any weapon may veto momentum inheritance).
- *   - carrier "beam" turns the shot into a hitscan laser (honors fan + blast only).
+ * axes name an AdvancedConfig key (kept host-tunable); flag axes give a value.
+ *
+ * The axes deliberately separate *payload* from *lifecycle* so any carrier can
+ * fold them the same way:
+ *   - `blastOnContact` (explosion) is a pure event tap: emit a blast at every
+ *     wall/tank contact and on despawn. It never decides survival on its own.
+ *   - Survival lives on two independent tracks: `maxBouncesKey` grants the reflect
+ *     track (bounce/zigzag) and `wallPierceKey` grants the penetrate track (straight
+ *     through). A projectile is on one track (pierce wins when present).
+ *   - `maxBouncesOverride: 0` (explosion) clamps the reflect track to die-on-contact;
+ *     penetration/beam survival are on their own tracks, so it can't kill them.
+ *   - `tankPierce` passes through tanks; `inheritMomentum: false` vetoes momentum.
+ *   - `carrier: "beam"` is a hitscan laser: reflection is intrinsic (ignores
+ *     maxBounces); it still folds pierce (branches through walls) and blastOnContact.
  */
 export interface WeaponEffect {
   steer?: "homing";
-  wallContact?: "pierce" | "detonate";
-  tankContact?: "pierce" | "detonate";
-  expiryDetonate?: boolean;
+  tankPierce?: boolean;
+  blastOnContact?: boolean;
+  /** Force the reflect (bounce) budget to this value (explosion clamps to 0). */
+  maxBouncesOverride?: number;
   inheritMomentum?: false;
   carrier?: "beam";
   speedMultKey?: keyof AdvancedConfig;
@@ -253,8 +264,7 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "sniperWallPierce", label: "Sniper walls", min: 0, max: 20, step: 1, int: true },
     ],
     effect: {
-      wallContact: "pierce",
-      tankContact: "pierce",
+      tankPierce: true,
       inheritMomentum: false,
       speedMultKey: "sniperSpeedMult",
       wallPierceKey: "sniperWallPierce",
@@ -268,9 +278,8 @@ export const POWERUP_DEFS: PowerupDef[] = [
     color: "#b23b2e",
     config: [{ key: "explosionRadius", label: "Blast radius", min: 10, max: 300, step: 2 }],
     effect: {
-      wallContact: "detonate",
-      tankContact: "detonate",
-      expiryDetonate: true,
+      blastOnContact: true,
+      maxBouncesOverride: 0,
       blastRadiusKey: "explosionRadius",
     },
   },
