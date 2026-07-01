@@ -152,8 +152,10 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
   // Owner is sent as the tank's wire index (resolved back to color client-side).
   // 255 = unknown owner.
   const ownerIndex = new Map(s.tanks.map((t) => [t.id, t.index]));
-  dv.setUint8(o++, s.bullets.length);
-  for (const b of s.bullets) {
+  const bulletCount = Math.min(255, s.bullets.length);
+  dv.setUint8(o++, bulletCount);
+  for (let bi = 0; bi < bulletCount; bi++) {
+    const b = s.bullets[bi];
     dv.setUint16(o, b.id & 0xffff, true);
     o += 2;
     dv.setUint16(o, u16(b.x), true);
@@ -164,8 +166,10 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint8(o++, ownerIndex.get(b.ownerId) ?? 255);
   }
 
-  dv.setUint8(o++, s.powerups.length);
-  for (const p of s.powerups) {
+  const powerupCount = Math.min(255, s.powerups.length);
+  dv.setUint8(o++, powerupCount);
+  for (let pi = 0; pi < powerupCount; pi++) {
+    const p = s.powerups[pi];
     dv.setUint8(o++, pupCode(p.type));
     dv.setUint16(o, u16(p.x), true);
     o += 2;
@@ -281,8 +285,10 @@ export function encodeSlimSnapshot(s: SnapshotDTO): Uint8Array {
 function encodeSnapshotTail(dv: DataView, offset: number, s: SnapshotDTO): number {
   let o = offset;
   const ownerIndex = new Map(s.tanks.map((t) => [t.id, t.index]));
-  dv.setUint8(o++, s.bullets.length);
-  for (const b of s.bullets) {
+  const bulletCount = Math.min(255, s.bullets.length);
+  dv.setUint8(o++, bulletCount);
+  for (let bi = 0; bi < bulletCount; bi++) {
+    const b = s.bullets[bi];
     dv.setUint16(o, b.id & 0xffff, true);
     o += 2;
     dv.setUint16(o, u16(b.x), true);
@@ -293,8 +299,10 @@ function encodeSnapshotTail(dv: DataView, offset: number, s: SnapshotDTO): numbe
     dv.setUint8(o++, ownerIndex.get(b.ownerId) ?? 255);
   }
 
-  dv.setUint8(o++, s.powerups.length);
-  for (const p of s.powerups) {
+  const powerupCount = Math.min(255, s.powerups.length);
+  dv.setUint8(o++, powerupCount);
+  for (let pi = 0; pi < powerupCount; pi++) {
+    const p = s.powerups[pi];
     dv.setUint8(o++, pupCode(p.type));
     dv.setUint16(o, u16(p.x), true);
     o += 2;

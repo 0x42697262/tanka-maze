@@ -17,6 +17,8 @@ import {
   MAX_AMMO,
   MULTISHOT_COUNT,
   MULTISHOT_SPREAD_DEG,
+  RAPIDFIRE_COUNT,
+  RAPIDFIRE_DELAY,
   ROUNDS_DEFAULT,
   SCOPE_SECONDS,
   RELOAD_SECONDS,
@@ -76,6 +78,8 @@ export interface AdvancedConfig {
   multishotCount: number; // pellets released per multishot
   multishotSpread: number; // total fan angle (degrees) of a multishot
   laserRange: number; // px total beam length
+  rapidFireCount: number; // bullets fired per rapid-fire burst
+  rapidFireDelay: number; // s between each rapid-fire burst shot
 }
 
 export const DEFAULT_ADVANCED: AdvancedConfig = {
@@ -107,6 +111,8 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
   multishotCount: MULTISHOT_COUNT,
   multishotSpread: MULTISHOT_SPREAD_DEG,
   laserRange: LASER_RANGE,
+  rapidFireCount: RAPIDFIRE_COUNT,
+  rapidFireDelay: RAPIDFIRE_DELAY,
 };
 
 // ---------------------------------------------------------------------------
@@ -155,6 +161,7 @@ export type PowerupType =
   | "laser"
   | "tracking"
   | "multishot"
+  | "rapidfire"
   | "scope";
 /** One tunable belonging to a power-up (an AdvancedConfig field + its UI range). */
 export interface PowerupConfigField {
@@ -260,6 +267,17 @@ export const POWERUP_DEFS: PowerupDef[] = [
     ],
   },
   {
+    id: "rapidfire",
+    kind: "weapon",
+    label: "Rapid Fire",
+    emblem: "⁘",
+    color: "#d63f6e",
+    config: [
+      { key: "rapidFireCount", label: "Burst shots", min: 1, max: 20, step: 1, int: true },
+      { key: "rapidFireDelay", label: "Burst delay s", min: 0.05, max: 1, step: 0.01 },
+    ],
+  },
+  {
     id: "scope",
     kind: "buff",
     label: "Scope",
@@ -343,6 +361,8 @@ export interface GameConfig {
   powerupEverySeconds: number; // spawn cadence
   powerupDespawnSeconds: number; // uncollected pickups vanish after this
   powerupCharges: number; // uses granted per pickup (weapon types)
+  powerupSpawnCount: number; // crates spawned together each time the spawn cadence ticks (no cap on concurrent crates — despawn bounds them)
+  powerupTypes: PowerupType[]; // enabled power-up types to include in the spawn pool
   tankCollision: boolean; // circle-to-circle pushing (FFA only)
   radar: boolean; // HUD radar that pings nearby tanks (host toggle for all)
 }
@@ -386,6 +406,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   powerupEverySeconds: 8,
   powerupDespawnSeconds: 12,
   powerupCharges: 1,
+  powerupSpawnCount: 1,
+  powerupTypes: [...POWERUP_TYPES],
   tankCollision: false,
   radar: true,
 };
@@ -400,6 +422,7 @@ export function gameConfigWithDefaults(config: GameConfigInput = {}): GameConfig
     ...config,
     adv: { ...DEFAULT_ADVANCED, ...(config.adv ?? {}) },
     hazardTypes: config.hazardTypes ? [...config.hazardTypes] : [...DEFAULT_GAME_CONFIG.hazardTypes],
+    powerupTypes: config.powerupTypes ? [...config.powerupTypes] : [...DEFAULT_GAME_CONFIG.powerupTypes],
   };
 }
 

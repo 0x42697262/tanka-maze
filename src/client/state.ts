@@ -26,11 +26,20 @@ export const STORAGE_KEY = "tanka-maze-name";
 export const MOVE_KEY = "tanka-maze-move"; // "relative" | "eight"
 export const COLOR_KEY = "tanka-maze-color";
 export const SESSION_KEY = "tanka-maze-session";
+export const FPS_KEY = "tanka-maze-fps"; // "30" | "60" | "120"
+export const QUALITY_KEY = "tanka-maze-quality"; // "low" | "medium" | "high"
 export const THEME_KEY = "tanka-maze-theme";
 export const BGM_KEY = "tanka-maze-bgm";
 export const BGM_VOL_KEY = "tanka-maze-bgm-vol";
 export const SFX_VOL_KEY = "tanka-sfx-vol";
 export const RADAR_KEY = "tanka-maze-radar"; // personal radar toggle ("false" = off)
+
+/** Render-quality presets → devicePixelRatio cap. */
+export const QUALITY_DPR: Record<"low" | "medium" | "high", number> = {
+  low: 1,
+  medium: 1.5,
+  high: Infinity,
+};
 
 export const PRESET_COLORS = [
   "#e6453f",
@@ -75,6 +84,8 @@ export interface AppState {
   sfxVolume: number;
   radarEnabled: boolean;
   moveMode: "relative" | "eight";
+  fpsCap: 30 | 60 | 120;
+  quality: "low" | "medium" | "high";
   roundInfo: { round: number; total: number };
   roundStanding: RoundStanding[];
   roundCountdown: ReturnType<typeof setInterval> | null;
@@ -100,6 +111,8 @@ export const state: AppState = {
   sfxVolume: parseFloat(localStorage.getItem(SFX_VOL_KEY) ?? "1.0"),
   radarEnabled: localStorage.getItem(RADAR_KEY) !== "false",
   moveMode: "relative",
+  fpsCap: 60,
+  quality: "medium",
   roundInfo: { round: 1, total: 1 },
   roundStanding: [],
   roundCountdown: null,

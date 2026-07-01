@@ -13,10 +13,11 @@ the codebase. The README is user-facing; this file is the engineering reference.
 Real-time multiplayer tank battle. TypeScript + WebSockets. A 30 Hz
 server-authoritative fixed-timestep simulation owns all movement, bullet
 physics, collisions, and scoring. Clients send `input` intents and render
-~140 ms in the past from binary snapshots broadcast at 15 Hz. **Nothing is
-persisted** — the server exists only for lobby management and live session
-syncing. No database, no files, no accounts. Reconnect within a 45 s grace
-window rebinds a socket to the same session.
+~140 ms in the past from binary snapshots sent on an adaptive cadence (15 Hz
+for small rooms, lower for larger rooms). **Nothing is persisted** — the server
+exists only for lobby management and live session syncing. No database, no
+files, no accounts. Reconnect within a 45 s grace window rebinds a socket to
+the same session.
 
 Three tiers: `src/shared/` (wire protocol + tuning, used by both sides),
 `src/server/` (Node WebSocket hub + authoritative sim), `src/client/` (Vite +
@@ -29,9 +30,14 @@ canvas browser client, no framework).
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Server (`tsx watch`, :8080) + Vite client (:5173) concurrently. |
+| `npm run dev:server` | Server only, watch mode on `src/server/index.ts`. |
+| `npm run dev:client` | Vite client only. |
 | `npm run build` | `vite build` (client → `dist/client`) then `tsc -p tsconfig.server.json` (server → `dist/`). |
+| `npm run build:client` | Vite client build only. |
+| `npm run build:server` | Server TypeScript emit only. |
 | `npm start` | `node dist/server/index.js` — serves client + WebSocket on one port (default :8080, `PORT=` to change). |
 | `npm run typecheck` | `tsc --noEmit && tsc -p tsconfig.server.json --noEmit`. **Runs both tsconfigs.** |
+| `npm run bandwidth` | Runs `scripts/bandwidth.ts`, a WebSocket load/bandwidth probe against a running server. |
 | `npm test` | `node --import tsx --test test/*.test.ts` — Node built-in runner. |
 | `npm run test:watch` | Same, watch mode. |
 
@@ -51,7 +57,10 @@ gate.
 src/shared/       wire protocol + tuning (used by both sides; no DOM, no Node APIs)
   constants.ts        all tuning constants (TICK_RATE, TANK_RADIUS, ...) — leaf module
   protocol.ts         DTOs, GameConfig, ClientMessage/ServerMessage unions, POWERUP_DEFS
-  wire.ts             binary codec for the 2 high-frequency frames (input, snapshot)
+  wire.ts             binary codec for high-frequency frames (input, full/slim snapshots)
+  fog.ts              pure helper for map-area-scaled fog vision radius
+  core/ObjectPool.ts  small generic object pool for shared/runtime code
+  net/BinarySerializer.ts transport-neutral binary codec interface
 src/server/       Node WebSocket server (authoritative)
   index.ts            HTTP + WS hub, session/reconnect, sanitize* validators, static serve
   lobby.ts            Lobby class + Client interface; owns the setInterval game loop
@@ -59,10 +68,11 @@ src/server/       Node WebSocket server (authoritative)
   maze.ts             maze generation pipeline (Command pattern) + collision geometry
 src/client/       Vite + canvas browser client (no framework)
   index.html          DOM scaffold: 3 screens + overlays; boot loads ./main.ts
-  main.ts             entry: wires net handlers, rAF loop, DOM events
+  main.ts             entry: wires net handlers, Engine scene, DOM events
   net.ts              WebSocket wrapper w/ auto-reconnect (1500 ms, infinite)
   state.ts            shared singletons (net, canvas, renderer) + mutable AppState
   input.ts            keyboard + mouse + touch joystick → InputState
+  input/commands.ts   small command objects for keyboard input mapping
   render.ts           canvas renderer + ~140 ms interpolation buffer + effects
   lifecycle.ts        start/end game, pause, round banner, fitCanvas, screen transitions
   lobby.ts            menu lobby list + waiting room UI
@@ -73,13 +83,16 @@ src/client/       Vite + canvas browser client (no framework)
   announce.ts         queued kill-streak banners + announcer SFX
   audio.ts            Web Audio API engine: preloader, playSfx, BGM loop, vroom loop, global volumes
   dom.ts              $() helper, show(screen), toast, escapeHtml
+  core/               Engine, FixedTimestepLoop, AssetLoader, AudioManager, EventBus, ObjectPool
+  net/                interpolation/prediction/reconciliation scaffolding (not the active WS wrapper)
   vite-env.d.ts       VITE_WS_URL env typing
   style.css           paper-&-ink theme; Outfit + Inter Google Fonts
 test/             node:test files (NOT in any tsconfig include)
   game.test.ts        Game simulation (largest; reaches into privates via `as any`)
   maze.test.ts        maze connectivity / CTF paths / wall styles (graph-theoretic)
-  wire.test.ts        binary codec round-trips (registry-driven)
-  protocol.test.ts    POWERUP_DEFS invariants — guards the "every field has an editor" rule
+  wire.test.ts        binary codec round-trips, slim snapshots, damaged wall deltas
+  protocol.test.ts    POWERUP_DEFS + config-default invariants
+  fog.test.ts         effectiveVisionRadius scaling
   lobby.test.ts       team roster ordering / rebalancing
   labels.test.ts      presentation helpers (HTML string output)
 ```
@@ -101,14 +114,20 @@ has no loop of its own. Each tick:
    `roundOver` (JSON) if so. Between rounds the world **keeps animating**
    (bullets fly, blasts settle) but players are locked out of control — the
    `roundOver` banner is non-blocking.
-4. Broadcast a snapshot every `SNAPSHOT_EVERY_TICKS` (2) ticks → **15 Hz**, OR
-   immediately if `game.hasEffects()` (blast/beam/event this tick) so transient
-   effects are never dropped on a skipped network tick.
+4. Broadcast a snapshot on the adaptive cadence from
+   `snapshotEveryTicksForPlayers(members.length)`: every 2 ticks (**15 Hz**) up
+   to 8 players, every 3 ticks (10 Hz) up to 16, every 4 ticks (7.5 Hz) up to
+   32, and every 6 ticks (5 Hz) beyond that. Also broadcast immediately if
+   `game.hasEffects()` (blast/beam/event this tick) so transient effects are
+   never dropped on a skipped network tick.
 
 ### Snapshot change-gating
 `Lobby.broadcastSnapshot` encodes the snapshot and **skips sending if
 byte-equal to last frame** (`bytesEqual`), caching the bytes. The `force` flag
 bypasses this (used on game start / round start). Idle worlds cost no bandwidth.
+Full snapshots are sent when forced and every 5 actual sends; the other sends
+use slim snapshots, which keep high-frequency pose/status data and inherit slow
+tank fields + wall HP from the previous full snapshot.
 
 ### Binary frame discrimination
 Text frames = JSON (`ClientMessage` / `ServerMessage` via `encode`/`decode`).
@@ -118,27 +137,32 @@ Binary frames = tagged bytes from `wire.ts`:
   turnRight/fire/eightDir/joystick) + int16 LE aim angle (quantized to
   ±32767/π, wrapped to [-π,π]).
 - `MSG_SNAPSHOT = 2` — packed tanks (20 B each), bullets (8 B), powerups (5 B),
-  flags (7 B), blasts (4 B), beams (8 B), events (7 B).
+  flags (7 B), blasts (4 B), beams (8 B), events (7 B), damaged wall HP deltas.
+- `MSG_SNAPSHOT_SLIM = 3` — packed tanks (11 B each: pose + visual status),
+  then the same bullet/powerup/flag/blast/beam/event tail as a full snapshot.
 
-All multi-byte ints are **little-endian**. All counts are **uint8** → max 255
-of each entity per snapshot. Coordinates quantized to u16; angles wrapped to
-[-π,π] then int16 (without wrapping, accumulated bodyAngles saturate int16 and
-the body freezes on the client). Timers sent as **deciseconds** (×10, u8) →
-max 25.5 s on the wire. **The snapshot timestamp `t` is NOT packed** —
-`decodeSnapshot` returns `t: 0`; the client uses its own clock for
-interpolation timing.
+All multi-byte ints are **little-endian**. Entity counts are **uint8** → max 255
+of each entity per snapshot, except full-snapshot `wallHp` count and wall
+indices are **uint16** because large maps can exceed 255 walls. Coordinates are
+quantized to u16; angles are wrapped to [-π,π] then int16 (without wrapping,
+accumulated bodyAngles saturate int16 and the body freezes on the client).
+Timers are sent as **deciseconds** (×10, u8) → max 25.5 s on the wire. **The
+snapshot timestamp `t` is NOT packed** — `decodeSnapshot` returns `t: 0`; the
+client uses its own clock for interpolation timing.
 
 `decodeSnapshot` **requires the roster** (from `gameStart`/`roster` messages)
 to rejoin static info (name/color/team/maxHp/maxAmmo) and resolve owner
-indices back to ids. Bullets/flags send the tank's wire **index** (255 =
-unknown/none), not the string id.
+indices back to ids. It accepts an optional previous snapshot; slim frames use
+that to inherit slow tank fields and wall HP. The client passes
+`renderer.latest()` as this previous snapshot. Bullets/flags send the tank's
+wire **index** (255 = unknown/none), not the string id.
 
 ### Client interpolation (~140 ms)
 `Renderer` (`src/client/render.ts`) buffers snapshots with `recvAt =
-performance.now()` (cap 30). `INTERP_DELAY = 140` ms — must exceed the ~66 ms
-snapshot send interval with margin; **don't lower below ~100 ms** or the
-client will run out of snapshots to lerp between. `interpolated(now)` finds
-the two snapshots straddling `now - INTERP_DELAY` and lerps
+performance.now()` (cap 30). `INTERP_DELAY = 140` ms — tuned above the default
+15 Hz / common 10 Hz network cadence with margin; **don't lower below ~100 ms**
+or normal rooms will run out of snapshots to lerp between. `interpolated(now)`
+finds the two snapshots straddling `now - INTERP_DELAY` and lerps
 x/y/bodyAngle/turretAngle (angles via shortest-arc `angleLerp`).
 
 **Effects are deferred to the interpolation clock** — the core subtle
@@ -148,12 +172,41 @@ explosions/beams and queueing kill events exactly when the delayed bullet
 visually reaches the tank — not when the snapshot arrived. `takeEvents()`
 drains queued kill-log/announcement events for the main loop. The interpolated
 snapshot returned by `displayed()` has **empty**
-powerups/blasts/beams/events — powerups come from `latest()`, effects from the
-deferred queues. **Don't read effects off `displayed()`.**
+powerups/blasts/beams/events/wallHp — powerups and wall HP come from
+`latest()`, effects from the deferred queues. **Don't read effects or wall HP
+off `displayed()`.**
 
 No client-side prediction of the local tank — the server is authoritative.
 The only prediction is the cosmetic line-of-sight aiming guide (`drawScope` /
 `walkPath`), computed purely client-side from the maze + bullet-physics params.
+The `src/client/net/*` prediction/reconciliation classes are scaffolding, not
+the active gameplay path.
+
+### Client engine wrapper
+`main.ts` bootstraps an `AssetLoader`, creates an `Engine`, installs a single
+`Scene`, connects the WebSocket, then starts the engine. `Engine` delegates to
+`FixedTimestepLoop`, a browser `requestAnimationFrame` loop with a fixed 30 Hz
+update accumulator and uncapped render pass. The current scene has no gameplay
+update work; render calls `frame(now)`, and `Renderer` still owns the active
+snapshot interpolation buffer/effect timing.
+
+### Fog, hazards, and destructible walls
+Fog of war is **client-side only**. The server still broadcasts all entities;
+`Renderer` clips non-wall visuals to reveal sources. Local and same-team tanks
+reveal circular vision from `effectiveVisionRadius`, bases can reveal their own
+rectangles according to `fogBaseVision`, and flags do not reveal terrain —
+`fogFlagVision` only allows faint flag markers over fog. Scope doubles the tank
+vision radius and sees through walls.
+
+Hazard zones (`lava`, `mud`, `ice`, `heal`) are generated server-side on round
+start from `hazardDensity`/`hazardTypes`, avoid spawn zones, affect tanks in
+`Game.step`, and are sent in `gameStart.hazardZones` for rendering under walls.
+
+Destructible walls are configured by `destructibleWalls` + `adv.wallHp`. Border
+walls stay indestructible; internal walls can be damaged by bullet bounces and
+explosive AoE, regenerate after `WALL_REGEN_SECONDS` once clear of tanks, and
+send below-full HP deltas via full snapshots. The client applies those deltas to
+skip destroyed walls in draw/vision.
 
 ### Input
 Sampled every rAF frame but **sent at most ~30 Hz** (`now - lastInputSent >
@@ -173,11 +226,13 @@ On socket open the client sends `identify` with `sessionStorage[SESSION_KEY]`
 (per-tab — two tabs are two distinct players). The server rebinds the
 sessionId to the new socket, clears the removal timer, and replies `welcome`
 with `resumed: true/false`. A disconnected slot is held for
-`RECONNECT_GRACE_MS` (45 s); on reconnect, `game.setConnected(id, true)`
-respawns the tank if it died while away. If `welcome` arrives with
-`!resumed && state.inGame`, the session couldn't be restored (server restart)
-→ the client tears down to the menu. Auto-reconnect on close after 1500 ms,
-indefinitely (no backoff).
+`RECONNECT_GRACE_MS` (45 s); disconnect immediately sends idle input and marks
+the tank disconnected, and host duty transfers to another connected member if
+needed. On reconnect, `game.setConnected(id, true)` respawns the tank if it died
+while away. Stale close/error events from the old socket are ignored after a
+successful rebind. If `welcome` arrives with `!resumed && state.inGame`, the
+session couldn't be restored (server restart) → the client tears down to the
+menu. Auto-reconnect on close after 1500 ms, indefinitely (no backoff).
 
 ---
 
@@ -213,19 +268,21 @@ frames (see §4).
 | `lobbyJoined` | `lobby: LobbyDTO` | |
 | `lobbyUpdate` | `lobby: LobbyDTO` | Broadcast on any lobby change. |
 | `lobbyClosed` | `reason` | |
-| `gameStart` | `maze`, `spawnZones`, `roster`, `round`, `totalRounds`, `standing` | JSON; first snapshot follows as binary. |
+| `gameStart` | `config`, `maze`, `spawnZones`, `hazardZones`, `roster`, `round`, `totalRounds`, `standing` | JSON; first snapshot follows as binary. |
 | `roster` | `roster: RosterEntry[]` | Sent when roster changes (e.g. late join). |
 | `roundOver` | `round`, `totalRounds`, `winnerName`, `standing`, `nextInSeconds` | Non-blocking; match continues. |
 | `gameOver` | `scores`, `winnerName`, `round`, `totalRounds`, `standing` | Match decided. |
-| `latencies` | `pings: Array<{id,ms}>` | Every 2 s. |
+| `latencies` | `pings: Array<{id,ms}>` | Periodic; throttled during live matches. |
 | `kicked` | `reason` | |
 | `error` | `message` | |
 
 **DTOs** all end in `DTO` (`TankDTO`, `SnapshotDTO`, `MazeDTO`, `WallDTO`,
 `FlagDTO`, `BulletDTO`, `PowerupDTO`, `BeamDTO`, `SpawnZoneDTO`,
-LobbyDTO`, `LobbySummaryDTO`, `LobbyPlayerDTO`, `ScoreDTO`). Exceptions:
-`RosterEntry`, `RoundStanding`, `KillEvent`. `TankDTO.index` is the compact
-per-game wire id; `id` is the public player id. Both travel in the roster.
+`HazardZoneDTO`, `LobbyDTO`, `LobbySummaryDTO`, `LobbyPlayerDTO`, `ScoreDTO`).
+Exceptions: `RosterEntry`, `RoundStanding`, `KillEvent`. `TankDTO.index` is the
+compact per-game wire id; `id` is the public player id. Both travel in the
+roster. `SnapshotDTO.wallHp` is the destructible-wall HP delta list keyed by
+`MazeDTO.walls` index.
 
 ---
 
@@ -236,6 +293,10 @@ per-game wire id; `id` is the public player id. Both travel in the roster.
 - **`.js` extensions on relative imports are mandatory** — even when the
   source is `.ts`. NodeNext requires it for server; the codebase uses `.js`
   uniformly for client too. `import { Game } from "./game.js"`.
+- **Path aliases exist but are limited.** `tsconfig.json` defines `@client/*`
+  and `@shared/*`; `vite.config.ts` also defines `@client`, `@server`, and
+  `@shared`. Server code is compiled by `tsconfig.server.json` and should keep
+  using relative `.js` imports unless the server tsconfig is updated too.
 - **`node:` prefix** for Node built-ins: `node:http`, `node:fs/promises`,
   `node:crypto`. In tests: `node:assert/strict`, `node:test`.
 - **`import type`** for type-only imports (convention; `verbatimModuleSyntax`
@@ -365,6 +426,9 @@ and are wired in `main.ts`.
 - **Registry-driven:** `wire.test.ts` and `protocol.test.ts` loop over
   `POWERUP_DEFS`/`WEAPON_POWERUPS`/`POWERUP_TYPES` so new power-ups are
   automatically covered. Keep them green when adding to the registry.
+- `wire.test.ts` also covers slim snapshots and damaged wall HP deltas;
+  `fog.test.ts` covers `effectiveVisionRadius`; `labels.test.ts` covers config
+  details for fog/hazards; `game.test.ts` covers hazards and destructible walls.
 - **Maze tests** are graph-theoretic (flood-fill connectivity, unit-capacity
   max flow for edge-disjoint paths, 2×2-open-area detection) and sample
   multiple random generations to defend against RNG regressions.
@@ -390,8 +454,8 @@ and are wired in `main.ts`.
 3. **Snapshot `t` is not packed.** `decodeSnapshot` returns `t: 0`; the client
    uses `performance.now()` from `push()` for interpolation timing.
 
-4. **`INTERP_DELAY = 140`** must exceed the ~66 ms snapshot interval with
-   margin. Don't drop below ~100 ms or the buffer starves.
+4. **`INTERP_DELAY = 140`** is tuned above the default 15 Hz and common 10 Hz
+   snapshot cadences. Don't drop below ~100 ms or normal rooms starve.
 
 5. **Aim = `renderer.latest()`; death overlay = `renderer.displayed()`.**
    Responsive aim vs. delayed visual — keep them distinct.
@@ -403,18 +467,20 @@ and are wired in `main.ts`.
    controls on every `lobbyUpdate`; `refreshPings` patches only `.ping` spans
    to avoid clobbering mid-edit team name/color inputs.
 
-7. **Death clears all power-ups** (weapon, boost, shield, scope, laser
-   charge). Spawn shield (`SPAWN_SHIELD_SECONDS = 2`) applies on initial
-   spawn, respawn, and round start.
+7. **Respawn/round start clear all power-ups** lost on death (weapon, boost,
+   shield pickup state, scope, laser charge). Spawn shield
+   (`SPAWN_SHIELD_SECONDS = 2`) applies on initial spawn, respawn, reconnect
+   respawn, and round start.
 
 8. **Power-up shots don't consume the magazine**; only normal shots consume
    ammo and trigger reloads. Weapon shots decrement `weaponCharges` (clearing
    the active weapon at 0).
 
-9. **CTF has no point scoring** — rounds end on captures (deliver) or
-   `winScore` (conquest/carry). `ctf` mode forces `lives = 0` and
-   `teamSpawnZones = true`; `lms` forces `lives >= 1`. Sanitizers enforce
-   these in `src/server/index.ts`.
+9. **CTF kills do not award points.** `deliver` rounds end on captures
+   (`flagsPerRound`); `conquest`/`carry` rounds use flag points toward
+   `winScore`. `ctf` mode forces `lives = 0`, `teamCount ∈ {2,4}`, and
+   `teamSpawnZones = true`; `lms` forces `lives >= 1`. Sanitizers enforce these
+   in `src/server/index.ts`.
 
 10. **Axis-separated wall collision** (try X move, check `circleHitsWall`,
     accept/reject; then Y) — lets tanks/bullets slide along walls. Bullets
@@ -427,8 +493,17 @@ and are wired in `main.ts`.
     zero the arrays.
 
 12. **`sessionStorage` (per-tab) for `SESSION_KEY`** so two tabs are distinct
-    players; `localStorage` for `STORAGE_KEY`/`MOVE_KEY`/`COLOR_KEY`
-    (persisted).
+    players. `localStorage` persists `STORAGE_KEY` (name) and `MOVE_KEY`
+    (movement mode); `COLOR_KEY` is saved when edited in the lobby, but startup
+    does not auto-apply it because the server assigns colors before lobby edits.
+
+13. **Fog is visual privacy, not simulation security.** The server still sends
+    every entity. Treat fog as a gameplay presentation feature; do not rely on it
+    to hide authoritative data from modified clients.
+
+14. **Destructible wall HP deltas are authoritative.** Full snapshots carry the
+    complete below-full set; clients reset omitted walls to full HP before
+    applying deltas so regenerated walls reappear.
 
 13. **Power-up pickup SFX uses crate-ID tracking, not state diffing.** The
     client tracks `PowerupDTO.id` values in `Renderer.lastPowerups`. When an id
@@ -503,12 +578,15 @@ and are wired in `main.ts`.
    `protocol.ts` if a host should override it.
 3. Read it from `this.adv.*` in `game.ts` (runtime reads the live config, not
    the constants module directly).
-4. Add a sanitize range in `sanitizeAdvanced` (`src/server/index.ts`).
+4. Add a sanitize range in `sanitizeAdvanced` (`src/server/index.ts`) for
+   `AdvancedConfig` fields, or in `sanitizeConfig` for top-level `GameConfig`
+   fields.
 5. Add an editor input (either a hand-written one tracked in
    `STATIC_ADV_KEYS` in `test/protocol.test.ts`, or a `config` entry on a
    `PowerupDef`).
-6. If it affects rendering (sizes, speeds, lifetimes), pass it through
-   `Renderer.setParams` / `setScope` in `src/client/lifecycle.ts`.
+6. If it affects rendering (sizes, speeds, lifetimes, fog, wall state, terrain),
+   pass it through `Renderer.setParams` / `setScope` / `setFog` /
+   `setDestructibleWalls` / `setHazards` in `src/client/lifecycle.ts`.
 
 ---
 
@@ -521,9 +599,10 @@ and are wired in `main.ts`.
     into other clients' DOM, so unvalidated input is an XSS vector.
   - `sanitizeTeamName`: strip `<>"'&`.
   - `sanitizeAdvanced` / `sanitizeConfig`: clamp every numeric field to an
-    allowed range; power-up fields clamped from the registry's own `min`/`max`.
-    Mode invariants enforced here: `lms` → `lives >= 1`; `ctf` → `lives = 0`,
-    `teamCount ∈ {2,4}`, `teamSpawnZones = true`.
+    allowed range; power-up fields clamped from the registry's own `min`/`max`;
+    fog/CTF enum fields use allow-lists; `hazardTypes` is filtered to known
+    values. Mode invariants enforced here: `lms` → `lives >= 1`; `ctf` →
+    `lives = 0`, `teamCount ∈ {2,4}`, `teamSpawnZones = true`.
 - **Path-traversal guard** in `serveStatic`: `normalize(pathname).replace(/^(\.\.[/\\])+/, "")`
   + SPA fallback to `index.html`. The 404 body hints to build the client first.
 - **Never** log or echo secrets, keys, or the `sessionId` token beyond its
@@ -542,7 +621,8 @@ and are wired in `main.ts`.
    `src/server/game.ts` (sim) → `src/server/maze.ts` (geometry).
 4. For client changes: `src/client/main.ts` (orchestrator) →
    `src/client/render.ts` (renderer + interpolation) →
-   `src/client/lifecycle.ts` (screen transitions).
+   `src/client/lifecycle.ts` (screen transitions) → `src/client/core/*`
+   (Engine/loop scaffolding, if relevant).
 5. Run `npm run dev`, open http://localhost:5173 in two tabs to test
    multiplayer. Server logs to the `server`-prefixed terminal.
 6. Before finishing: `npm run typecheck && npm test`.

@@ -258,6 +258,26 @@ hr.rule {
   width: 100%;
 }
 
+.pup-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 12px;
+}
+.pup-types label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: auto;
+  cursor: pointer;
+}
+.pup-types input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
 .swatches {
   display: flex;
   gap: 6px;
@@ -1490,6 +1510,14 @@ kbd {
   color: var(--ink-soft);
   font-style: italic;
   margin: 10px 0 0;
+}
+/* Visible dropdowns in the settings panel (unlike .walls-select, which is
+   hidden in favor of the visual pickers). */
+.settings-select {
+  display: block;
+  flex: none;
+  width: 100%;
+  margin-bottom: 14px;
 }
 
 /* ---- Movement image picker (settings) ---- */

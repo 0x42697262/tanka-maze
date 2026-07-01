@@ -309,10 +309,17 @@
             <label for="pwr-charges">Charges</label>
             <input id="pwr-charges" type="number" min="1" max="20" value="1" />
           </div>
-          <div class="row">
+          <div class="row two">
             <label for="pwr-despawn">Despawn s</label>
             <input id="pwr-despawn" type="number" min="3" max="60" value="12" />
+            <label for="pwr-count">Per tick</label>
+            <input id="pwr-count" type="number" min="1" max="20" value="1" />
           </div>
+          <div class="row">
+            <label>Spawn types</label>
+          </div>
+          <!-- Checkboxes generated from the power-up registry (buildPowerupTypeToggles). -->
+          <div class="pup-types" id="pup-types"></div>
 
           <hr class="rule" />
           <button id="adv-toggle" class="ghost small" type="button">⚙ Advanced options</button>
@@ -553,6 +560,19 @@
         </select>
         <div id="move-picker" class="move-picker"></div>
         <p class="settings-hint" id="move-hint"></p>
+        <label class="settings-label">Frame rate</label>
+        <select id="fps-cap" class="settings-select" aria-label="Frame rate cap">
+          <option value="30">30 FPS — lowest CPU</option>
+          <option value="60">60 FPS — recommended</option>
+          <option value="120">120 FPS — smoothest</option>
+        </select>
+        <label class="settings-label">Graphics</label>
+        <select id="quality" class="settings-select" aria-label="Graphics quality">
+          <option value="low">Low — best performance</option>
+          <option value="medium">Medium — balanced</option>
+          <option value="high">High — sharpest</option>
+        </select>
+        <p class="settings-hint">Lower frame rate and graphics reduce CPU usage.</p>
       </div>
 
       <!-- On-screen touch controls (mobile). Twin-stick: drive left, aim/fire right. -->

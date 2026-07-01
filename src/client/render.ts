@@ -20,6 +20,10 @@ import {
 // between. Must exceed the network send interval (≈66ms at 15 Hz) with margin.
 const INTERP_DELAY = 140;
 
+// Rapid fire's shots come fast — play its "pew" a bit faster/shorter so a
+// burst doesn't sound mushy at the configured fire rate.
+const RAPIDFIRE_PEW_RATE = 1.4;
+
 // Bullets are rendered in the owning tank's color so shots are identifiable by
 // shooter. Size varies a little by kind. Tracking rounds render as a triangle
 // (drawn separately), the rest as filled circles.
@@ -79,6 +83,9 @@ export class Renderer {
   private worldWidth = 0;
   private worldHeight = 0;
   private dpr = 1;
+  // Upper bound on devicePixelRatio (render-quality setting). Lower = fewer
+  // pixels to fill each frame = less CPU/GPU, at the cost of some sharpness.
+  private maxDpr = Infinity;
   private spawnZones: SpawnZoneDTO[] = [];
   private buffer: Buffered[] = [];
   private explosions: Explosion[] = [];
@@ -104,6 +111,10 @@ export class Renderer {
   // Last seen state per tank, to detect deaths and spawn explosions.
   private lastTankState = new Map<string, { x: number; y: number; alive: boolean; hp: number; color: string; ammo: number; weapon: string | null; weaponCharges: number; reloadIn: number; boosted: boolean; shielded: boolean; scoped: boolean }>();
   private lastPowerups = new Map<number, PowerupDTO>();
+  // Bullet ids seen last frame, to detect rapid-fire's scheduled shots — they
+  // add a bullet without changing ammo/weaponCharges (only the initiating
+  // click does), so the ammo/charge-delta check below can't see them.
+  private lastBulletIds = new Set<number>();
   // Transient effects (explosions, beams, kill events) are applied on the same
   // ~INTERP_DELAY-behind clock as the interpolated world, so a hit/death shows
   // exactly when the (delayed) bullet reaches the tank — not when the snapshot
@@ -203,6 +214,7 @@ export class Renderer {
     this.beams = [];
     this.lastTankState.clear();
     this.lastPowerups.clear();
+    this.lastBulletIds.clear();
     this.consumedUntil = 0;
     this.pendingEvents = [];
     this.displayedSnap = null;
@@ -257,6 +269,14 @@ export class Renderer {
   /** Spawn an explosion wherever a tank died, and play sounds for firing. */
   private detectTransients(snap: SnapshotDTO, nowMs: number): void {
     const seen = new Set<string>();
+    // New bullets this frame, per owner — catches rapid-fire's scheduled
+    // shots, which add a bullet without an ammo/weaponCharges change.
+    const newBulletsByOwner = new Map<string, number>();
+    for (const b of snap.bullets) {
+      if (this.lastBulletIds.has(b.id)) continue;
+      newBulletsByOwner.set(b.ownerId, (newBulletsByOwner.get(b.ownerId) ?? 0) + 1);
+    }
+    this.lastBulletIds = new Set(snap.bullets.map((b) => b.id));
     for (const t of snap.tanks) {
       seen.add(t.id);
       const prev = this.lastTankState.get(t.id);
@@ -272,9 +292,24 @@ export class Renderer {
           // Play firing sound if ammo dropped, or if they reloaded and fired in the same snapshot
           const firedNormal = t.ammo < prev.ammo || (prev.ammo === 0 && t.ammo > 0 && t.ammo < t.maxAmmo);
           const firedSpecial = !t.charging && t.weaponCharges < prev.weaponCharges && prev.weaponCharges > 0;
-          
+          const isRapid = prev.weapon === "rapidfire";
+          const rapidFireRate = isRapid ? RAPIDFIRE_PEW_RATE : 1.0;
+
           if (firedNormal || firedSpecial) {
-            playSfx("pew", 0.3);
+            playSfx("pew", 0.3, rapidFireRate);
+            // A rapid-fire click can share a frame with its first scheduled
+            // shot(s) when the delay is shorter than the snapshot interval; sound
+            // those extras too. (Multishot fires one logical volley, so its extra
+            // pellets are intentionally left as a single pew.)
+            if (isRapid) {
+              const extra = (newBulletsByOwner.get(t.id) ?? 0) - 1;
+              for (let i = 0; i < extra; i++) playSfx("pew", 0.3, RAPIDFIRE_PEW_RATE);
+            }
+          } else {
+            // A scheduled rapid-fire shot: a new bullet appeared for this tank
+            // with no ammo/charge change to explain it (see newBulletsByOwner).
+            const echoes = newBulletsByOwner.get(t.id) ?? 0;
+            for (let i = 0; i < echoes; i++) playSfx("pew", 0.3, RAPIDFIRE_PEW_RATE);
           }
           
           if (prev.reloadIn === 0 && t.reloadIn > 0) {
@@ -436,7 +471,9 @@ export class Renderer {
     const baseRadius = effectiveVisionRadius(this.visionRadius, this.maze.width, this.maze.height);
     const arena = { x: 0, y: 0, width: this.maze.width, height: this.maze.height };
     const walls = this.visionWalls();
-    const sources = visionTanks.map((t) => this.tankFogSource(t, baseRadius, arena, walls));
+    // Scope only benefits its own user: a teammate's scope must not extend or
+    // x-ray the local player's fog, so honor `scoped` for the local tank only.
+    const sources = visionTanks.map((t) => this.tankFogSource(t, baseRadius, t.id === local.id, arena, walls));
     for (const z of this.spawnZones) {
       if (!this.fogVisionIncludes(z.team, local.team, this.fogBaseVision)) continue;
       // Bases reveal exactly their own square zone, not a circle around it.
@@ -461,15 +498,19 @@ export class Renderer {
   private tankFogSource(
     tank: TankDTO,
     baseRadius: number,
+    applyScope: boolean,
     arena: { x: number; y: number; width: number; height: number },
     walls: readonly FogWall[]
   ): FogSource {
-    const radius = tank.scoped ? baseRadius * 2 : baseRadius;
+    // Scope only benefits its own user: a teammate's scope must not extend or
+    // x-ray the local player's fog, so honor `scoped` for the local tank only.
+    const scoped = applyScope && tank.scoped;
+    const radius = scoped ? baseRadius * 2 : baseRadius;
     return {
       x: tank.x,
       y: tank.y,
       haloRadius: this.tankR + 9,
-      shape: buildFogShape({ x: tank.x, y: tank.y, radius, seesThroughWalls: tank.scoped, arena, walls }),
+      shape: buildFogShape({ x: tank.x, y: tank.y, radius, seesThroughWalls: scoped, arena, walls }),
     };
   }
 
@@ -585,7 +626,13 @@ export class Renderer {
   }
 
   private currentDpr(): number {
-    return Math.max(1, window.devicePixelRatio || 1);
+    return Math.max(1, Math.min(this.maxDpr, window.devicePixelRatio || 1));
+  }
+
+  /** Set the render-quality DPR cap and re-apply it to the current canvas. */
+  setMaxDpr(maxDpr: number): void {
+    this.maxDpr = maxDpr;
+    if (this.maze) this.resizeDrawingBuffer(this.worldWidth, this.worldHeight);
   }
 
   /**

@@ -24,6 +24,10 @@ export class FixedTimestepLoop {
   private previousMs = 0;
   private accumulator = 0;
   private running = false;
+  // Cap the render (draw) rate independently of the rAF/monitor refresh. The
+  // simulation data only changes ~15 Hz, so redrawing at 144+ Hz wastes CPU.
+  private renderIntervalMs = 1000 / 60;
+  private lastRenderMs = 0;
 
   constructor(
     private readonly callbacks: FixedTimestepLoopCallbacks,
@@ -31,6 +35,11 @@ export class FixedTimestepLoop {
   ) {
     this.fixedStepSeconds = options.fixedStepSeconds ?? 1 / TICK_RATE;
     this.maxFrameSeconds = options.maxFrameSeconds ?? DEFAULT_MAX_FRAME_SECONDS;
+  }
+
+  /** Cap how often the render callback runs (frames per second). */
+  setRenderHz(hz: number): void {
+    this.renderIntervalMs = 1000 / Math.max(1, hz);
   }
 
   start(): void {
@@ -59,7 +68,12 @@ export class FixedTimestepLoop {
       this.accumulator -= this.fixedStepSeconds;
     }
 
-    this.callbacks.render(this.accumulator / this.fixedStepSeconds, nowMs);
+    // Render at most once per renderIntervalMs. The 1ms tolerance keeps a 60Hz
+    // monitor from dropping to 30 when its frame timing jitters past the bound.
+    if (nowMs - this.lastRenderMs >= this.renderIntervalMs - 1) {
+      this.lastRenderMs = nowMs;
+      this.callbacks.render(this.accumulator / this.fixedStepSeconds, nowMs);
+    }
     this.frameHandle = requestAnimationFrame(this.frame);
   };
 }

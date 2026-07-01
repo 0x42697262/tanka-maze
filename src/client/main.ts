@@ -34,14 +34,18 @@ import {
   applyConfigToControls,
   applyMoveSetting,
   buildPowerupAdvInputs,
+  buildPowerupTypeToggles,
   gatherConfig,
 } from "./settings.js";
 import {
   colorInput,
+  FPS_KEY,
   IS_TOUCH,
   latencies,
   MOVE_KEY,
   net,
+  QUALITY_DPR,
+  QUALITY_KEY,
   renderer,
   SESSION_KEY,
   state,
@@ -53,6 +57,10 @@ import {
 } from "./state.js";
 
 if (IS_TOUCH) document.body.classList.add("touch");
+
+// The render/update engine. Created in bootstrap(); referenced earlier by the
+// display-settings + visibility handlers (safe via optional chaining until set).
+let engine: Engine | undefined;
 
 function lobbyWithConfigDefaults(lobby: LobbyDTO): LobbyDTO {
   return { ...lobby, config: gameConfigWithDefaults(lobby.config) };
@@ -181,6 +189,7 @@ net.onBinary((buf) => {
 // ---------------------------------------------------------------------------
 import { setSfxVolume, isVroomPlaying, playVroom, pauseVroom, playBgm, pauseBgm, setBgmVolume, isBgmPlaying } from "./audio.js";
 
+let lastHudMs = 0;
 function frame(now: number): void {
   let isMoving = false;
   if (state.inGame) {
@@ -202,20 +211,26 @@ function frame(now: number): void {
       }
     }
     renderer.render(state.playerId, now);
-    // Kill log fires on the interpolation clock (in sync with the explosion).
+    // Kill log fires on the interpolation clock (in sync with the explosion) —
+    // must drain every rendered frame so it stays aligned with the blast.
     for (const e of renderer.takeEvents()) {
       logKillEvent(e);
       announceKill(e);
     }
-    renderLeaderboard();
-    // The death overlay follows the *displayed* (interpolated) world so it pops
-    // with the on-screen explosion, not the instant the server signalled it.
-    const shownMe = renderer.displayed()?.tanks.find((t) => t.id === state.playerId);
-    updateRespawnOverlay(shownMe ?? me);
-    renderHud(me);
-    if (snap) {
-      const alive = snap.tanks.filter((t) => t.alive).length;
-      $("gh-count").textContent = `${snap.tanks.length} players · ${alive} alive`;
+    // HUD/DOM writes are comparatively expensive and don't need per-frame
+    // freshness; refresh them at ~10 Hz to cut CPU.
+    if (now - lastHudMs >= 100) {
+      lastHudMs = now;
+      renderLeaderboard();
+      // The death overlay follows the *displayed* (interpolated) world so it pops
+      // with the on-screen explosion, not the instant the server signalled it.
+      const shownMe = renderer.displayed()?.tanks.find((t) => t.id === state.playerId);
+      updateRespawnOverlay(shownMe ?? me);
+      renderHud(me);
+      if (snap) {
+        const alive = snap.tanks.filter((t) => t.alive).length;
+        $("gh-count").textContent = `${snap.tanks.length} players · ${alive} alive`;
+      }
     }
   }
   
@@ -252,6 +267,7 @@ $("start").onclick = () => net.send({ type: "startGame" });
 
 // In-lobby game settings (host).
 buildPowerupAdvInputs();
+buildPowerupTypeToggles();
 applyConfigToControls(DEFAULT_GAME_CONFIG, 8);
 $("lobby-config").addEventListener("change", (e) => {
   if (!state.currentLobby || state.currentLobby.hostId !== state.playerId) return;
@@ -291,6 +307,32 @@ $("move-mode").addEventListener("change", () => {
 });
 state.moveMode = localStorage.getItem(MOVE_KEY) === "eight" ? "eight" : "relative";
 applyMoveSetting();
+
+// Display settings (frame-rate cap + render quality) — client-side, per player.
+// Apply re-reads state and pushes it to the loop + renderer.
+function applyDisplaySettings(): void {
+  engine?.setRenderHz(state.fpsCap);
+  renderer.setMaxDpr(QUALITY_DPR[state.quality]);
+  ($("fps-cap") as HTMLSelectElement).value = String(state.fpsCap);
+  ($("quality") as HTMLSelectElement).value = state.quality;
+}
+const savedFps = Number(localStorage.getItem(FPS_KEY));
+state.fpsCap = savedFps === 30 || savedFps === 120 ? savedFps : 60;
+const savedQuality = localStorage.getItem(QUALITY_KEY);
+state.quality = savedQuality === "low" || savedQuality === "high" ? savedQuality : "medium";
+$("fps-cap").addEventListener("change", () => {
+  const v = Number(($("fps-cap") as HTMLSelectElement).value);
+  state.fpsCap = v === 30 || v === 120 ? v : 60;
+  localStorage.setItem(FPS_KEY, String(state.fpsCap));
+  applyDisplaySettings();
+});
+$("quality").addEventListener("change", () => {
+  const v = ($("quality") as HTMLSelectElement).value;
+  state.quality = v === "low" || v === "high" ? v : "medium";
+  localStorage.setItem(QUALITY_KEY, state.quality);
+  applyDisplaySettings();
+});
+applyDisplaySettings();
 
 // Background Music
 const bgmToggle = $("bgm-toggle") as HTMLInputElement;
@@ -420,11 +462,21 @@ async function bootstrap(): Promise<void> {
   // engine startup path or breaking Vite's hashed production asset URLs.
   await assets.loadAll([]);
 
-  const engine = new Engine();
+  engine = new Engine();
   engine.setScene(scene);
+  applyDisplaySettings(); // push the saved FPS cap now that the engine exists
   net.connect();
   engine.start();
 }
+
+// Stop drawing entirely while the tab is hidden; resume on return. rAF already
+// throttles hidden tabs, but stopping guarantees zero work, and start() resets
+// the loop clock so there's no catch-up spike on resume.
+document.addEventListener("visibilitychange", () => {
+  if (!engine) return;
+  if (document.hidden) engine.stop();
+  else engine.start();
+});
 
 void bootstrap().catch((err) => {
   console.error(err);
