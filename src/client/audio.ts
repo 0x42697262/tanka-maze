@@ -12,7 +12,6 @@ export function loadAudio(name: string, url: string) {
 }
 
 // Preload sound effects into memory
-loadAudio("pew", "/pew.ogg");
 loadAudio("explosion", "/explosion.ogg");
 loadAudio("vroom", "/vroom.ogg");
 loadAudio("reloading", "/reloading.ogg");
@@ -48,6 +47,11 @@ export function setSfxVolume(vol: number) {
 
 /** Instantly play a sound effect from memory. `rate` is playback speed (1 = normal). */
 export function playSfx(name: string, volume = 1.0, rate = 1.0) {
+  if (name === "pew") {
+    playSynthPew(volume, rate);
+    return;
+  }
+
   const buffer = buffers.get(name);
   if (!buffer) return;
   if (audioCtx.state === "suspended") audioCtx.resume();
@@ -61,6 +65,64 @@ export function playSfx(name: string, volume = 1.0, rate = 1.0) {
   source.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   source.start();
+}
+
+/** Synthesize a retro arcade gun shot sound dynamically using oscillators and noise filter envelopes */
+function playSynthPew(volume: number, rate = 1.0) {
+  if (audioCtx.state === "suspended") audioCtx.resume();
+
+  const now = audioCtx.currentTime;
+  const duration = 0.15 / rate;
+
+  // 1. Oscillator for the frequency-swept core punch
+  const osc = audioCtx.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(850 * rate, now);
+  osc.frequency.exponentialRampToValueAtTime(60 * rate, now + duration);
+
+  // 2. White noise for the explosive crunch
+  const bufferSize = Math.max(100, Math.floor(audioCtx.sampleRate * duration));
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+
+  // 3. Bandpass filter to sculpt the noise explosion
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(1000 * rate, now);
+  filter.frequency.exponentialRampToValueAtTime(120 * rate, now + duration);
+  filter.Q.value = 1.5;
+
+  // 4. Envelopes for volume decay
+  const oscGain = audioCtx.createGain();
+  oscGain.gain.setValueAtTime(0.4, now);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.setValueAtTime(0.6, now);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, now + (0.1 / rate));
+
+  const mainGain = audioCtx.createGain();
+  mainGain.gain.value = volume * globalSfxVolume;
+
+  // Connections
+  osc.connect(oscGain);
+  oscGain.connect(mainGain);
+
+  noise.connect(filter);
+  filter.connect(noiseGain);
+  noiseGain.connect(mainGain);
+
+  mainGain.connect(audioCtx.destination);
+
+  osc.start(now);
+  osc.stop(now + duration);
+  noise.start(now);
+  noise.stop(now + duration);
 }
 
 let vroomSource: AudioBufferSourceNode | null = null;
@@ -77,7 +139,8 @@ export function playVroom() {
   vroomSource.loop = true;
   
   vroomGainNode = audioCtx.createGain();
-  vroomGainNode.gain.value = 0.2 * globalSfxVolume; // Engine sound sits quietly in the background
+  vroomGainNode.gain.value = 0.12 * globalSfxVolume; // Start with quiet idle engine volume
+  vroomSource.playbackRate.value = 0.75; // Low idle purr pitch
   
   vroomSource.connect(vroomGainNode);
   vroomGainNode.connect(audioCtx.destination);
@@ -90,7 +153,30 @@ export function pauseVroom() {
   vroomSource.stop();
   vroomSource.disconnect();
   vroomSource = null;
+  vroomGainNode = null;
   isVroomPlaying = false;
+}
+
+export function updateVroom(isMoving: boolean, hasBoost: boolean) {
+  if (!isVroomPlaying || !vroomSource || !vroomGainNode) return;
+  
+  let targetPitch = 0.75; // Quiet low pitch for idle
+  let targetGain = 0.12;
+  
+  if (isMoving) {
+    if (hasBoost) {
+      targetPitch = 1.35; // High pitch/rev for speed boost
+      targetGain = 0.3;
+    } else {
+      targetPitch = 1.05; // Standard acceleration pitch
+      targetGain = 0.2;
+    }
+  }
+  
+  const now = audioCtx.currentTime;
+  // timeConstant = 0.1 results in a smooth transition over about ~0.25 seconds
+  vroomSource.playbackRate.setTargetAtTime(targetPitch, now, 0.1);
+  vroomGainNode.gain.setTargetAtTime(targetGain * globalSfxVolume, now, 0.1);
 }
 
 export let globalBgmVolume = 0.5;

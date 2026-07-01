@@ -187,14 +187,15 @@ net.onBinary((buf) => {
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
-import { setSfxVolume, isVroomPlaying, playVroom, pauseVroom, playBgm, pauseBgm, setBgmVolume, isBgmPlaying } from "./audio.js";
+import { setSfxVolume, isVroomPlaying, playVroom, pauseVroom, updateVroom, playBgm, pauseBgm, setBgmVolume, isBgmPlaying } from "./audio.js";
 
 let lastHudMs = 0;
 function frame(now: number): void {
   let isMoving = false;
+  let me: any = undefined;
   if (state.inGame) {
     const snap = renderer.latest();
-    const me = snap?.tanks.find((t) => t.id === state.playerId);
+    me = snap?.tanks.find((t) => t.id === state.playerId);
 
     if (state.input && me && !state.paused) {
       const inputState = state.input.getState(me.x, me.y);
@@ -234,9 +235,13 @@ function frame(now: number): void {
     }
   }
   
-  if (isMoving && !isVroomPlaying) {
-    playVroom();
-  } else if (!isMoving && isVroomPlaying) {
+  const shouldPlayEngine = state.inGame && me && me.alive && !state.paused;
+  if (shouldPlayEngine) {
+    if (!isVroomPlaying) {
+      playVroom();
+    }
+    updateVroom(isMoving, me.boosted);
+  } else if (isVroomPlaying) {
     pauseVroom();
   }
 }
