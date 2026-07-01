@@ -4,13 +4,13 @@ import { playSfx } from "./audio.js";
 import { state } from "./state.js";
 import {
   powerupDef,
-  type BulletKind,
   type FogVisionMode,
   type FlagDTO,
   type HazardZoneDTO,
   type KillEvent,
   type MazeDTO,
   type PowerupDTO,
+  type PowerupType,
   type SnapshotDTO,
   type SpawnZoneDTO,
   type TankDTO,
@@ -32,13 +32,13 @@ const BULLET_COLOR = "#11100e";
 function bulletColor(tankColor: string | undefined): string {
   return tankColor ?? BULLET_COLOR;
 }
-const BULLET_STYLE: Record<BulletKind, { dr: number }> = {
-  normal: { dr: 0 },
-  sniper: { dr: 0 },
-  explosive: { dr: 2 },
-  laser: { dr: -1 },
-  tracking: { dr: 1 },
-};
+/** Radius adjustment for a bullet, composed from its effect flags (explosive
+ *  reads biggest; homing slightly larger; plain/sniper unchanged). */
+function bulletDr(b: { homing: boolean; explosive: boolean }): number {
+  if (b.explosive) return 2;
+  if (b.homing) return 1;
+  return 0;
+}
 
 interface Buffered {
   snap: SnapshotDTO;
@@ -109,7 +109,7 @@ export class Renderer {
     multiSpread: 30,
   };
   // Last seen state per tank, to detect deaths and spawn explosions.
-  private lastTankState = new Map<string, { x: number; y: number; alive: boolean; hp: number; color: string; ammo: number; weapon: string | null; weaponCharges: number; reloadIn: number; boosted: boolean; shielded: boolean; scoped: boolean }>();
+  private lastTankState = new Map<string, { x: number; y: number; alive: boolean; hp: number; color: string; ammo: number; weaponChargeSum: number; hadRapid: boolean; reloadIn: number; boosted: boolean; shielded: boolean; scoped: boolean }>();
   private lastPowerups = new Map<number, PowerupDTO>();
   private brickPattern: CanvasPattern | null = null;
   private steelPattern: CanvasPattern | null = null;
@@ -292,9 +292,10 @@ export class Renderer {
           }
           
           // Play firing sound if ammo dropped, or if they reloaded and fired in the same snapshot
+          const chargeSum = Object.values(t.weaponCharges).reduce((a, n) => a + (n ?? 0), 0);
           const firedNormal = t.ammo < prev.ammo || (prev.ammo === 0 && t.ammo > 0 && t.ammo < t.maxAmmo);
-          const firedSpecial = !t.charging && t.weaponCharges < prev.weaponCharges && prev.weaponCharges > 0;
-          const isRapid = prev.weapon === "rapidfire";
+          const firedSpecial = !t.charging && chargeSum < prev.weaponChargeSum && prev.weaponChargeSum > 0;
+          const isRapid = prev.hadRapid;
           const rapidFireRate = isRapid ? RAPIDFIRE_PEW_RATE : 1.0;
 
           if (firedNormal || firedSpecial) {
@@ -319,10 +320,12 @@ export class Renderer {
           }
         }
       }
-      this.lastTankState.set(t.id, { 
-        x: t.x, y: t.y, alive: t.alive, hp: t.hp, color: t.color, 
-        ammo: t.ammo, weapon: t.weapon, weaponCharges: t.weaponCharges, 
-        reloadIn: t.reloadIn, boosted: t.boosted, shielded: t.shielded, scoped: t.scoped 
+      this.lastTankState.set(t.id, {
+        x: t.x, y: t.y, alive: t.alive, hp: t.hp, color: t.color,
+        ammo: t.ammo,
+        weaponChargeSum: Object.values(t.weaponCharges).reduce((a, n) => a + (n ?? 0), 0),
+        hadRapid: (t.weaponCharges.rapidfire ?? 0) > 0,
+        reloadIn: t.reloadIn, boosted: t.boosted, shielded: t.shielded, scoped: t.scoped
       });
     }
     // A previously-alive tank that vanished (killed while disconnected) also pops.
@@ -398,8 +401,9 @@ export class Renderer {
       const tankColors = new Map(interp.tanks.map((t) => [t.id, t.color]));
       for (const b of interp.bullets) {
         if (fog && !this.isPointVisible(b.x, b.y, fog)) continue;
-        const style = BULLET_STYLE[b.kind] ?? BULLET_STYLE.normal;
-        const rad = Math.max(1, this.bulletR + style.dr);
+        // Radius derives from the composed effect flags (beta's axis model); the
+        // fill honors the active visual theme, else the owner's tint.
+        const rad = Math.max(1, this.bulletR + bulletDr(b));
         if (state.realisticEnabled) {
           ctx.fillStyle = "#3a3a2a"; // Dark olive tracer rounds
         } else if (state.modernEnabled) {
@@ -409,7 +413,7 @@ export class Renderer {
         } else {
           ctx.fillStyle = bulletColor(tankColors.get(b.ownerId));
         }
-        if (b.kind === "tracking") {
+        if (b.homing) {
           // Triangle pointing in the travel direction.
           ctx.save();
           ctx.translate(b.x, b.y);
@@ -685,7 +689,7 @@ export class Renderer {
       }
       // Explosive: show the blast radius at the detonation point.
       const end = paths[0]?.[paths[0].length - 1];
-      if (t.weapon === "explosive" && end) {
+      if ((t.weaponCharges.explosive ?? 0) > 0 && end) {
         ctx.globalAlpha = 0.16;
         ctx.beginPath();
         ctx.arc(end.x, end.y, this.scope.explosionRadius, 0, Math.PI * 2);
@@ -701,77 +705,74 @@ export class Renderer {
   }
 
   /**
-   * One or more trajectory polylines for a tank's current weapon — each sized to
-   * that weapon's real reach: normal/multishot fly speed×lifetime and bounce;
-   * the sniper flies fast & straight, punching through walls; explosive stops
-   * where it detonates; tracking uses its longer lifetime; laser is hitscan.
+   * One or more trajectory polylines for a tank's current shot, composed from
+   * whatever weapon effects it holds — mirrors the server's recipe: sniper is
+   * fast/straight/piercing (only when not homing/explosive), explosive stops at
+   * the first wall (unless homing suppresses it), tracking uses its longer
+   * lifetime/bounces, multishot fans, laser is a hitscan beam.
    */
   private scopePaths(me: TankDTO, vel: { x: number; y: number }): Array<{ x: number; y: number }[]> {
     const a = me.turretAngle;
-    const ca = Math.cos(a);
-    const sa = Math.sin(a);
     const sc = this.scope;
     // A round lives `lifetime` seconds, so it travels its real speed × lifetime.
     const reach = (vx: number, vy: number, lifetime: number) => Math.hypot(vx, vy) * lifetime;
     const muzzle = this.tankR + this.bulletR + 2;
-    const ox = me.x + ca * muzzle;
-    const oy = me.y + sa * muzzle;
+    const has = (w: PowerupType) => (me.weaponCharges[w] ?? 0) > 0;
 
-    if (me.weapon === "laser") {
-      // Hitscan beam: reflects, no momentum, from just outside the hull.
-      const lx = me.x + ca * (this.tankR + 2);
-      const ly = me.y + sa * (this.tankR + 2);
-      return [this.walkPath(lx, ly, ca, sa, { range: sc.laserRange, bounces: Infinity })];
+    if (has("laser")) {
+      // Beam carrier: a hitscan ray that reflects, from just outside the hull.
+      // Honors the fan (multishot → several beams); ignores the projectile axes.
+      const n = has("multishot") ? Math.max(1, Math.round(sc.multiCount)) : 1;
+      const spread = has("multishot") ? (sc.multiSpread * Math.PI) / 180 : 0;
+      const beams: Array<{ x: number; y: number }[]> = [];
+      for (let i = 0; i < n; i++) {
+        const ang = n > 1 ? a - spread / 2 + (spread / (n - 1)) * i : a;
+        const bx = me.x + Math.cos(ang) * (this.tankR + 2);
+        const by = me.y + Math.sin(ang) * (this.tankR + 2);
+        beams.push(this.walkPath(bx, by, Math.cos(ang), Math.sin(ang), { range: sc.laserRange, bounces: Infinity }));
+      }
+      return beams;
     }
 
-    if (me.weapon === "sniper") {
-      // Fast & straight, no momentum, punches through up to N walls.
-      const speed = sc.bulletSpeed * sc.sniperSpeedMult;
-      return [
-        this.walkPath(ox, oy, ca, sa, {
-          range: speed * sc.bulletLifetime,
+    const homing = has("tracking");
+    const explosive = has("explosive");
+    const sniper = has("sniper");
+    const speed = sc.bulletSpeed * (sniper ? sc.sniperSpeedMult : 1);
+    const life = homing ? sc.trackingLifetime : sc.bulletLifetime;
+    const bounces = homing ? sc.trackingBounces : sc.bulletBounces;
+    const pureSniper = sniper && !homing && !explosive;
+    const stopOnWall = explosive && !homing;
+
+    // Trajectory for one launch angle, composing the held per-bullet effects.
+    const walkShot = (ang: number): { x: number; y: number }[] => {
+      const mx = me.x + Math.cos(ang) * muzzle;
+      const my = me.y + Math.sin(ang) * muzzle;
+      if (pureSniper) {
+        return this.walkPath(mx, my, Math.cos(ang), Math.sin(ang), {
+          range: speed * life,
           straight: true,
           pierce: sc.sniperWallPierce,
-        }),
-      ];
-    }
+        });
+      }
+      // Sniper ignores tank momentum; others inherit it.
+      const pvx = Math.cos(ang) * speed + (sniper ? 0 : vel.x);
+      const pvy = Math.sin(ang) * speed + (sniper ? 0 : vel.y);
+      const range = reach(pvx, pvy, life);
+      return stopOnWall
+        ? this.walkPath(mx, my, pvx, pvy, { range, stopOnWall: true })
+        : this.walkPath(mx, my, pvx, pvy, { range, bounces });
+    };
 
-    if (me.weapon === "multishot") {
+    if (has("multishot")) {
       const n = Math.max(1, Math.round(sc.multiCount));
       const fan = (sc.multiSpread * Math.PI) / 180;
       const stepA = n > 1 ? fan / (n - 1) : 0;
       const start = a - fan / 2;
       const paths: Array<{ x: number; y: number }[]> = [];
-      for (let i = 0; i < n; i++) {
-        const ang = n > 1 ? start + stepA * i : a;
-        const mx = me.x + Math.cos(ang) * muzzle;
-        const my = me.y + Math.sin(ang) * muzzle;
-        const pvx = Math.cos(ang) * sc.bulletSpeed + vel.x;
-        const pvy = Math.sin(ang) * sc.bulletSpeed + vel.y;
-        paths.push(
-          this.walkPath(mx, my, pvx, pvy, { range: reach(pvx, pvy, sc.bulletLifetime), bounces: sc.bulletBounces })
-        );
-      }
+      for (let i = 0; i < n; i++) paths.push(walkShot(n > 1 ? start + stepA * i : a));
       return paths;
     }
-
-    // Velocity inherits the tank's momentum, so reach is the real fire speed ×
-    // lifetime (not the base bullet speed) — otherwise the guide stops short of a
-    // moving tank's shot and hides its later bounces.
-    const vx = ca * sc.bulletSpeed + vel.x;
-    const vy = sa * sc.bulletSpeed + vel.y;
-
-    if (me.weapon === "explosive") {
-      // Detonates at the first wall (or where its lifetime runs out).
-      return [this.walkPath(ox, oy, vx, vy, { range: reach(vx, vy, sc.bulletLifetime), stopOnWall: true })];
-    }
-
-    if (me.weapon === "tracking") {
-      return [this.walkPath(ox, oy, vx, vy, { range: reach(vx, vy, sc.trackingLifetime), bounces: sc.trackingBounces })];
-    }
-
-    // Plain cannon.
-    return [this.walkPath(ox, oy, vx, vy, { range: reach(vx, vy, sc.bulletLifetime), bounces: sc.bulletBounces })];
+    return [walkShot(a)];
   }
 
   /**

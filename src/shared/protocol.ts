@@ -174,6 +174,44 @@ export interface PowerupConfigField {
 }
 
 /**
+ * A weapon's contribution to the composable per-shot "axes". The server resolver
+ * (game.ts `buildRecipe`) folds these across every held weapon with one combine
+ * rule per axis — so behaviors compose without any per-combination code. Scalar
+ * axes name an AdvancedConfig key (kept host-tunable); flag axes give a value.
+ *
+ * The axes deliberately separate *payload* from *lifecycle* so any carrier can
+ * fold them the same way:
+ *   - `blastOnContact` (explosion) is a pure event tap: emit a blast at every
+ *     wall/tank contact and on despawn. It never decides survival on its own.
+ *   - Survival lives on two independent tracks: `maxBouncesKey` grants the reflect
+ *     track (bounce/zigzag) and `wallPierceKey` grants the penetrate track (straight
+ *     through). A projectile is on one track (pierce wins when present).
+ *   - `maxBouncesOverride: 0` (explosion) clamps the reflect track to die-on-contact;
+ *     penetration/beam survival are on their own tracks, so it can't kill them.
+ *   - `tankPierce` passes through tanks; `inheritMomentum: false` vetoes momentum.
+ *   - `carrier: "beam"` is a hitscan laser: reflection is intrinsic (ignores
+ *     maxBounces); it still folds pierce (branches through walls) and blastOnContact.
+ */
+export interface WeaponEffect {
+  steer?: "homing";
+  tankPierce?: boolean;
+  blastOnContact?: boolean;
+  /** Force the reflect (bounce) budget to this value (explosion clamps to 0). */
+  maxBouncesOverride?: number;
+  inheritMomentum?: false;
+  carrier?: "beam";
+  speedMultKey?: keyof AdvancedConfig;
+  wallPierceKey?: keyof AdvancedConfig;
+  lifetimeKey?: keyof AdvancedConfig;
+  maxBouncesKey?: keyof AdvancedConfig;
+  blastRadiusKey?: keyof AdvancedConfig;
+  fanCountKey?: keyof AdvancedConfig;
+  fanSpreadKey?: keyof AdvancedConfig;
+  burstCountKey?: keyof AdvancedConfig;
+  burstDelayKey?: keyof AdvancedConfig;
+}
+
+/**
  * The single source of truth for every power-up. Adding one here wires it into
  * the spawn pool, the binary protocol, the crate art, the HUD label, the lobby
  * settings editor, and the read-only config panels — all derived from this list
@@ -191,6 +229,8 @@ export interface PowerupDef {
   emblem: string; // glyph drawn on the crate
   color: string; // emblem color
   config: PowerupConfigField[];
+  /** Weapon axis contributions, composed by the server resolver. */
+  effect?: WeaponEffect;
 }
 
 export const POWERUP_DEFS: PowerupDef[] = [
@@ -223,6 +263,12 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "sniperSpeedMult", label: "Sniper ×", min: 1, max: 30, step: 0.5 },
       { key: "sniperWallPierce", label: "Sniper walls", min: 0, max: 20, step: 1, int: true },
     ],
+    effect: {
+      tankPierce: true,
+      inheritMomentum: false,
+      speedMultKey: "sniperSpeedMult",
+      wallPierceKey: "sniperWallPierce",
+    },
   },
   {
     id: "explosive",
@@ -231,6 +277,11 @@ export const POWERUP_DEFS: PowerupDef[] = [
     emblem: "✸",
     color: "#b23b2e",
     config: [{ key: "explosionRadius", label: "Blast radius", min: 10, max: 300, step: 2 }],
+    effect: {
+      blastOnContact: true,
+      maxBouncesOverride: 0,
+      blastRadiusKey: "explosionRadius",
+    },
   },
   {
     id: "laser",
@@ -242,6 +293,7 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "laserDelay", label: "Laser windup", min: 0, max: 5, step: 0.1 },
       { key: "laserRange", label: "Laser range", min: 100, max: 5000, step: 50 },
     ],
+    effect: { carrier: "beam" },
   },
   {
     id: "tracking",
@@ -254,6 +306,11 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "trackingLifetime", label: "Track life s", min: 0.5, max: 30, step: 0.5 },
       { key: "trackingBounces", label: "Track bounces", min: 0, max: 50, step: 1, int: true },
     ],
+    effect: {
+      steer: "homing",
+      lifetimeKey: "trackingLifetime",
+      maxBouncesKey: "trackingBounces",
+    },
   },
   {
     id: "multishot",
@@ -265,6 +322,7 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "multishotCount", label: "Pellets", min: 1, max: 24, step: 1, int: true },
       { key: "multishotSpread", label: "Spread °", min: 0, max: 180, step: 5 },
     ],
+    effect: { fanCountKey: "multishotCount", fanSpreadKey: "multishotSpread" },
   },
   {
     id: "rapidfire",
@@ -276,6 +334,7 @@ export const POWERUP_DEFS: PowerupDef[] = [
       { key: "rapidFireCount", label: "Burst shots", min: 1, max: 20, step: 1, int: true },
       { key: "rapidFireDelay", label: "Burst delay s", min: 0.05, max: 1, step: 0.01 },
     ],
+    effect: { burstCountKey: "rapidFireCount", burstDelayKey: "rapidFireDelay" },
   },
   {
     id: "scope",
@@ -364,6 +423,7 @@ export interface GameConfig {
   powerupSpawnCount: number; // crates spawned together each time the spawn cadence ticks (no cap on concurrent crates — despawn bounds them)
   powerupTypes: PowerupType[]; // enabled power-up types to include in the spawn pool
   powerupStacking: boolean; // same-type pickups stack (weapons add charges, buffs add duration) instead of replacing
+  combineWeapons: boolean; // hold multiple weapon effects at once; each shot composes them all (laser stays exclusive)
   tankCollision: boolean; // circle-to-circle pushing (FFA only)
   radar: boolean; // HUD radar that pings nearby tanks (host toggle for all)
 }
@@ -410,6 +470,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   powerupSpawnCount: 1,
   powerupTypes: [...POWERUP_TYPES],
   powerupStacking: true,
+  combineWeapons: false,
   tankCollision: false,
   radar: true,
 };
@@ -536,10 +597,9 @@ export interface TankDTO {
   maxAmmo: number;
   /** Seconds left on a reload, 0 when not reloading. */
   reloadIn: number;
-  /** Active power-up weapon, or null. */
-  weapon: PowerupType | null;
-  /** Charges left on the active weapon (0 for none / speed buff). */
-  weaponCharges: number;
+  /** Charges per held weapon effect (empty when unarmed). Multiple entries when
+   *  combining is on; laser is exclusive (never present alongside others). */
+  weaponCharges: Partial<Record<PowerupType, number>>;
   /** Lives remaining (finite-lives modes, e.g. LMS); 0 when lives are infinite. */
   livesLeft: number;
   /** Whether a speed boost is currently active. */
@@ -561,7 +621,10 @@ export interface BulletDTO {
   x: number;
   y: number;
   ownerId: string;
-  kind: BulletKind;
+  /** Composable effect flags (drive rendering; behavior lives server-side). */
+  homing: boolean;
+  explosive: boolean;
+  pierce: boolean;
   /** Travel direction (radians), filled client-side from interpolation. */
   dir?: number;
 }
