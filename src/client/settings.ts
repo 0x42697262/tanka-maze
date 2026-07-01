@@ -133,6 +133,7 @@ export function gatherConfig(): { maxPlayers: number; config: GameConfig } {
       powerupCharges: num("pwr-charges", 1),
       powerupSpawnCount: num("pwr-count", 1),
       powerupTypes,
+      powerupStacking: sel("pwr-stack") === "on",
     },
   };
 }
@@ -184,6 +185,7 @@ export function applyConfigToControls(c: GameConfig, maxPlayers: number): void {
   set("pwr-charges", cfg.powerupCharges);
   set("pwr-despawn", cfg.powerupDespawnSeconds);
   set("pwr-count", cfg.powerupSpawnCount);
+  set("pwr-stack", cfg.powerupStacking ? "on" : "off");
   for (const type of POWERUP_TYPES) setChecked(`pup-${type}`, cfg.powerupTypes.includes(type));
   for (const k of ADV_KEYS) set(`adv-${k}`, cfg.adv[k]);
   renderWallPicker();

@@ -80,6 +80,7 @@ describe("power-ups: apply", () => {
   it("buffs run their own command (speed / shield / scope)", () => {
     const g = makeGame({ adv: { speedBoostSeconds: 7, shieldSeconds: 9, scopeSeconds: 5 }, cfg: { powerupCharges: 2 } });
     const a = tank(g, "a");
+    a.shieldTimer = 0; // clear spawn shield so the pickup effect is isolated (stacking-agnostic)
     apply(g, a, "speed");
     assert.equal(a.boostTimer, 7);
     apply(g, a, "shield");
@@ -87,6 +88,54 @@ describe("power-ups: apply", () => {
     apply(g, a, "scope");
     assert.equal(a.scopeTimer, 5);
     assert.equal(a.scopeShots, 2); // charges
+  });
+});
+
+describe("power-ups: stacking", () => {
+  it("weapon: a same-type pickup adds another grant of charges when stacking is on", () => {
+    const g = makeGame({ cfg: { powerupCharges: 3, powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "sniper");
+    assert.equal(a.weaponCharges, 3);
+    apply(g, a, "sniper"); // same weapon again
+    assert.equal(a.weapon, "sniper");
+    assert.equal(a.weaponCharges, 6); // stacked another full grant
+  });
+
+  it("weapon: a different weapon replaces (never stacks) even with stacking on", () => {
+    const g = makeGame({ cfg: { powerupCharges: 3, powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "sniper");
+    apply(g, a, "laser"); // different weapon
+    assert.equal(a.weapon, "laser");
+    assert.equal(a.weaponCharges, 3); // fresh grant, not 6
+  });
+
+  it("weapon: a same-type pickup resets (no stack) when stacking is off", () => {
+    const g = makeGame({ cfg: { powerupCharges: 3, powerupStacking: false }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "sniper");
+    a.weaponCharges = 1; // pretend two were spent
+    apply(g, a, "sniper");
+    assert.equal(a.weaponCharges, 3); // reset to a grant, not added
+  });
+
+  it("buff: a same-type pickup adds duration when stacking is on", () => {
+    const g = makeGame({ adv: { shieldSeconds: 9 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    apply(g, a, "shield");
+    assert.equal(a.shieldTimer, 9);
+    apply(g, a, "shield");
+    assert.equal(a.shieldTimer, 18); // stacked duration
+  });
+
+  it("buff: a pickup resets duration (no stack) when stacking is off", () => {
+    const g = makeGame({ adv: { shieldSeconds: 9 }, cfg: { powerupStacking: false }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 5;
+    apply(g, a, "shield");
+    assert.equal(a.shieldTimer, 9); // reset, not 14
   });
 });
 
@@ -179,7 +228,7 @@ describe("power-ups: spawn count per tick", () => {
     assert.equal((g as any).powerups.length, 4);
   });
 
-  it("grows past the old hardcoded cap of 4 — bounded only by despawn timing", () => {
+  it("grows past the old hardcoded cap of 4 — bounded only by despawn timing and cell count", () => {
     const g = makeGame({
       cfg: { powerupEverySeconds: 1, powerupSpawnCount: 10, powerupDespawnSeconds: 60 },
       players: [{ id: "a", name: "A" }],
@@ -187,16 +236,21 @@ describe("power-ups: spawn count per tick", () => {
     parkTanks(g);
     g.step(1);
     g.step(1);
-    assert.equal((g as any).powerups.length, 20); // well past the old hardcoded cap of 4
+    const powerups = (g as any).powerups;
+    assert.ok(powerups.length > 4, `expected > 4 crates, got ${powerups.length}`); // past the old cap
+    assert.ok(powerups.length <= 20); // two batches of 10, minus any cells reused across batches
+    const positions = new Set(powerups.map((p: any) => `${p.x},${p.y}`));
+    assert.equal(positions.size, powerups.length); // still one crate per cell
   });
 
   it("caps the population at the protocol ceiling (255) so the wire count can't overflow", () => {
     const g = makeGame({
       cfg: { powerupEverySeconds: 1, powerupSpawnCount: 20, powerupDespawnSeconds: 60 },
+      maze: new Maze(20, 16, "open"), // 320 cells, so the 255 ceiling binds before cells run out
       players: [{ id: "a", name: "A" }],
     });
     parkTanks(g);
-    for (let i = 0; i < 20; i++) g.step(1); // 20*20 = 400 attempted, far past 255
+    for (let i = 0; i < 100; i++) g.step(1); // saturates well past 255 attempts
     assert.equal((g as any).powerups.length, 255);
   });
 
@@ -232,6 +286,22 @@ describe("power-ups: type pool", () => {
     parkTanks(g);
     g.step(1);
     assert.equal((g as any).powerups.length, 0);
+  });
+});
+
+describe("power-ups: one crate per cell", () => {
+  it("replaces a crate already on a cell instead of stacking two in one spot", () => {
+    const g = makeGame({
+      cfg: { powerupEverySeconds: 1, powerupSpawnCount: 10, powerupDespawnSeconds: 60 },
+      maze: new Maze(5, 5, "open"), // 25 cells; 10/tick over several ticks forces cross-batch cell reuse
+      players: [{ id: "a", name: "A" }],
+    });
+    parkTanks(g);
+    for (let i = 0; i < 5; i++) g.step(1); // 50 spawn attempts across 25 cells
+    const powerups = (g as any).powerups;
+    const positions = new Set(powerups.map((p: any) => `${p.x},${p.y}`));
+    assert.equal(positions.size, powerups.length); // never two crates on one cell
+    assert.ok(powerups.length <= 25, `expected <= 25 crates, got ${powerups.length}`);
   });
 });
 

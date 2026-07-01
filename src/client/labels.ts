@@ -180,6 +180,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
     pwr.push(["Spawn every", `${c.powerupEverySeconds}s`]);
     pwr.push(["Despawn after", `${c.powerupDespawnSeconds}s`]);
     pwr.push(["Charges / pickup", c.powerupCharges]);
+    pwr.push(["Stacking", onOff(c.powerupStacking)]);
     pwr.push(["Per spawn tick", c.powerupSpawnCount]);
     pwr.push([
       "Spawn types",

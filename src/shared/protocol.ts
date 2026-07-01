@@ -363,6 +363,7 @@ export interface GameConfig {
   powerupCharges: number; // uses granted per pickup (weapon types)
   powerupSpawnCount: number; // crates spawned together each time the spawn cadence ticks (no cap on concurrent crates — despawn bounds them)
   powerupTypes: PowerupType[]; // enabled power-up types to include in the spawn pool
+  powerupStacking: boolean; // same-type pickups stack (weapons add charges, buffs add duration) instead of replacing
   tankCollision: boolean; // circle-to-circle pushing (FFA only)
   radar: boolean; // HUD radar that pings nearby tanks (host toggle for all)
 }
@@ -408,6 +409,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   powerupCharges: 1,
   powerupSpawnCount: 1,
   powerupTypes: [...POWERUP_TYPES],
+  powerupStacking: true,
   tankCollision: false,
   radar: true,
 };

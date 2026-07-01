@@ -90,19 +90,22 @@ const HOMING_DIRS: ReadonlyArray<readonly [number, number]> = [
  * (set the active weapon + charges); buffs each set their own timers/charges
  * here, so adding a buff is a single entry alongside its registry definition.
  */
-type BuffCommand = (tank: Tank, adv: AdvancedConfig, cfg: GameConfig) => void;
+// `stack` adds the pickup's duration/charges to what's already there (same-buff
+// stacking); otherwise it resets to a fresh pickup. Adding to a zero timer is
+// identical to setting, so the same expression handles both cases.
+type BuffCommand = (tank: Tank, adv: AdvancedConfig, cfg: GameConfig, stack: boolean) => void;
 const BUFF_COMMANDS: Partial<Record<PowerupType, BuffCommand>> = {
-  speed: (t, adv) => {
-    t.boostTimer = adv.speedBoostSeconds;
+  speed: (t, adv, _cfg, stack) => {
+    t.boostTimer = (stack ? t.boostTimer : 0) + adv.speedBoostSeconds;
   },
-  shield: (t, adv) => {
-    t.shieldTimer = adv.shieldSeconds;
+  shield: (t, adv, _cfg, stack) => {
+    t.shieldTimer = (stack ? t.shieldTimer : 0) + adv.shieldSeconds;
   },
-  scope: (t, adv, cfg) => {
+  scope: (t, adv, cfg, stack) => {
     // Aiming guide: layers on any weapon, consumed one charge per shot, capped
     // by scopeSeconds so it doesn't linger forever if unused.
-    t.scopeTimer = adv.scopeSeconds;
-    t.scopeShots = cfg.powerupCharges;
+    t.scopeTimer = (stack ? t.scopeTimer : 0) + adv.scopeSeconds;
+    t.scopeShots = (stack ? t.scopeShots : 0) + cfg.powerupCharges;
   },
 };
 
@@ -1177,13 +1180,14 @@ export class Game {
         // one tile (only wraps if a batch outnumbers the open cells). Population
         // is capped at the protocol ceiling (see MAX_POWERUPS_ON_MAP).
         const cells = shuffle([...this.spawns]);
-        for (
-          let i = 0;
-          i < this.cfg.powerupSpawnCount && this.powerups.length < MAX_POWERUPS_ON_MAP;
-          i++
-        ) {
-          const type = types[Math.floor(Math.random() * types.length)];
+        for (let i = 0; i < this.cfg.powerupSpawnCount; i++) {
           const cell = cells[i % cells.length];
+          // One crate per tile: a crate already sitting on this cell is replaced
+          // by the new one instead of stacking two pickups in the same spot.
+          const existing = this.powerups.findIndex((p) => p.x === cell.x && p.y === cell.y);
+          if (existing >= 0) this.powerups.splice(existing, 1);
+          else if (this.powerups.length >= MAX_POWERUPS_ON_MAP) continue; // net-new at the ceiling
+          const type = types[Math.floor(Math.random() * types.length)];
           this.powerups.push({
             id: this.nextPowerupId++,
             type,
@@ -1213,14 +1217,20 @@ export class Game {
   }
 
   private applyPowerup(tank: Tank, type: PowerupType): void {
+    const stack = this.cfg.powerupStacking;
     if (powerupDef(type).kind === "weapon") {
-      // Every weapon pickup grants the same configurable number of shots.
-      tank.weapon = type;
-      tank.weaponCharges = this.cfg.powerupCharges;
+      if (stack && tank.weapon === type) {
+        // Same weapon picked up again: stack another pickup's worth of shots.
+        tank.weaponCharges += this.cfg.powerupCharges;
+      } else {
+        // A new/different weapon replaces the current one at the base grant.
+        tank.weapon = type;
+        tank.weaponCharges = this.cfg.powerupCharges;
+      }
       return;
     }
     // Buffs run their own composable command (timers/charges).
-    BUFF_COMMANDS[type]?.(tank, this.adv, this.cfg);
+    BUFF_COMMANDS[type]?.(tank, this.adv, this.cfg, stack);
   }
 
   private kill(victim: Tank, killerId: string): void {

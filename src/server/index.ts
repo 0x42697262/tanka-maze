@@ -466,6 +466,7 @@ function sanitizeConfig(raw: unknown): GameConfig {
     powerupCharges: clampInt(c.powerupCharges, 1, 20, d.powerupCharges),
     powerupSpawnCount: clampInt(c.powerupSpawnCount, 1, 20, d.powerupSpawnCount),
     powerupTypes,
+    powerupStacking: typeof c.powerupStacking === "boolean" ? c.powerupStacking : d.powerupStacking,
     tankCollision: mode === "ffa"
       ? typeof c.tankCollision === "boolean" ? c.tankCollision : d.tankCollision
       : false,
