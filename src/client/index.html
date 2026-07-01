@@ -78,7 +78,7 @@
           <h2>Game Settings</h2>
 
           <details class="cfg-sec" open>
-            <summary class="cfg-h">Mode</summary>
+            <summary class="cfg-h">Lobby</summary>
             <div class="row">
               <label for="mode">Mode</label>
               <select id="mode">
@@ -99,18 +99,6 @@
                 <option value="4">4</option>
               </select>
             </div>
-            <div class="row chk">
-              <label for="friendly-fire">Friendly fire</label>
-              <input id="friendly-fire" type="checkbox" />
-            </div>
-            <div class="row cfg-teams">
-              <label for="team-kill">Team-kill Penalty (pts)</label>
-              <input id="team-kill" type="number" min="0" max="500" value="60" />
-            </div>
-            <div class="row chk cfg-teams">
-              <label for="team-spawn-zones">Team spawn zones</label>
-              <input id="team-spawn-zones" type="checkbox" checked />
-            </div>
             <div class="row cfg-ctf">
               <label for="ctf-score-mode">Scoring method</label>
               <select id="ctf-score-mode">
@@ -119,10 +107,6 @@
                 <option value="carry">Carry (hoard flags)</option>
               </select>
             </div>
-            <div class="row chk cfg-ctf cfg-flagcarry">
-              <label for="flag-team-carry">Carry flag back (off = instant return)</label>
-              <input id="flag-team-carry" type="checkbox" checked />
-            </div>
             <div class="row cfg-ctf">
               <label for="flag-steal">Steal flag on touch</label>
               <select id="flag-steal">
@@ -130,6 +114,16 @@
                 <option value="team">Teammate only</option>
                 <option value="off">Off (kill to drop)</option>
               </select>
+            </div>
+            <div class="row two">
+              <label for="max-players">Max players</label>
+              <input id="max-players" type="number" min="2" max="32" value="4" />
+              <label for="rounds" class="cfg-nctf">Rounds to win</label>
+              <input id="rounds" type="number" min="1" max="15" value="3" class="cfg-nctf" />
+            </div>
+            <div class="row cfg-ctf">
+              <label for="max-flags">Rounds to win</label>
+              <input id="max-flags" type="number" min="1" max="20" value="3" />
             </div>
             <div class="row cfg-ctf cfg-deliver">
               <label for="flags-per-round">Captures per round</label>
@@ -142,6 +136,55 @@
             <div class="row cfg-ctf">
               <label for="ctf-respawn-bonus">Respawn +s per death</label>
               <input id="ctf-respawn-bonus" type="number" min="0" max="60" value="3" />
+            </div>
+            <div class="row cfg-teams">
+              <label for="team-kill">Team-kill Penalty (pts)</label>
+              <input id="team-kill" type="number" min="0" max="500" value="60" />
+            </div>
+            <div class="row two cfg-nctf">
+              <label for="kill-points">Kill pts</label>
+              <input id="kill-points" type="number" min="1" max="500" value="60" />
+              <label for="death-penalty">Death −%</label>
+              <input id="death-penalty" type="number" min="0" max="90" value="33" />
+            </div>
+            <div class="row cfg-haswin cfg-nctf">
+              <label for="win-score">Points to win</label>
+              <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
+            </div>
+            <div class="row two">
+              <label for="hp">HP</label>
+              <input id="hp" type="number" min="1" max="10" value="1" />
+              <label for="lives">Lives (0=∞)</label>
+              <input id="lives" type="number" min="0" max="99" value="0" />
+            </div>
+            <div class="row">
+              <label for="cfg-respawn">Respawn s</label>
+              <input id="cfg-respawn" type="number" min="1" max="10" value="3" />
+            </div>
+            <!-- Checkboxes grouped at the bottom of the section. -->
+            <div class="row chk">
+              <label for="friendly-fire">Friendly fire</label>
+              <input id="friendly-fire" type="checkbox" />
+            </div>
+            <div class="row chk cfg-teams">
+              <label for="team-spawn-zones">Team spawn zones</label>
+              <input id="team-spawn-zones" type="checkbox" checked />
+            </div>
+            <div class="row chk cfg-ctf cfg-flagcarry">
+              <label for="flag-team-carry">Carry flag back (off = instant return)</label>
+              <input id="flag-team-carry" type="checkbox" checked />
+            </div>
+            <div class="row chk">
+              <label for="allow-late">Join after start</label>
+              <input id="allow-late" type="checkbox" checked />
+            </div>
+            <div class="row chk cfg-ffa">
+              <label for="tank-collision">Tank collision</label>
+              <input id="tank-collision" type="checkbox" />
+            </div>
+            <div class="row chk">
+              <label for="radar">Radar</label>
+              <input id="radar" type="checkbox" checked />
             </div>
           </details>
 
@@ -172,58 +215,6 @@
               <label for="destructible-walls">Destructible walls</label>
               <input id="destructible-walls" type="checkbox" />
             </div>
-            <div class="row chk cfg-ffa">
-              <label for="tank-collision">Tank collision</label>
-              <input id="tank-collision" type="checkbox" />
-            </div>
-            <div class="row chk">
-              <label for="radar">Radar</label>
-              <input id="radar" type="checkbox" checked />
-            </div>
-          </details>
-
-          <details class="cfg-sec">
-            <summary class="cfg-h">Match &amp; Scoring</summary>
-            <div class="row two">
-              <label for="max-players">Max players</label>
-              <input id="max-players" type="number" min="2" max="32" value="4" />
-              <label for="rounds" class="cfg-nctf">Rounds to win</label>
-              <input id="rounds" type="number" min="1" max="15" value="3" class="cfg-nctf" />
-            </div>
-            <div class="row cfg-ctf">
-              <label for="max-flags">Rounds to win</label>
-              <input id="max-flags" type="number" min="1" max="20" value="3" />
-            </div>
-            <div class="row chk">
-              <label for="allow-late">Join after start</label>
-              <input id="allow-late" type="checkbox" checked />
-            </div>
-            <div class="row two cfg-nctf">
-              <label for="kill-points">Kill pts</label>
-              <input id="kill-points" type="number" min="1" max="500" value="60" />
-              <label for="death-penalty">Death −%</label>
-              <input id="death-penalty" type="number" min="0" max="90" value="33" />
-            </div>
-            <div class="row cfg-haswin cfg-nctf">
-              <label for="win-score">Points to win</label>
-              <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
-            </div>
-          </details>
-
-          <details class="cfg-sec">
-            <summary class="cfg-h">Tanks</summary>
-            <div class="row two">
-              <label for="tank-speed">Tank speed %</label>
-              <input id="tank-speed" type="number" min="50" max="200" step="10" value="100" />
-              <label for="hp">HP</label>
-              <input id="hp" type="number" min="1" max="10" value="1" />
-            </div>
-            <div class="row two">
-              <label for="lives">Lives (0=∞)</label>
-              <input id="lives" type="number" min="0" max="99" value="0" />
-              <label for="cfg-respawn">Respawn s</label>
-              <input id="cfg-respawn" type="number" min="1" max="10" value="3" />
-            </div>
           </details>
 
           <details class="cfg-sec">
@@ -245,6 +236,10 @@
                 <label for="pwr-count">Per tick</label>
                 <input id="pwr-count" type="number" min="1" max="20" value="1" />
               </div>
+              <p class="cfg-sub">Spawn types — click to toggle</p>
+              <!-- Toggle list generated from the power-up registry (buildPowerupTypeToggles). -->
+              <div class="toggle-list" id="pup-types"></div>
+              <!-- Checkboxes grouped at the bottom of the section. -->
               <div class="row chk">
                 <label for="pwr-stack">Stacking</label>
                 <input id="pwr-stack" type="checkbox" />
@@ -253,9 +248,6 @@
                 <label for="pwr-combine">Combine weapons</label>
                 <input id="pwr-combine" type="checkbox" />
               </div>
-              <p class="cfg-sub">Spawn types — click to toggle</p>
-              <!-- Toggle list generated from the power-up registry (buildPowerupTypeToggles). -->
-              <div class="toggle-list" id="pup-types"></div>
             </div>
           </details>
 
@@ -344,9 +336,11 @@
                 <label for="adv-maxAmmo">Magazine</label>
                 <input id="adv-maxAmmo" type="number" min="1" max="50" step="1" />
               </div>
-              <div class="row">
+              <div class="row two">
                 <label for="adv-reloadSeconds">Reload s</label>
                 <input id="adv-reloadSeconds" type="number" min="0.2" max="20" step="0.1" />
+                <label for="tank-speed">Speed %</label>
+                <input id="tank-speed" type="number" min="50" max="200" step="10" value="100" />
               </div>
 
               <h4 class="adv-h">Bullet</h4>

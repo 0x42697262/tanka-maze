@@ -105,21 +105,40 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   type Row = [string, string | number];
   const groups: Array<{ title: string; rows: Row[] }> = [];
 
-  const mode: Row[] = [["Mode", modeLabel(c.mode)]];
-  if (teamBased) mode.push(["Teams", c.teamCount]);
-  // Friendly fire governs self-damage in every mode (and teammate damage in Team VS).
-  mode.push(["Friendly fire", onOff(c.friendlyFire)]);
+  // Lobby: mode + match/scoring/tank basics, mirroring the host editor's
+  // section layout (boolean rows grouped at the bottom).
+  const lobbyRows: Row[] = [["Mode", modeLabel(c.mode)]];
+  if (teamBased) lobbyRows.push(["Teams", c.teamCount]);
   if (ctf) {
     const sm = c.ctfScoreMode;
     const points = sm === "conquest" || sm === "carry";
-    mode.push(["Scoring", sm === "carry" ? "Carry" : sm === "conquest" ? "Conquest" : "Deliver"]);
-    mode.push(["Rounds to win", c.maxFlags]);
-    mode.push(points ? ["Points to win", c.winScore] : ["Captures/round", c.flagsPerRound]);
-    mode.push(["Respawn +/death", `${c.ctfRespawnBonus}s`]);
+    lobbyRows.push(["Scoring", sm === "carry" ? "Carry" : sm === "conquest" ? "Conquest" : "Deliver"]);
+    // CTF is a round series: each round is won by capturing flagsPerRound
+    // flags, the match by winning maxFlags rounds.
+    lobbyRows.push(["Rounds to win", c.maxFlags]);
+    lobbyRows.push(points ? ["Points to win", c.winScore] : ["Captures/round", c.flagsPerRound]);
+    lobbyRows.push(["Respawn +/death", `${c.ctfRespawnBonus}s`]);
+  } else {
+    lobbyRows.push(["Rounds", c.rounds > 1 ? `first to ${c.rounds} rounds` : "single round"]);
   }
-  if (teams) mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
-  if (teamBased) mode.push(["Spawn zones", ctf ? "On (bases)" : onOff(c.teamSpawnZones)]);
-  groups.push({ title: "Mode", rows: mode });
+  lobbyRows.push(["Max players", lobby.maxPlayers]);
+  if (teams) lobbyRows.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
+  // No point-scoring in CTF — it's won by captures, so those rows are omitted.
+  if (!ctf) {
+    lobbyRows.push(["Kill", `${c.killPoints} pts`]);
+    lobbyRows.push(["Death penalty", `${c.deathPenaltyPct}%`]);
+    if (hasWin) lobbyRows.push(["Points to win", `${c.winScore}`]);
+  }
+  lobbyRows.push(["HP", c.hp]);
+  lobbyRows.push(["Lives", c.lives > 0 ? c.lives : "∞"]);
+  lobbyRows.push(["Respawn", `${c.respawnSeconds}s`]);
+  // Friendly fire governs self-damage in every mode (and teammate damage in Team VS).
+  lobbyRows.push(["Friendly fire", onOff(c.friendlyFire)]);
+  if (teamBased) lobbyRows.push(["Spawn zones", ctf ? "On (bases)" : onOff(c.teamSpawnZones)]);
+  lobbyRows.push(["Join after start", c.allowLateJoin ? "Allowed" : "Closed"]);
+  if (c.mode === "ffa") lobbyRows.push(["Tank collision", onOff(c.tankCollision)]);
+  lobbyRows.push(["Radar", onOff(c.radar)]);
+  groups.push({ title: "Lobby", rows: lobbyRows });
 
   groups.push({
     title: "Map",
@@ -127,33 +146,6 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Walls", WALL_LABEL[c.wallStyle]],
       ["Size", SIZE_LABEL[c.mapSize]],
       ["Destructible walls", onOff(c.destructibleWalls)],
-      ["Radar", onOff(c.radar)],
-    ],
-  });
-
-  // Match & scoring together, mirroring the host editor's section order.
-  const match: Row[] = [];
-  // CTF is a round series: each round is won by capturing flagsPerRound flags,
-  // the match by winning maxFlags rounds.
-  if (ctf) match.push(["Win", `first to ${c.maxFlags} rounds`]);
-  else match.push(["Rounds", c.rounds > 1 ? `first to ${c.rounds} rounds` : "single round"]);
-  match.push(["Max players", lobby.maxPlayers]);
-  match.push(["Join after start", c.allowLateJoin ? "Allowed" : "Closed"]);
-  // No point-scoring in CTF — it's won by captures, so those rows are omitted.
-  if (!ctf) {
-    match.push(["Kill", `${c.killPoints} pts`]);
-    match.push(["Death penalty", `${c.deathPenaltyPct}%`]);
-    if (hasWin) match.push(["Points to win", `${c.winScore}`]);
-  }
-  groups.push({ title: "Match & Scoring", rows: match });
-
-  groups.push({
-    title: "Tanks",
-    rows: [
-      ["Tank speed", `${c.tankSpeedPct}%`],
-      ["HP", c.hp],
-      ["Lives", c.lives > 0 ? c.lives : "∞"],
-      ["Respawn", `${c.respawnSeconds}s`],
     ],
   });
 
@@ -206,6 +198,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Fire cooldown", `${a.fireCooldown}s`],
       ["Magazine", a.maxAmmo],
       ["Reload", `${a.reloadSeconds}s`],
+      ["Speed", `${c.tankSpeedPct}%`],
     ],
   });
   groups.push({
