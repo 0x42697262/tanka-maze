@@ -795,6 +795,34 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     assert.ok(spread > (25 * Math.PI) / 180, `fan preserved at the muzzle (spread=${((spread * 180) / Math.PI).toFixed(0)}°)`);
   });
 
+  it("a plain (non-homing) sniper beam reflects off the interior wall as its main leg, and still transmits", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0, sniperWallPierce: 3 },
+      maze: new Maze(12, 9, "open"),
+      players: [{ id: "a", name: "A" }],
+    });
+    (g as any).maze.walls.push({ x1: 400, y1: 150, x2: 400, y2: 650, hp: Infinity, maxHp: Infinity });
+    const a = tank(g, "a");
+    a.x = 150;
+    a.y = 350;
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, sniper: 1 };
+    fire(g, a);
+    const beams = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+    // The main leg is emitted first; for a plain beam it reflects at the interior
+    // wall (~x=400). If penetration were the main leg it would drive straight to the
+    // far border and only reflect there — so the first leftward segment tells them apart.
+    const firstLeftward = beams.find((s) => s.x2 < s.x1 - 1);
+    assert.ok(firstLeftward, "the beam reflects somewhere");
+    assert.ok(
+      firstLeftward!.x1 < 700,
+      `main leg reflects at the interior wall, not the border (x=${firstLeftward!.x1.toFixed(0)})`
+    );
+    // Penetration still composes: a transmit branch crosses to the far side of the wall.
+    assert.ok(Math.max(...beams.flatMap((s) => [s.x1, s.x2])) > 500, "a transmit branch crosses the wall");
+  });
+
   it("tracking + sniper aims straight while it can pierce, then paths once out of budget", () => {
     const g = makeGame({
       cfg: { combineWeapons: true },

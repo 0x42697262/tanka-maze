@@ -1035,23 +1035,30 @@ export class Game {
           }
         }
 
-        // Wall contact on either axis: blast, then — if the pierce budget remains —
-        // penetrate straight ahead as the main leg and spin the bounce off as a
-        // branch, else just reflect. Making the pierce the *main* leg spends the
-        // shared budget on forward progress first, so a curving (homing) beam keeps
-        // driving toward its target through walls instead of losing its budget to
-        // the reflected leg's wandering (processed last on the stack).
+        // Wall contact: blast, spawn both legs (reflect + pierce-through, when the
+        // budget allows), and pick which one *continues* as this ray. Both legs
+        // always exist; only the main leg differs:
+        //   - homing → the pierce-through is main, so the shot drives its budget
+        //     forward toward the target (a reflected main would curve back and waste
+        //     the shared pierce budget before the forward leg is processed);
+        //   - plain → the reflection is main, so a beam's natural bounce stays the
+        //     prominent, first-emitted path even when a multishot fan truncates each
+        //     beam's segment budget; penetration spins off as the branch.
         const nx = x + dx * STEP;
         if (this.circleHitsWall(nx, y, R)) {
           blastAt(x, y);
           const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
-          if (t) {
+          if (r.homing && t) {
             pierceLeft -= 1;
             rays.push({ x, y, dx: -dx, dy, remaining, bounces: bounces + 1, traveled });
             x = t.x;
             y = t.y;
             remaining = t.remaining;
           } else {
+            if (t) {
+              pierceLeft -= 1;
+              rays.push({ ...t, bounces, traveled });
+            }
             dx = -dx;
             bounces += 1;
           }
@@ -1063,13 +1070,17 @@ export class Game {
         if (this.circleHitsWall(x, ny, R)) {
           blastAt(x, y);
           const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
-          if (t) {
+          if (r.homing && t) {
             pierceLeft -= 1;
             rays.push({ x, y, dx, dy: -dy, remaining, bounces: bounces + 1, traveled });
             x = t.x;
             y = t.y;
             remaining = t.remaining;
           } else {
+            if (t) {
+              pierceLeft -= 1;
+              rays.push({ ...t, bounces, traveled });
+            }
             dy = -dy;
             bounces += 1;
           }
