@@ -51,6 +51,12 @@ const tank = (g: Game, id: string): any => (g as any).tanks.get(id);
 const bullets = (g: Game): any[] => (g as any).bullets;
 const apply = (g: Game, t: any, type: string): void => (g as any).applyPowerup(t, type);
 const fire = (g: Game, t: any): void => (g as any).fire(t);
+// Weapons are now a per-effect charge record (`{ sniper: 3, ... }`). These
+// helpers set/read a single effect's charges in tests.
+const arm = (t: any, type: string, charges: number): void => {
+  t.weaponCharges = { [type]: charges };
+};
+const charges = (t: any, type: string): number => t.weaponCharges[type] ?? 0;
 const scoredTank = (g: Game, id: string) =>
   g.snapshot(0).tanks.find((t) => t.id === id)!;
 
@@ -67,13 +73,13 @@ const input = (over: Partial<InputState> = {}): InputState => ({
 });
 
 describe("power-ups: apply", () => {
-  it("weapon pickups set the active weapon + the shared charge count", () => {
+  it("weapon pickups set the active weapon + the charge count (replace by default)", () => {
     const g = makeGame({ cfg: { powerupCharges: 4 }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     for (const w of ["sniper", "explosive", "laser", "tracking", "multishot"]) {
       apply(g, a, w);
-      assert.equal(a.weapon, w);
-      assert.equal(a.weaponCharges, 4);
+      assert.equal(charges(a, w), 4);
+      assert.equal(Object.keys(a.weaponCharges).length, 1); // combining off → one at a time
     }
   });
 
@@ -96,28 +102,27 @@ describe("power-ups: stacking", () => {
     const g = makeGame({ cfg: { powerupCharges: 3, powerupStacking: true }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     apply(g, a, "sniper");
-    assert.equal(a.weaponCharges, 3);
+    assert.equal(charges(a, "sniper"), 3);
     apply(g, a, "sniper"); // same weapon again
-    assert.equal(a.weapon, "sniper");
-    assert.equal(a.weaponCharges, 6); // stacked another full grant
+    assert.equal(charges(a, "sniper"), 6); // stacked another full grant
   });
 
   it("weapon: a different weapon replaces (never stacks) even with stacking on", () => {
     const g = makeGame({ cfg: { powerupCharges: 3, powerupStacking: true }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     apply(g, a, "sniper");
-    apply(g, a, "laser"); // different weapon
-    assert.equal(a.weapon, "laser");
-    assert.equal(a.weaponCharges, 3); // fresh grant, not 6
+    apply(g, a, "laser"); // different weapon (also laser is exclusive)
+    assert.equal(charges(a, "laser"), 3); // fresh grant, not 6
+    assert.equal(charges(a, "sniper"), 0);
   });
 
   it("weapon: a same-type pickup resets (no stack) when stacking is off", () => {
     const g = makeGame({ cfg: { powerupCharges: 3, powerupStacking: false }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     apply(g, a, "sniper");
-    a.weaponCharges = 1; // pretend two were spent
+    arm(a, "sniper", 1); // pretend two were spent
     apply(g, a, "sniper");
-    assert.equal(a.weaponCharges, 3); // reset to a grant, not added
+    assert.equal(charges(a, "sniper"), 3); // reset to a grant, not added
   });
 
   it("buff: a same-type pickup adds duration when stacking is on", () => {
@@ -159,14 +164,13 @@ describe("multishot", () => {
     const g = makeGame({ adv: { multishotCount: 5, multishotSpread: 40 }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
-    a.weapon = "multishot";
-    a.weaponCharges = 1;
+    arm(a, "multishot", 1);
     fire(g, a);
     const angles = bullets(g).map((b) => Math.atan2(b.vy, b.vx));
     assert.equal(bullets(g).length, 5);
     const spanDeg = ((Math.max(...angles) - Math.min(...angles)) * 180) / Math.PI;
     assert.ok(Math.abs(spanDeg - 40) < 0.001, `span ${spanDeg}`);
-    assert.equal(a.weaponCharges, 0); // consumed one volley
+    assert.equal(charges(a, "multishot"), 0); // consumed one volley
   });
 });
 
@@ -310,20 +314,18 @@ describe("rapid fire", () => {
     const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
-    a.weapon = "rapidfire";
-    a.weaponCharges = 1;
+    arm(a, "rapidfire", 1);
     fire(g, a);
     assert.equal(bullets(g).length, 1);
     assert.equal(a.rapidFireShotsLeft, 4);
-    assert.equal(a.weaponCharges, 0); // consumed once, not per-bullet
+    assert.equal(charges(a, "rapidfire"), 0); // consumed once, not per-bullet
   });
 
   it("fires the remaining queued shots on schedule, one per configured delay", () => {
     const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
-    a.weapon = "rapidfire";
-    a.weaponCharges = 1;
+    arm(a, "rapidfire", 1);
     fire(g, a);
     for (let i = 0; i < 4; i++) {
       assert.equal(bullets(g).length, i + 1);
@@ -337,22 +339,20 @@ describe("rapid fire", () => {
     const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
-    a.weapon = "rapidfire";
-    a.weaponCharges = 5;
+    arm(a, "rapidfire", 5);
     fire(g, a);
     assert.equal(bullets(g).length, 1);
     a.fireCooldown = 0; // bypass the normal cooldown gate to isolate the burst guard itself
     fire(g, a);
     assert.equal(bullets(g).length, 1); // second click ignored — still mid-burst
-    assert.equal(a.weaponCharges, 4); // not consumed twice
+    assert.equal(charges(a, "rapidfire"), 4); // not consumed twice
   });
 
   it("a round restart mid-burst clears the queued shots (no phantom shots in the new round)", () => {
     const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
-    a.weapon = "rapidfire";
-    a.weaponCharges = 1;
+    arm(a, "rapidfire", 1);
     fire(g, a);
     g.step(0.15); // 2nd shot fires; 3 more still queued
     assert.equal(a.rapidFireShotsLeft, 3);
@@ -371,8 +371,7 @@ describe("rapid fire", () => {
     });
     const a = tank(g, "a");
     a.turretAngle = 0;
-    a.weapon = "rapidfire";
-    a.weaponCharges = 1;
+    arm(a, "rapidfire", 1);
     fire(g, a);
     const countAtDeath = bullets(g).length;
     (g as any).kill(a, "b"); // a is eliminated (lives: 1); b and c stay alive, match continues
@@ -388,8 +387,7 @@ describe("rapid fire", () => {
     const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
-    a.weapon = "rapidfire";
-    a.weaponCharges = 1;
+    arm(a, "rapidfire", 1);
     fire(g, a);
     a.connected = false;
     for (let i = 0; i < 4; i++) g.step(0.15);
@@ -401,16 +399,136 @@ describe("rapid fire", () => {
     const g = makeGame({ adv: { rapidFireCount: 5, rapidFireDelay: 0.15 }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.turretAngle = 0;
-    a.weapon = "rapidfire";
-    a.weaponCharges = 1;
+    arm(a, "rapidfire", 1);
     fire(g, a);
     g.step(0.15); // 2nd shot fires; 3 more still queued
     apply(g, a, "sniper"); // pick up a different weapon mid-burst
-    assert.equal(a.weapon, "sniper");
+    assert.ok(charges(a, "sniper") > 0);
     for (let i = 0; i < 3; i++) g.step(0.15);
     assert.equal(bullets(g).length, 5); // the original burst's remaining shots still completed
     assert.equal(a.rapidFireShotsLeft, 0);
-    assert.equal(a.weapon, "sniper"); // tank keeps the newly picked-up weapon once the burst ends
+    assert.ok(charges(a, "sniper") > 0); // tank keeps the newly picked-up weapon once the burst ends
+  });
+});
+
+describe("power-ups: combining", () => {
+  it("combineWeapons off: a different weapon replaces (single effect held)", () => {
+    const g = makeGame({ cfg: { combineWeapons: false, powerupCharges: 3 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "tracking");
+    apply(g, a, "explosive");
+    assert.equal(charges(a, "tracking"), 0);
+    assert.equal(charges(a, "explosive"), 3);
+  });
+
+  it("combineWeapons on: different weapons accumulate into a held set", () => {
+    const g = makeGame({ cfg: { combineWeapons: true, powerupCharges: 3 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "tracking");
+    apply(g, a, "explosive");
+    assert.equal(charges(a, "tracking"), 3);
+    assert.equal(charges(a, "explosive"), 3);
+  });
+
+  it("a shot composes every held effect's axes (tracking + explosive = homing bomb)", () => {
+    const g = makeGame({ players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { tracking: 1, explosive: 1 };
+    fire(g, a);
+    const b = bullets(g)[0];
+    assert.equal(b.homing, true); // steer axis from tracking
+    assert.ok(b.blastRadius > 0); // blast axis from explosive
+    assert.equal(b.blastOnContact, true); // explosion taps every contact
+    assert.equal(b.maxBounces, 0); // explosion clamps the reflect track to die-on-contact
+  });
+
+  it("sniper + explosive composes the axes: penetrate track + blast on every contact", () => {
+    const g = makeGame({ players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { sniper: 1, explosive: 1 };
+    fire(g, a);
+    const b = bullets(g)[0];
+    assert.equal(b.pierces, true); // sniper puts it on the straight penetrate track
+    assert.equal(b.tankPierce, true); // passes through tanks (damaging each once)
+    assert.equal(b.blastOnContact, true); // explosion blasts at every wall/tank
+    assert.ok(b.blastRadius > 0);
+    assert.ok(b.wallPierce > 0); // sniper's wall-pierce budget survives the explosion clamp
+  });
+
+  it("charges deplete per effect: an effect drops out of the combo when it runs out", () => {
+    const g = makeGame({ adv: { fireCooldown: 0 }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { sniper: 2, explosive: 1 };
+    fire(g, a); // first shot carries both
+    assert.ok(bullets(g)[0].blastRadius > 0); // explosive present
+    assert.equal(charges(a, "sniper"), 1);
+    assert.equal(charges(a, "explosive"), 0); // depleted, dropped
+    const before = bullets(g).length;
+    fire(g, a); // second shot: sniper only
+    const b2 = bullets(g)[before];
+    assert.equal(b2.blastRadius, 0); // no explosive left
+    assert.equal(b2.pierces, true); // sniper still applies
+    assert.equal(charges(a, "sniper"), 0);
+  });
+
+  it("emission composes: multishot × rapid fire fires a fan per burst shot", () => {
+    const g = makeGame({
+      adv: { multishotCount: 3, multishotSpread: 30, rapidFireCount: 2, rapidFireDelay: 0.15 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { multishot: 1, rapidfire: 1 };
+    fire(g, a);
+    assert.equal(bullets(g).length, 3); // first fan
+    g.step(0.15);
+    assert.equal(bullets(g).length, 6); // second fan (2 burst shots × 3 pellets)
+  });
+
+  it("caps a combined volley so an extreme multishot × rapid-fire can't flood", () => {
+    const g = makeGame({
+      adv: { multishotCount: 24, rapidFireCount: 20, rapidFireDelay: 0.15 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { multishot: 1, rapidfire: 1 };
+    fire(g, a);
+    // MAX_VOLLEY_BULLETS = 60, fan = 24 → burst clamped to floor(60/24) = 2, so 1 shot left.
+    assert.equal(a.rapidFireShotsLeft, 1);
+  });
+
+  it("laser composes as a beam carrier: multishot → several beams", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0.15, multishotCount: 3 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, multishot: 1 };
+    fire(g, a); // begins the beam windup
+    assert.equal((g as any).pendingBeams.length, 0); // nothing fired yet (winding up)
+    g.step(0.15); // windup completes → beams fire
+    // Three beams, each contributing at least one path leg to the snapshot.
+    assert.ok((g as any).pendingBeams.length >= 3);
+  });
+
+  it("laser + explosive detonates at the beam's hit points", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0.15 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, explosive: 1 };
+    fire(g, a);
+    g.step(0.15); // beam fires, reflecting off walls → blasts at hit points
+    assert.ok((g as any).pendingBlasts.length > 0);
   });
 });
 
@@ -425,8 +543,7 @@ describe("explosive", () => {
     a.x = 500;
     a.y = 400;
     a.turretAngle = 0; // fires into open space; lifetime ends before any wall
-    a.weapon = "explosive";
-    a.weaponCharges = 1;
+    arm(a, "explosive", 1);
     fire(g, a);
     let blasts = 0;
     for (let i = 0; i < 12; i++) {
@@ -435,6 +552,150 @@ describe("explosive", () => {
     }
     assert.ok(blasts >= 1, "explosive should detonate on despawn");
     assert.equal(bullets(g).length, 0, "bullet removed after detonating");
+  });
+});
+
+describe("orthogonal axes: payload vs lifecycle compose across carriers", () => {
+  const recipe = (g: Game, held: string[]): any => (g as any).buildRecipe(held);
+
+  it("explosion clamps the reflect track to die-on-contact (no roaming bomb)", () => {
+    const g = makeGame({ players: [{ id: "a", name: "A" }] });
+    const r = recipe(g, ["explosive"]);
+    assert.equal(r.maxBounces, 0); // reflect track clamped
+    assert.equal(r.blastOnContact, true); // blast at every contact + despawn
+    assert.equal(r.pierces, false); // no penetrate track granted
+  });
+
+  it("sniper keeps the penetrate track even under explosion's clamp", () => {
+    const g = makeGame({ players: [{ id: "a", name: "A" }] });
+    const r = recipe(g, ["sniper", "explosive"]);
+    assert.equal(r.pierces, true); // straight penetrate track survives
+    assert.ok(r.wallPierce > 0);
+    assert.equal(r.maxBounces, 0); // reflect track still clamped (irrelevant while piercing)
+    assert.equal(r.blastOnContact, true);
+    assert.equal(r.tankPierce, true);
+  });
+
+  it("explosion + tracking + sniper: homes, penetrates, and blasts on contact", () => {
+    const g = makeGame({ cfg: { combineWeapons: true }, players: [{ id: "a", name: "A" }] });
+    const r = recipe(g, ["tracking", "sniper", "explosive"]);
+    assert.equal(r.homing, true);
+    assert.equal(r.pierces, true);
+    assert.ok(r.wallPierce > 0);
+    assert.equal(r.blastOnContact, true);
+  });
+
+  it("explosion + multishot: every pellet explodes on impact, fan count preserved", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { multishotCount: 3, fireCooldown: 0 },
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.turretAngle = 0;
+    a.weaponCharges = { multishot: 1, explosive: 1 };
+    fire(g, a);
+    const bs = bullets(g);
+    assert.equal(bs.length, 3); // fan preserved
+    for (const b of bs) {
+      assert.equal(b.blastOnContact, true);
+      assert.equal(b.maxBounces, 0); // each pellet dies on first contact
+      assert.equal(b.pierces, false);
+    }
+  });
+
+  it("laser + explosive blasts at the beam's terminal, even in open space", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0 },
+      maze: new Maze(12, 9, "open"),
+      players: [{ id: "a", name: "A" }],
+    });
+    const a = tank(g, "a");
+    a.x = 200;
+    a.y = 300;
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, explosive: 1 };
+    fire(g, a);
+    assert.ok((g as any).pendingBlasts.length > 0);
+  });
+
+  it("laser + sniper branches through a wall (reflect + transmit); laser alone only reflects", () => {
+    const beamsFor = (withSniper: boolean) => {
+      const g = makeGame({
+        cfg: { combineWeapons: true },
+        adv: { laserDelay: 0, sniperWallPierce: 3 },
+        players: [{ id: "a", name: "A" }],
+      });
+      // Inject a vertical interior wall at x = 400 (spanning y 200..500).
+      (g as any).maze.walls.push({ x1: 400, y1: 200, x2: 400, y2: 500, hp: Infinity, maxHp: Infinity });
+      const a = tank(g, "a");
+      a.x = 150;
+      a.y = 350;
+      a.turretAngle = 0; // fire straight at the wall
+      a.weaponCharges = withSniper ? { laser: 1, sniper: 1 } : { laser: 1 };
+      fire(g, a);
+      return (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+    };
+    const solo = beamsFor(false);
+    const branched = beamsFor(true);
+    const maxX = (segs: typeof solo) => Math.max(...segs.flatMap((s) => [s.x1, s.x2]));
+    assert.ok(maxX(solo) < 410, "laser alone reflects off the wall, never crossing it");
+    assert.ok(maxX(branched) > 500, "laser + sniper transmits a leg through the wall");
+    assert.ok(branched.length > solo.length, "branching adds beam segments");
+  });
+
+  it("tracking + sniper aims straight while it can pierce, then paths once out of budget", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { sniperWallPierce: 5 },
+      maze: new Maze(10, 8, "open"),
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    const a = tank(g, "a");
+    const bt = tank(g, "b");
+    a.x = 132; // cell (1,3)
+    a.y = 308;
+    a.turretAngle = 0;
+    bt.x = 484; // cell (5,3): 4 cells away on the same row
+    bt.y = 308;
+    a.weaponCharges = { tracking: 1, sniper: 1 };
+    fire(g, a);
+    const b = bullets(g)[0];
+    assert.ok(b.wallPierce > 0);
+
+    // With pierce budget left it ignores corridors and steers at the target itself.
+    (g as any).steerHoming(b, 1 / 30);
+    assert.ok(Math.abs(b.waypoint.x - bt.x) < 1 && Math.abs(b.waypoint.y - bt.y) < 1);
+
+    // Spent, it falls back to the maze BFS — a nearer intermediate hop, not the target.
+    b.wallPierce = 0;
+    b.repathIn = 0; // force a recompute
+    (g as any).steerHoming(b, 1 / 30);
+    assert.ok(b.waypoint.x < bt.x - 40);
+  });
+
+  it("a branching beam stays within the wire's segment/blast caps", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0, sniperWallPierce: 20, explosionRadius: 20 },
+      players: [{ id: "a", name: "A" }],
+    });
+    // A dense field of short interior walls to force lots of branching.
+    for (let gx = 120; gx < 760; gx += 80) {
+      (g as any).maze.walls.push({ x1: gx, y1: 100, x2: gx, y2: 600, hp: Infinity, maxHp: Infinity });
+    }
+    const a = tank(g, "a");
+    a.x = 60;
+    a.y = 350;
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, sniper: 1, explosive: 1 };
+    fire(g, a);
+    assert.ok((g as any).pendingBeams.length <= 96, "segments capped");
+    assert.ok((g as any).pendingBlasts.length <= 96, "blasts capped");
   });
 });
 
@@ -1510,8 +1771,7 @@ describe("destructible walls", () => {
     });
     const a = tank(g, "a");
     a.shieldTimer = 0;
-    a.weapon = "explosive";
-    a.weaponCharges = 5;
+    arm(a, "explosive", 5);
     a.ammo = 5;
     const maze = (g as any).maze;
     const internal = maze.walls.find((w: any) => w.maxHp !== Infinity);
