@@ -1,4 +1,4 @@
-import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
+import { BULLET_RADIUS, CELL, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
 import { buildFogShape, effectiveVisionRadius, pointInFogShape, type FogShape, type FogWall } from "../shared/fog.js";
 import { playSfx } from "./audio.js";
 import { state } from "./state.js";
@@ -39,6 +39,15 @@ function bulletDr(b: { homing: boolean; explosive: boolean }): number {
   if (b.homing) return 1;
   return 0;
 }
+
+// Hazard zone glyphs — mirror the emblem and color of each hazard's toggle in
+// the lobby config so the map terrain matches what the player enabled.
+const HAZARD_ICON: Record<HazardZoneDTO["type"], { glyph: string; color: string }> = {
+  lava: { glyph: "♨", color: "#c2452f" },
+  mud: { glyph: "≋", color: "#8a6b3f" },
+  ice: { glyph: "❄", color: "#2fb8d6" },
+  heal: { glyph: "✚", color: "#4fd6a0" },
+};
 
 interface Buffered {
   snap: SnapshotDTO;
@@ -1335,6 +1344,16 @@ export class Renderer {
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 4]);
       ctx.strokeRect(h.x + 1, h.y + 1, h.width - 2, h.height - 2);
+      ctx.restore();
+      // Type glyph at the zone's center — same icon and color as the lobby
+      // hazard toggles, one cell tall so it reads at arena zoom.
+      const icon = HAZARD_ICON[h.type];
+      ctx.save();
+      ctx.font = `${CELL}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = icon.color;
+      ctx.fillText(icon.glyph, h.x + h.width / 2, h.y + h.height / 2);
       ctx.restore();
     }
   }
