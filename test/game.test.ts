@@ -125,14 +125,47 @@ describe("power-ups: stacking", () => {
     assert.equal(charges(a, "sniper"), 3); // reset to a grant, not added
   });
 
-  it("buff: a same-type pickup adds duration when stacking is on", () => {
-    const g = makeGame({ adv: { shieldSeconds: 9 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+  it("buff: a same-type pickup adds duration + the stack bonus when stacking is on", () => {
+    const g = makeGame({ adv: { shieldSeconds: 9, buffStackBonusPct: 10 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.shieldTimer = 0;
     apply(g, a, "shield");
-    assert.equal(a.shieldTimer, 9);
+    assert.equal(a.shieldTimer, 9); // fresh pickup (nothing active): plain duration
     apply(g, a, "shield");
-    assert.equal(a.shieldTimer, 18); // stacked duration
+    assert.equal(a.shieldTimer, 9 + 9 * 1.1); // stacked pickup grants duration ×1.1
+  });
+
+  it("buff: the stacked-pickup duration bonus is host-configurable", () => {
+    const g = makeGame({ adv: { shieldSeconds: 8, buffStackBonusPct: 50 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    apply(g, a, "shield");
+    apply(g, a, "shield");
+    assert.equal(a.shieldTimer, 8 + 8 * 1.5);
+  });
+
+  it("buff: speed stacks strength — each concurrent pickup adds another boost layer", () => {
+    const g = makeGame({ adv: { speedBoostSeconds: 7, buffStackBonusPct: 10 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 1);
+    assert.equal(a.boostTimer, 7);
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 2); // boost is now 1 + 2·(mult − 1)
+    assert.equal(a.boostTimer, 7 + 7 * 1.1);
+  });
+
+  it("buff: all speed stacks expire together when the timer runs out", () => {
+    const g = makeGame({ adv: { speedBoostSeconds: 0.5 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "speed");
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 2);
+    for (let i = 0; i < 60; i++) g.step(0.05); // 3s ≫ stacked duration
+    assert.equal(a.boostTimer, 0);
+    assert.equal(a.boostStacks, 0);
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 1); // next pickup starts a fresh single stack
   });
 
   it("buff: a pickup resets duration (no stack) when stacking is off", () => {
@@ -140,7 +173,16 @@ describe("power-ups: stacking", () => {
     const a = tank(g, "a");
     a.shieldTimer = 5;
     apply(g, a, "shield");
-    assert.equal(a.shieldTimer, 9); // reset, not 14
+    assert.equal(a.shieldTimer, 9); // reset, not 14 (and no stack bonus)
+  });
+
+  it("buff: speed resets to a single stack when stacking is off", () => {
+    const g = makeGame({ adv: { speedBoostSeconds: 7 }, cfg: { powerupStacking: false }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "speed");
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 1);
+    assert.equal(a.boostTimer, 7);
   });
 });
 

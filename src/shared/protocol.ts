@@ -2,6 +2,7 @@
 // a discriminant `type` field.
 
 import {
+  BUFF_STACK_BONUS_PCT,
   BULLET_LIFETIME,
   BULLET_MAX_BOUNCES,
   BULLET_RADIUS,
@@ -67,6 +68,7 @@ export interface AdvancedConfig {
   speedBoostMult: number;
   speedBoostSeconds: number;
   shieldSeconds: number;
+  buffStackBonusPct: number; // % extra duration when a speed/shield pickup stacks onto an active buff
   laserDelay: number; // s windup
   sniperSpeedMult: number;
   sniperWallPierce: number; // walls a sniper round punches through (0 = none)
@@ -100,6 +102,7 @@ export const DEFAULT_ADVANCED: AdvancedConfig = {
   speedBoostMult: SPEED_BOOST_MULT,
   speedBoostSeconds: SPEED_BOOST_SECONDS,
   shieldSeconds: SHIELD_SECONDS,
+  buffStackBonusPct: BUFF_STACK_BONUS_PCT,
   laserDelay: LASER_DELAY,
   sniperSpeedMult: SNIPER_SPEED_MULT,
   sniperWallPierce: SNIPER_WALL_PIERCE,

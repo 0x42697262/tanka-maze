@@ -70,9 +70,12 @@ export const MAX_POWERUPS_ON_MAP = 255;
 export const SPEED_BOOST_MULT = 1.6;
 export const SPEED_BOOST_SECONDS = 6;
 export const SHIELD_SECONDS = 6; // invulnerability duration from a shield pickup
+// Duration bonus (percent) granted by a speed/shield pickup taken while that
+// buff is already active: a stacked pickup adds duration × (1 + pct/100).
+export const BUFF_STACK_BONUS_PCT = 10;
 export const LASER_DELAY = 1; // windup (seconds) before a laser actually fires
 export const SNIPER_SPEED_MULT = 5; // very fast round
-export const SNIPER_WALL_PIERCE = 10; // walls a sniper round punches through
+export const SNIPER_WALL_PIERCE = 5; // walls a sniper round punches through
 export const EXPLOSION_RADIUS = 56; // area-damage radius for explosive rounds
 export const TRACKING_TURN_RATE = 4.5; // radians/sec a homing round can turn
 export const TRACKING_LIFETIME = 6; // seconds a tracking round lives (its range)

@@ -97,12 +97,23 @@ const HOMING_DIRS: ReadonlyArray<readonly [number, number]> = [
 // stacking); otherwise it resets to a fresh pickup. Adding to a zero timer is
 // identical to setting, so the same expression handles both cases.
 type BuffCommand = (tank: Tank, adv: AdvancedConfig, cfg: GameConfig, stack: boolean) => void;
+// A pickup taken while its buff is still running is a *stacked* pickup: it adds
+// its duration with a configurable bonus (buffStackBonusPct) on top, instead of
+// the plain duration a fresh pickup grants.
+const stackedDuration = (current: number, base: number, adv: AdvancedConfig): number =>
+  current + base * (current > 0 ? 1 + adv.buffStackBonusPct / 100 : 1);
 const BUFF_COMMANDS: Partial<Record<PowerupType, BuffCommand>> = {
   speed: (t, adv, _cfg, stack) => {
-    t.boostTimer = (stack ? t.boostTimer : 0) + adv.speedBoostSeconds;
+    // The boost strength stacks like the duration: each concurrent pickup adds
+    // another layer (folded into the speed multiplier where boost is applied).
+    const prev = stack ? t.boostTimer : 0;
+    t.boostStacks = prev > 0 ? t.boostStacks + 1 : 1;
+    t.boostTimer = stackedDuration(prev, adv.speedBoostSeconds, adv);
   },
   shield: (t, adv, _cfg, stack) => {
-    t.shieldTimer = (stack ? t.shieldTimer : 0) + adv.shieldSeconds;
+    // Shield has no magnitude (invulnerable is invulnerable), so a stack is
+    // pure duration — including the same stacked-pickup bonus.
+    t.shieldTimer = stackedDuration(stack ? t.shieldTimer : 0, adv.shieldSeconds, adv);
   },
   scope: (t, adv, cfg, stack) => {
     // Aiming guide: layers on any weapon, consumed one charge per shot, capped
@@ -148,6 +159,8 @@ interface Tank {
   pendingRecipe: Recipe | null;
   /** Seconds of speed boost remaining. */
   boostTimer: number;
+  /** Concurrent speed pickups active: boost = 1 + stacks × (mult − 1). */
+  boostStacks: number;
   /** Seconds of shield (invulnerability) remaining. */
   shieldTimer: number;
   /** Seconds of line-of-sight scope (aiming guide) remaining (time cap). */
@@ -385,6 +398,7 @@ export class Game {
       weaponCharges: {},
       pendingRecipe: null,
       boostTimer: 0,
+      boostStacks: 0,
       shieldTimer: SPAWN_SHIELD_SECONDS, // spawn protection
       scopeTimer: 0,
       scopeShots: 0,
@@ -499,7 +513,10 @@ export class Game {
 
     for (const tank of this.tanks.values()) {
       tank.fireCooldown = Math.max(0, tank.fireCooldown - dt);
-      if (tank.boostTimer > 0) tank.boostTimer = Math.max(0, tank.boostTimer - dt);
+      if (tank.boostTimer > 0) {
+        tank.boostTimer = Math.max(0, tank.boostTimer - dt);
+        if (tank.boostTimer === 0) tank.boostStacks = 0; // all stacks expire together
+      }
       if (tank.shieldTimer > 0) tank.shieldTimer = Math.max(0, tank.shieldTimer - dt);
       if (tank.scopeTimer > 0) tank.scopeTimer = Math.max(0, tank.scopeTimer - dt);
       // Laser windup: fire the beam (honoring its frozen recipe's fan + blast)
@@ -565,7 +582,10 @@ export class Game {
 
       tank.turretAngle = tank.input.aim;
 
-      const boost = tank.boostTimer > 0 ? this.adv.speedBoostMult : 1;
+      // Boost strength stacks additively: each concurrent speed pickup
+      // contributes its full bonus (mult − 1) on top of the base ×1.
+      const boost =
+        tank.boostTimer > 0 ? 1 + tank.boostStacks * (this.adv.speedBoostMult - 1) : 1;
 
       // --- compute target velocity from input (per control scheme) ---
       // Velocity is authoritative state that eases toward this target each
@@ -1723,6 +1743,7 @@ export class Game {
       t.weaponCharges = {};
       t.pendingRecipe = null;
       t.boostTimer = 0;
+      t.boostStacks = 0;
       t.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection at round start
       t.scopeTimer = 0;
       t.scopeShots = 0;
@@ -1785,6 +1806,7 @@ export class Game {
     tank.weaponCharges = {};
     tank.pendingRecipe = null;
     tank.boostTimer = 0;
+    tank.boostStacks = 0;
     tank.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection on respawn
     tank.scopeTimer = 0;
     tank.scopeShots = 0;
