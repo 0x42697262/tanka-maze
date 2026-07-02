@@ -105,21 +105,52 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   type Row = [string, string | number];
   const groups: Array<{ title: string; rows: Row[] }> = [];
 
-  const mode: Row[] = [["Mode", modeLabel(c.mode)]];
-  if (teamBased) mode.push(["Teams", c.teamCount]);
-  // Friendly fire governs self-damage in every mode (and teammate damage in Team VS).
-  mode.push(["Friendly fire", onOff(c.friendlyFire)]);
+  // The lobby settings mirror the host editor's Lobby subgroups:
+  // Rules / Scoring / Survival / Options.
+  const rules: Row[] = [["Mode", modeLabel(c.mode)]];
+  if (teamBased) rules.push(["Teams", c.teamCount]);
   if (ctf) {
     const sm = c.ctfScoreMode;
     const points = sm === "conquest" || sm === "carry";
-    mode.push(["Scoring", sm === "carry" ? "Carry" : sm === "conquest" ? "Conquest" : "Deliver"]);
-    mode.push(["Rounds to win", c.maxFlags]);
-    mode.push(points ? ["Points to win", c.winScore] : ["Captures/round", c.flagsPerRound]);
-    mode.push(["Respawn +/death", `${c.ctfRespawnBonus}s`]);
+    rules.push(["Scoring", sm === "carry" ? "Carry" : sm === "conquest" ? "Conquest" : "Deliver"]);
+    // CTF is a round series: each round is won by capturing flagsPerRound
+    // flags, the match by winning maxFlags rounds.
+    rules.push(["Rounds to win", c.maxFlags]);
+    rules.push(points ? ["Points to win", c.winScore] : ["Captures/round", c.flagsPerRound]);
+    rules.push(["Respawn +/death", `${c.ctfRespawnBonus}s`]);
+  } else {
+    rules.push(["Rounds", c.rounds > 1 ? `first to ${c.rounds} rounds` : "single round"]);
   }
-  if (teams) mode.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
-  if (teamBased) mode.push(["Spawn zones", ctf ? "On (bases)" : onOff(c.teamSpawnZones)]);
-  groups.push({ title: "Mode", rows: mode });
+  rules.push(["Max players", lobby.maxPlayers]);
+  groups.push({ title: "Rules", rows: rules });
+
+  // No point-scoring in CTF — it's won by captures (shown under Rules).
+  if (!ctf) {
+    const scoring: Row[] = [
+      ["Kill", `${c.killPoints} pts`],
+      ["Death penalty", `${c.deathPenaltyPct}%`],
+    ];
+    if (hasWin) scoring.push(["Points to win", `${c.winScore}`]);
+    if (teams) scoring.push(["Team-kill penalty", `${c.teamKillPenalty} pts`]);
+    groups.push({ title: "Scoring", rows: scoring });
+  }
+
+  groups.push({
+    title: "Survival",
+    rows: [
+      ["HP", c.hp],
+      ["Lives", c.lives > 0 ? c.lives : "∞"],
+      ["Respawn", `${c.respawnSeconds}s`],
+    ],
+  });
+
+  // Friendly fire governs self-damage in every mode (and teammate damage in Team VS).
+  const options: Row[] = [["Friendly fire", onOff(c.friendlyFire)]];
+  if (teamBased) options.push(["Spawn zones", ctf ? "On (bases)" : onOff(c.teamSpawnZones)]);
+  options.push(["Join after start", c.allowLateJoin ? "Allowed" : "Closed"]);
+  if (c.mode === "ffa") options.push(["Tank collision", onOff(c.tankCollision)]);
+  options.push(["Radar", onOff(c.radar)]);
+  groups.push({ title: "Options", rows: options });
 
   groups.push({
     title: "Map",
@@ -127,53 +158,8 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Walls", WALL_LABEL[c.wallStyle]],
       ["Size", SIZE_LABEL[c.mapSize]],
       ["Destructible walls", onOff(c.destructibleWalls)],
-      ["Radar", onOff(c.radar)],
     ],
   });
-
-  const fog: Row[] = [["Fog of war", onOff(c.fogOfWar)]];
-  if (c.fogOfWar) {
-    fog.push(["Radius", `${c.visionRadius}px`]);
-    if (teamBased) fog.push(["Base vision", FOG_VISION_LABEL[c.fogBaseVision]]);
-    if (ctf) fog.push(["Flag vision", FLAG_VISION_LABEL[c.fogFlagVision]]);
-    if (ctf) fog.push(["Hide carried flag", onOff(c.fogHideCarriedFlag)]);
-  }
-  groups.push({ title: "Fog of War", rows: fog });
-
-  const hazards: Row[] = [["Hazards", c.hazardDensity > 0 ? `${c.hazardDensity} zones` : "Off"]];
-  if (c.hazardDensity > 0) {
-    hazards.push([
-      "Types",
-      c.hazardTypes.length > 0 ? c.hazardTypes.map((t) => HAZARD_LABEL[t]).join(", ") : "None",
-    ]);
-    if (c.hazardTypes.includes("lava")) hazards.push(["Lava DPS", c.hazardDamage]);
-    if (c.hazardTypes.includes("mud")) hazards.push(["Mud slow", c.hazardSlowMult]);
-    if (c.hazardTypes.includes("heal")) hazards.push(["Heal HP/s", c.hazardHealRate]);
-  }
-  groups.push({ title: "Hazards", rows: hazards });
-
-  const match: Row[] = [];
-  // CTF is a round series: each round is won by capturing flagsPerRound flags,
-  // the match by winning maxFlags rounds.
-  if (ctf) match.push(["Win", `first to ${c.maxFlags} rounds`]);
-  else match.push(["Rounds", c.rounds > 1 ? `first to ${c.rounds} rounds` : "single round"]);
-  match.push(["Max players", lobby.maxPlayers]);
-  match.push(["Join after start", c.allowLateJoin ? "Allowed" : "Closed"]);
-  match.push(["Tank speed", `${c.tankSpeedPct}%`]);
-  match.push(["HP", c.hp]);
-  match.push(["Lives", c.lives > 0 ? c.lives : "∞"]);
-  match.push(["Respawn", `${c.respawnSeconds}s`]);
-  groups.push({ title: "Match", rows: match });
-
-  // No point-scoring in CTF — it's won by captures, so the scoring group is omitted.
-  if (!ctf) {
-    const scoring: Row[] = [
-      ["Kill", `${c.killPoints} pts`],
-      ["Death penalty", `${c.deathPenaltyPct}%`],
-    ];
-    if (hasWin) scoring.push(["Points to win", `${c.winScore}`]);
-    groups.push({ title: "Scoring", rows: scoring });
-  }
 
   const pwr: Row[] = [["Power-ups", onOff(c.powerups)]];
   if (c.powerups) {
@@ -192,6 +178,27 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
   }
   groups.push({ title: "Power-ups", rows: pwr });
 
+  const hazards: Row[] = [["Hazards", c.hazardDensity > 0 ? `${c.hazardDensity} zones` : "Off"]];
+  if (c.hazardDensity > 0) {
+    hazards.push([
+      "Types",
+      c.hazardTypes.length > 0 ? c.hazardTypes.map((t) => HAZARD_LABEL[t]).join(", ") : "None",
+    ]);
+    if (c.hazardTypes.includes("lava")) hazards.push(["Lava DPS", c.hazardDamage]);
+    if (c.hazardTypes.includes("mud")) hazards.push(["Mud slow", c.hazardSlowMult]);
+    if (c.hazardTypes.includes("heal")) hazards.push(["Heal HP/s", c.hazardHealRate]);
+  }
+  groups.push({ title: "Hazards", rows: hazards });
+
+  const fog: Row[] = [["Fog of war", onOff(c.fogOfWar)]];
+  if (c.fogOfWar) {
+    fog.push(["Radius", `${c.visionRadius}px`]);
+    if (teamBased) fog.push(["Base vision", FOG_VISION_LABEL[c.fogBaseVision]]);
+    if (ctf) fog.push(["Flag vision", FLAG_VISION_LABEL[c.fogFlagVision]]);
+    if (ctf) fog.push(["Hide carried flag", onOff(c.fogHideCarriedFlag)]);
+  }
+  groups.push({ title: "Fog of War", rows: fog });
+
   // Advanced engine tuning, grouped the same way as the host's editor.
   groups.push({
     title: "Adv · Tank",
@@ -203,6 +210,7 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Fire cooldown", `${a.fireCooldown}s`],
       ["Magazine", a.maxAmmo],
       ["Reload", `${a.reloadSeconds}s`],
+      ["Speed", `${c.tankSpeedPct}%`],
     ],
   });
   groups.push({
@@ -214,18 +222,19 @@ export function buildConfigDetailsHtml(lobby: LobbyDTO): string {
       ["Lifetime", `${a.bulletLifetime}s`],
     ],
   });
-  groups.push({
-    title: "Adv · Map",
-    rows: [
-      ["Cell size", a.cellSize],
-      ["Wall thickness", a.wallThickness],
-      ["Wall HP", a.wallHp],
-    ],
-  });
+  const advMap: Row[] = [
+    ["Cell size", a.cellSize],
+    ["Wall thickness", a.wallThickness],
+  ];
+  // Wall HP only matters when walls can take damage.
+  if (c.destructibleWalls) advMap.push(["Wall HP", a.wallHp]);
+  groups.push({ title: "Adv · Map", rows: advMap });
   // Power-up tuning — generated from the registry so every power-up's config
-  // shows up here automatically (one group per power-up).
+  // shows up here automatically (one group per power-up). Groups for disabled
+  // power-ups (or with power-ups off entirely) are omitted.
   for (const def of POWERUP_DEFS) {
     if (def.config.length === 0) continue;
+    if (!c.powerups || !c.powerupTypes.includes(def.id)) continue;
     groups.push({
       title: `Adv · ${def.label}`,
       rows: def.config.map((field) => [field.label, a[field.key]] as Row),
