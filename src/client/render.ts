@@ -1353,7 +1353,12 @@ export class Renderer {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = hexToRgba(icon.color, pulse);
-      ctx.fillText(icon.glyph, h.x + h.width / 2, h.y + h.height / 2);
+      // "middle" centers the em box, not the glyph's ink — symbols like ♨ sit
+      // off-center in their box, so nudge by the measured ink bounds instead.
+      const m = ctx.measureText(icon.glyph);
+      const dx = (m.actualBoundingBoxLeft - m.actualBoundingBoxRight) / 2;
+      const dy = (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
+      ctx.fillText(icon.glyph, h.x + h.width / 2 + dx, h.y + h.height / 2 + dy);
       ctx.restore();
     }
   }
