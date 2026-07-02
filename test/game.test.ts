@@ -51,6 +51,13 @@ const tank = (g: Game, id: string): any => (g as any).tanks.get(id);
 const bullets = (g: Game): any[] => (g as any).bullets;
 const apply = (g: Game, t: any, type: string): void => (g as any).applyPowerup(t, type);
 const fire = (g: Game, t: any): void => (g as any).fire(t);
+// Force a kill through the real path. Revives a corpse first, so repeated
+// slays model "respawned, then killed again" — kill() ignores dead victims
+// (one death is never counted twice).
+const slay = (g: Game, t: any, killerId: string): void => {
+  t.alive = true;
+  (g as any).kill(t, killerId);
+};
 // Weapons are now a per-effect charge record (`{ sniper: 3, ... }`). These
 // helpers set/read a single effect's charges in tests.
 const arm = (t: any, type: string, charges: number): void => {
@@ -713,6 +720,36 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     };
     assert.equal(hpAfter(false), 5, "a straight laser misses the off-line enemy");
     assert.ok(hpAfter(true) < 5, "the curving beam bends onto the enemy");
+  });
+
+  it("laser + explosive: one death is one kill (blast delivers the damage, never doubled)", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true, hp: 1 },
+      adv: { laserDelay: 0 },
+      maze: new Maze(12, 9, "open"),
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    const a = tank(g, "a");
+    const bt = tank(g, "b");
+    a.shieldTimer = 0;
+    bt.shieldTimer = 0;
+    a.x = 100;
+    a.y = 350;
+    a.turretAngle = 0; // aim +x, straight along y = 350
+    bt.x = 400;
+    bt.y = 350; // downrange on the aim line
+    a.weaponCharges = { laser: 1, explosive: 1 };
+    fire(g, a);
+    assert.equal(bt.alive, false);
+    assert.equal(bt.deaths, 1); // one death — not blast + direct hit counted twice
+    const kills = ((g as any).pendingEvents as any[]).filter(
+      (e) => e.type === 0 && e.victim === bt.index
+    );
+    assert.equal(kills.length, 1, "a single kill event (no phantom DOUBLE KILL)");
+    assert.equal((g as any).enemyStreak.get(a.index).count, 1); // streak advanced once
   });
 
   it("beam curvature scales with trackingTurnRate (wired to the tunable)", () => {
@@ -1650,7 +1687,7 @@ describe("scoring / kills", () => {
     const tiers: number[] = [];
     const mults: number[] = [];
     for (let i = 0; i < 7; i++) {
-      (g as any).kill(b, "a"); // elapsed stays 0 → all within the window
+      slay(g, b, "a"); // elapsed stays 0 → all within the window
       const ev = (g as any).pendingEvents.at(-1);
       tiers.push(ev.streak);
       mults.push(ev.mult);
@@ -1658,7 +1695,7 @@ describe("scoring / kills", () => {
     assert.deepEqual(tiers, [1, 2, 3, 4, 5, 5, 5]); // fb, double, triple, maniac, savage×3
     assert.deepEqual(mults, [0, 0, 0, 0, 0, 2, 3]); // 1st savage no mult, then ×2, ×3
     (g as any).elapsed = 100; // jump past the multikill window
-    (g as any).kill(b, "a");
+    slay(g, b, "a");
     assert.equal((g as any).pendingEvents.at(-1).streak, 0); // chain broken → lone kill, no banner
   });
 
@@ -1666,11 +1703,11 @@ describe("scoring / kills", () => {
     const g = makeGame({ cfg: { winScore: 100000 } });
     const a = tank(g, "a");
     const b = tank(g, "b");
-    (g as any).kill(b, "a"); // a: first blood
-    (g as any).kill(b, "a"); // a: double kill
+    slay(g, b, "a"); // a: first blood
+    slay(g, b, "a"); // a: double kill
     assert.equal((g as any).pendingEvents.at(-1).streak, 2);
-    (g as any).kill(a, "b"); // a dies → a's streak is wiped
-    (g as any).kill(b, "a"); // a kills again → fresh chain (count 1 → no banner)
+    slay(g, a, "b"); // a dies → a's streak is wiped
+    slay(g, b, "a"); // a kills again → fresh chain (count 1 → no banner)
     assert.equal((g as any).pendingEvents.at(-1).streak, 0);
   });
 
@@ -1687,7 +1724,7 @@ describe("scoring / kills", () => {
     const tiers: number[] = [];
     const mults: number[] = [];
     for (let i = 0; i < 6; i++) {
-      (g as any).kill(b, "a"); // a team-kills b (elapsed stays 0 → all in window)
+      slay(g, b, "a"); // a team-kills b (elapsed stays 0 → all in window)
       const ev = (g as any).pendingEvents.at(-1);
       tiers.push(ev.streak);
       mults.push(ev.mult);
@@ -1697,7 +1734,7 @@ describe("scoring / kills", () => {
     assert.deepEqual(mults, [0, 0, 0, 0, 0, 2]);
 
     (g as any).elapsed = TEAMKILL_STREAK_WINDOW + 1; // chain expires
-    (g as any).kill(b, "a");
+    slay(g, b, "a");
     assert.equal((g as any).pendingEvents.at(-1).streak, 6); // back to a fresh betrayal
   });
 
@@ -1750,7 +1787,7 @@ describe("elimination ending (lives > 0)", () => {
     });
     const elim = (id: string) => {
       const v = tank(g, id);
-      while (!v.out) (g as any).kill(v, "a");
+      while (!v.out) slay(g, v, "a");
     };
     elim("b");
     assert.equal(g.isFinished, false);
@@ -1759,7 +1796,7 @@ describe("elimination ending (lives > 0)", () => {
     assert.equal(g.getWinnerName(), "A");
 
     const inf = makeGame({ cfg: { mode: "ffa", lives: 0, winScore: 100000, rounds: 1 } });
-    for (let i = 0; i < 10; i++) (inf as any).kill(tank(inf, "b"), "a");
+    for (let i = 0; i < 10; i++) slay(inf, tank(inf, "b"), "a");
     assert.equal(inf.isFinished, false);
   });
 
