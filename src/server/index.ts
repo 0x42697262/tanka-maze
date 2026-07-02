@@ -15,6 +15,7 @@ import {
   FOG_VISION_MODES,
   HAZARD_TYPES,
   POWERUP_DEFS,
+  POWERUP_TYPES,
   type AdvancedConfig,
   type ClientMessage,
   type GameConfig,
@@ -213,7 +214,7 @@ class Hub {
     const id = shortId();
     const lobby = new Lobby(
       id,
-      sanitizeName(name) || `${client.name}'s game`,
+      sanitizeLobbyName(name) || `${client.name}'s game`,
       client,
       maxPlayers,
       config,
@@ -333,6 +334,11 @@ function sanitizeName(raw: string): string {
   return typeof raw === "string" ? raw.trim().slice(0, 16).replace(/[\x00-\x1f]/g, "") : "";
 }
 
+/** Lobby names get more room than callsigns; matches the client input's maxlength=24. */
+function sanitizeLobbyName(raw: string): string {
+  return typeof raw === "string" ? raw.trim().slice(0, 24).replace(/[\x00-\x1f]/g, "") : "";
+}
+
 /** Accept only a strict 6-digit hex color; anything else is rejected. This is
  *  a security boundary — the color is rendered into other clients' DOM. */
 function sanitizeColor(raw: unknown): string | null {
@@ -373,6 +379,7 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     cellSize: i(c.cellSize, 40, 200, d.cellSize),
     wallThickness: f(c.wallThickness, 2, 30, d.wallThickness),
     wallHp: i(c.wallHp, 1, 50, d.wallHp),
+    buffStackBonusPct: f(c.buffStackBonusPct, 0, 100, d.buffStackBonusPct),
   };
   for (const def of POWERUP_DEFS) {
     for (const field of def.config) {
@@ -403,6 +410,10 @@ function sanitizeConfig(raw: unknown): GameConfig {
   const hazardTypes = Array.isArray(rawHazardTypes)
     ? HAZARD_TYPES.filter((t) => rawHazardTypes.includes(t))
     : d.hazardTypes;
+  const rawPowerupTypes = c.powerupTypes;
+  const powerupTypes = Array.isArray(rawPowerupTypes)
+    ? POWERUP_TYPES.filter((t) => rawPowerupTypes.includes(t))
+    : d.powerupTypes;
   let lives = clampInt(c.lives, 0, 99, d.lives);
   // Last Man Standing needs finite lives, or it could never end.
   if (mode === "lms" && lives < 1) lives = 3;
@@ -459,6 +470,10 @@ function sanitizeConfig(raw: unknown): GameConfig {
     powerupEverySeconds: clampInt(c.powerupEverySeconds, 3, 60, d.powerupEverySeconds),
     powerupDespawnSeconds: clampInt(c.powerupDespawnSeconds, 3, 60, d.powerupDespawnSeconds),
     powerupCharges: clampInt(c.powerupCharges, 1, 20, d.powerupCharges),
+    powerupSpawnCount: clampInt(c.powerupSpawnCount, 1, 20, d.powerupSpawnCount),
+    powerupTypes,
+    powerupStacking: typeof c.powerupStacking === "boolean" ? c.powerupStacking : d.powerupStacking,
+    combineWeapons: typeof c.combineWeapons === "boolean" ? c.combineWeapons : d.combineWeapons,
     tankCollision: mode === "ffa"
       ? typeof c.tankCollision === "boolean" ? c.tankCollision : d.tankCollision
       : false,

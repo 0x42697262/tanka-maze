@@ -43,8 +43,7 @@ function tank(over: Partial<TankDTO> = {}): TankDTO {
     ammo: 5,
     maxAmmo: 5,
     reloadIn: 0,
-    weapon: null,
-    weaponCharges: 0,
+    weaponCharges: {},
     livesLeft: 0,
     boosted: false,
     shielded: false,
@@ -107,12 +106,22 @@ describe("wire: snapshot", () => {
     assert.equal(o.captures, 4);
   });
 
-  it("round-trips every weapon code (incl. null) — derived from the registry", () => {
-    for (const w of [null, ...WEAPON_POWERUPS]) {
-      const snap = emptySnap({ tanks: [tank({ weapon: w, weaponCharges: 2 })] });
+  it("round-trips per-weapon charges for every weapon (empty = unarmed)", () => {
+    // Unarmed: no charge keys survive the round-trip.
+    const bare = decodeSnapshot(toAB(encodeSnapshot(emptySnap({ tanks: [tank()] }))), roster());
+    assert.deepEqual(bare.tanks[0].weaponCharges, {});
+    // Each weapon's charge count round-trips independently.
+    for (const w of WEAPON_POWERUPS) {
+      const snap = emptySnap({ tanks: [tank({ weaponCharges: { [w]: 2 } })] });
       const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
-      assert.equal(out.tanks[0].weapon, w, `weapon ${w}`);
+      assert.equal(out.tanks[0].weaponCharges[w], 2, `weapon ${w}`);
     }
+    // Combined effects round-trip together (sniper + tracking held at once).
+    const combo = decodeSnapshot(
+      toAB(encodeSnapshot(emptySnap({ tanks: [tank({ weaponCharges: { sniper: 3, tracking: 5 } })] }))),
+      roster()
+    );
+    assert.deepEqual(combo.tanks[0].weaponCharges, { sniper: 3, tracking: 5 });
   });
 
   it("round-trips every power-up pickup type", () => {
@@ -147,6 +156,55 @@ describe("wire: snapshot", () => {
     assert.equal(Math.round(out.flags[1].x), 700);
   });
 
+  it("truncates (not wraps) bullet counts past the 255-byte limit, so later fields don't desync", () => {
+    const manyBullets = Array.from({ length: 260 }, (_, i) => ({
+      id: i,
+      x: 10,
+      y: 20,
+      ownerId: "a",
+      homing: false,
+      explosive: false,
+      pierce: false,
+    }));
+    const snap = emptySnap({
+      bullets: manyBullets,
+      powerups: [{ id: 1, x: 30, y: 40, type: "speed" as const }],
+    });
+    const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
+    assert.equal(out.bullets.length, 255); // truncated, not silently byte-wrapped
+    assert.equal(out.powerups.length, 1); // fields after bullets still decode correctly
+    assert.equal(out.powerups[0].type, "speed");
+  });
+
+  it("truncates (not wraps) powerup counts past the 255-byte limit, so later fields don't desync", () => {
+    const manyPowerups = Array.from({ length: 260 }, (_, i) => ({
+      id: i,
+      x: 10,
+      y: 20,
+      type: "speed" as const,
+    }));
+    const snap = emptySnap({
+      powerups: manyPowerups,
+      flags: [{ team: 0, x: 40, y: 50, state: "home" as const, carrier: 255 }],
+    });
+    const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
+    assert.equal(out.powerups.length, 255); // truncated, not silently byte-wrapped
+    assert.equal(out.flags.length, 1); // fields after powerups still decode correctly
+    assert.equal(out.flags[0].state, "home");
+  });
+
+  it("truncates (not wraps) beam counts past the 255-byte limit, so later fields don't desync", () => {
+    const manyBeams = Array.from({ length: 260 }, () => ({ x1: 10, y1: 20, x2: 30, y2: 40 }));
+    const snap = emptySnap({
+      beams: manyBeams,
+      events: [{ type: 0, killer: 1, victim: 2, points: 60, streak: 0, mult: 0 }],
+    });
+    const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
+    assert.equal(out.beams.length, 255); // truncated, not silently byte-wrapped
+    assert.equal(out.events.length, 1); // fields after beams still decode correctly
+    assert.equal(out.events[0].victim, 2);
+  });
+
   it("slim snapshots update pose/status and inherit slow tank fields", () => {
     const prev = emptySnap({
       tanks: [
@@ -158,8 +216,7 @@ describe("wire: snapshot", () => {
           ammo: 4,
           score: 120,
           reloadIn: 1.2,
-          weapon: "tracking",
-          weaponCharges: 2,
+          weaponCharges: { tracking: 2 },
           livesLeft: 1,
           captures: 5,
         }),
@@ -176,7 +233,7 @@ describe("wire: snapshot", () => {
           respawnIn: 2.4,
         }),
       ],
-      bullets: [{ id: 7, x: 11, y: 22, ownerId: "a", kind: "normal" }],
+      bullets: [{ id: 7, x: 11, y: 22, ownerId: "a", homing: false, explosive: false, pierce: false }],
     });
 
     const out = decodeSnapshot(toAB(encodeSlimSnapshot(slim)), roster(), prev);
@@ -188,8 +245,7 @@ describe("wire: snapshot", () => {
     assert.equal(o.shielded, true);
     assert.equal(o.score, 120);
     assert.equal(o.ammo, 4);
-    assert.equal(o.weapon, "tracking");
-    assert.equal(o.weaponCharges, 2);
+    assert.equal(o.weaponCharges.tracking, 2);
     assert.equal(o.livesLeft, 1);
     assert.equal(o.captures, 5);
     assert.ok(Math.abs(o.respawnIn - 2.4) < 0.11);

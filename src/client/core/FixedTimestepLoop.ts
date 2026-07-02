@@ -59,6 +59,9 @@ export class FixedTimestepLoop {
 
   private readonly frame = (nowMs: number): void => {
     if (!this.running) return;
+    // Schedule the next frame *before* running the callbacks: if update/render
+    // throws, we lose one frame instead of the loop dying until a page reload.
+    this.frameHandle = requestAnimationFrame(this.frame);
     const frameSeconds = Math.min(this.maxFrameSeconds, Math.max(0, (nowMs - this.previousMs) / 1000));
     this.previousMs = nowMs;
     this.accumulator += frameSeconds;
@@ -74,6 +77,5 @@ export class FixedTimestepLoop {
       this.lastRenderMs = nowMs;
       this.callbacks.render(this.accumulator / this.fixedStepSeconds, nowMs);
     }
-    this.frameHandle = requestAnimationFrame(this.frame);
   };
 }

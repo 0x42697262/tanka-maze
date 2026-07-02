@@ -33,6 +33,13 @@ export const BGM_KEY = "tanka-maze-bgm";
 export const BGM_VOL_KEY = "tanka-maze-bgm-vol";
 export const SFX_VOL_KEY = "tanka-sfx-vol";
 export const RADAR_KEY = "tanka-maze-radar"; // personal radar toggle ("false" = off)
+export const RETRO_KEY = "tanka-maze-retro"; // retro 8-bit mode toggle
+export const BATTLECITY_KEY = "tanka-maze-battlecity"; // Battle City skin toggle
+export const BCTANK_KEY = "tanka-maze-bctank"; // Battle City tank style ("basic" | "fast" | "heavy" | "armored")
+export const MODERN_KEY = "tanka-maze-modern"; // Modern 4K skin toggle
+export const MODERN_STYLE_KEY = "tanka-maze-modern-style"; // Modern tank style ("railgun" | "hover" | "plasma" | "siege")
+export const REALISTIC_KEY = "tanka-maze-realistic"; // Realistic military skin toggle
+export const REALISTIC_STYLE_KEY = "tanka-maze-realistic-style"; // Realistic tank style ("abrams" | "leopard" | "t90" | "bradley")
 
 /** Render-quality presets → devicePixelRatio cap. */
 export const QUALITY_DPR: Record<"low" | "medium" | "high", number> = {
@@ -86,6 +93,13 @@ export interface AppState {
   moveMode: "relative" | "eight";
   fpsCap: 30 | 60 | 120;
   quality: "low" | "medium" | "high";
+  retroEnabled: boolean;
+  battleCityEnabled: boolean;
+  retroStyle: "basic" | "fast" | "heavy" | "armored";
+  modernEnabled: boolean;
+  modernStyle: "railgun" | "hover" | "plasma" | "siege";
+  realisticEnabled: boolean;
+  realisticStyle: "abrams" | "leopard" | "t90" | "bradley";
   roundInfo: { round: number; total: number };
   roundStanding: RoundStanding[];
   roundCountdown: ReturnType<typeof setInterval> | null;
@@ -113,6 +127,13 @@ export const state: AppState = {
   moveMode: "relative",
   fpsCap: 60,
   quality: "medium",
+  retroEnabled: localStorage.getItem(RETRO_KEY) === "true",
+  battleCityEnabled: localStorage.getItem(BATTLECITY_KEY) === "true",
+  retroStyle: (localStorage.getItem(BCTANK_KEY) ?? "basic") as any,
+  modernEnabled: localStorage.getItem(MODERN_KEY) === "true",
+  modernStyle: (localStorage.getItem(MODERN_STYLE_KEY) ?? "railgun") as any,
+  realisticEnabled: localStorage.getItem(REALISTIC_KEY) === "true",
+  realisticStyle: (localStorage.getItem(REALISTIC_STYLE_KEY) ?? "abrams") as any,
   roundInfo: { round: 1, total: 1 },
   roundStanding: [],
   roundCountdown: null,

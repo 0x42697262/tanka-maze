@@ -17,26 +17,43 @@
         </div>
         <p class="status" id="conn-status">Connecting…</p>
 
-        <div class="row">
-          <label for="name">Callsign</label>
-          <input id="name" maxlength="16" placeholder="Player" autocomplete="off" />
-        </div>
+        <div class="menu-container">
+          <!-- Left Column: Callsign & Create Card -->
+          <div class="menu-left">
+            <div class="panel profile-card">
+              <h2>Player Command</h2>
+              <div class="row">
+                <label for="name">Callsign</label>
+                <input id="name" maxlength="16" placeholder="Player" autocomplete="off" />
+              </div>
+            </div>
 
-        <div class="panel">
-          <div class="panel-head">
-            <h2>Open Lobbies</h2>
-            <button id="refresh" class="ghost">↻ Refresh</button>
+            <div class="panel create-card">
+              <h2>Establish Lobby</h2>
+              <div class="row">
+                <label for="lobby-name">Lobby Name</label>
+                <input id="lobby-name" maxlength="24" placeholder="My battle" autocomplete="off" />
+              </div>
+              <button id="create" class="primary">Create &amp; Host</button>
+            </div>
           </div>
-          <ul id="lobby-list"><li class="empty">No lobbies yet — create one!</li></ul>
-        </div>
 
-        <div class="panel">
-          <h2>Create Lobby</h2>
-          <div class="row">
-            <label for="lobby-name">Name</label>
-            <input id="lobby-name" maxlength="24" placeholder="My battle" autocomplete="off" />
+          <!-- Right Column: Lobby Feed -->
+          <div class="menu-right">
+            <div class="panel lobby-panel">
+              <h2>Active Arenas</h2>
+              <ul id="lobby-list"><li class="empty">No active channels — create one!</li></ul>
+              <div class="list-foot">
+                <span id="arena-count" class="arena-count">Updates live</span>
+                <span id="refresh" class="refresh-icon" role="button" tabindex="0" title="Refresh list" aria-label="Refresh lobby list">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                    <polyline points="21 3 21 9 15 9" />
+                  </svg>
+                </span>
+              </div>
+            </div>
           </div>
-          <button id="create" class="primary">Create &amp; Host</button>
         </div>
       </section>
 
@@ -59,319 +76,321 @@
 
         <ul id="lobby-players"></ul>
 
-        <!-- Host-only game settings (configured here, in the lobby) -->
+        <!-- Host-only game settings (configured here, in the lobby).
+             Organized into collapsible sections; boolean options are checkboxes
+             and dependent rows hide when their parent option is off
+             (applyModeVisibility in settings.ts). -->
         <div id="lobby-config" class="panel hidden">
           <h2>Game Settings</h2>
 
-          <h3 class="cfg-h">Mode</h3>
-          <div class="row">
-            <label for="mode">Mode</label>
-            <select id="mode">
-              <option value="ffa">Free-for-all</option>
-              <option value="lms">Last Man Standing</option>
-              <option value="teams">Team VS</option>
-              <option value="ctf">Capture the Flag</option>
-            </select>
-          </div>
-          <div class="row cfg-teams">
-            <label for="team-count">Teams</label>
-            <input id="team-count" type="number" min="2" max="4" value="2" />
-          </div>
-          <div class="row cfg-ctf">
-            <label for="ctf-team-count">Teams</label>
-            <select id="ctf-team-count">
-              <option value="2">2</option>
-              <option value="4">4</option>
-            </select>
-          </div>
-          <div class="row">
-            <label for="friendly-fire">Friendly fire</label>
-            <select id="friendly-fire">
-              <option value="off">Off</option>
-              <option value="on">On</option>
-            </select>
-          </div>
-          <div class="row cfg-teams">
-            <label for="team-kill">Team-kill Penalty (pts)</label>
-            <input id="team-kill" type="number" min="0" max="500" value="60" />
-          </div>
-          <div class="row cfg-teams">
-            <label for="team-spawn-zones">Team spawn zones</label>
-            <select id="team-spawn-zones">
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </select>
-          </div>
-
-          <h3 class="cfg-h">Map</h3>
-          <!-- Data model (kept in sync by the visual picker below). -->
-          <select id="walls" class="walls-select" aria-label="Map layout">
-            <option value="maze">Maze</option>
-            <option value="sparse">Sparse</option>
-            <option value="open">Open</option>
-            <option value="cross">Cross</option>
-            <option value="lshape">L-Shape</option>
-            <option value="tunnels">Tunnels</option>
-            <option value="box">Box</option>
-            <option value="dots">Dots</option>
-          </select>
-          <div id="wall-picker" class="wall-picker"></div>
-          <div class="row">
-            <label for="map-size">Map size</label>
-            <select id="map-size">
-              <option value="random">Random</option>
-              <option value="small">Small</option>
-              <option value="normal">Normal</option>
-              <option value="large">Large</option>
-            </select>
-          </div>
-          <div class="row">
-            <label for="destructible-walls">Destructible walls</label>
-            <select id="destructible-walls">
-              <option value="off">Off</option>
-              <option value="on">On</option>
-            </select>
-          </div>
-          <div class="row cfg-ffa">
-            <label for="tank-collision">Tank collision</label>
-            <select id="tank-collision">
-              <option value="off">Off</option>
-              <option value="on">On</option>
-            </select>
-          </div>
-          <div class="row">
-            <label for="radar">Radar</label>
-            <select id="radar">
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </select>
-          </div>
-
-          <h3 class="cfg-h">Fog of War</h3>
-          <div class="row two">
-            <label for="fog-of-war">Fog of war</label>
-            <select id="fog-of-war">
-              <option value="off">Off</option>
-              <option value="on">On</option>
-            </select>
-            <label for="vision-radius" class="cfg-fog-on">Vision px</label>
-            <input id="vision-radius" class="cfg-fog-on" type="number" min="80" max="1600" step="20" />
-          </div>
-          <div class="row two cfg-fog-team">
-            <label for="fog-base-vision">Base vision</label>
-            <select id="fog-base-vision">
-              <option value="off">Off</option>
-              <option value="team">Own team</option>
-              <option value="all">All teams</option>
-            </select>
-            <label for="fog-flag-vision" class="cfg-fog-flag">Flag vision</label>
-            <select id="fog-flag-vision" class="cfg-fog-flag">
-              <option value="off">Off</option>
-              <option value="team">Own team</option>
-              <option value="all">All flags</option>
-            </select>
-          </div>
-          <div class="row cfg-fog-flag">
-            <label for="fog-hide-carried">Hide carried flag</label>
-            <select id="fog-hide-carried">
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </select>
-          </div>
-
-          <h3 class="cfg-h">Hazards</h3>
-          <div class="row two">
-            <label for="hazard-density">Hazard count</label>
-            <input id="hazard-density" type="number" min="0" max="10" step="1" />
-            <label for="hazard-damage">Lava DPS</label>
-            <input id="hazard-damage" type="number" min="1" max="20" step="1" />
-          </div>
-          <div class="row two">
-            <label for="hazard-slow-mult">Mud slow</label>
-            <input id="hazard-slow-mult" type="number" min="0" max="1" step="0.1" />
-            <label for="hazard-heal-rate">Heal HP/s</label>
-            <input id="hazard-heal-rate" type="number" min="0.5" max="10" step="0.5" />
-          </div>
-          <div class="row two">
-            <label for="hazard-lava">Spawn lava</label>
-            <select id="hazard-lava">
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </select>
-            <label for="hazard-mud">Spawn mud</label>
-            <select id="hazard-mud">
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </select>
-          </div>
-          <div class="row two">
-            <label for="hazard-ice">Spawn ice</label>
-            <select id="hazard-ice">
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </select>
-            <label for="hazard-heal">Spawn heal</label>
-            <select id="hazard-heal">
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </select>
-          </div>
-
-          <h3 class="cfg-h">Match</h3>
-          <div class="row two">
-            <label for="max-players">Max players</label>
-            <input id="max-players" type="number" min="2" max="32" value="4" />
-            <label for="rounds" class="cfg-nctf">Rounds to win</label>
-            <input id="rounds" type="number" min="1" max="15" value="3" class="cfg-nctf" />
-          </div>
-          <div class="row cfg-ctf">
-            <label for="max-flags">Rounds to win</label>
-            <input id="max-flags" type="number" min="1" max="20" value="3" />
-          </div>
-          <div class="row cfg-ctf cfg-flagcarry">
-            <label for="flag-team-carry">Team carries flag</label>
-            <select id="flag-team-carry">
-              <option value="on">On (carry back)</option>
-              <option value="off">Off (instant return)</option>
-            </select>
-          </div>
-          <div class="row cfg-ctf">
-            <label for="flag-steal">Steal flag on touch</label>
-            <select id="flag-steal">
-              <option value="any">On (touch steals)</option>
-              <option value="team">Teammate only</option>
-              <option value="off">Off (kill to drop)</option>
-            </select>
-          </div>
-          <div class="row cfg-ctf">
-            <label for="ctf-score-mode">Scoring method</label>
-            <select id="ctf-score-mode">
-              <option value="deliver">Deliver to base</option>
-              <option value="conquest">Conquest (hold flags)</option>
-              <option value="carry">Carry (hoard flags)</option>
-            </select>
-          </div>
-          <div class="row cfg-ctf cfg-deliver">
-            <label for="flags-per-round">Captures per round</label>
-            <input id="flags-per-round" type="number" min="1" max="50" value="1" />
-          </div>
-          <div class="row cfg-ctf cfg-conquest">
-            <label for="ctf-points">Points to win</label>
-            <input id="ctf-points" type="number" min="10" max="10000" step="10" value="100" />
-          </div>
-          <div class="row cfg-ctf">
-            <label for="ctf-respawn-bonus">Respawn +s per death</label>
-            <input id="ctf-respawn-bonus" type="number" min="0" max="60" value="3" />
-          </div>
-          <div class="row two">
-            <label for="tank-speed">Tank speed %</label>
-            <input id="tank-speed" type="number" min="50" max="200" step="10" value="100" />
-            <label for="hp">HP</label>
-            <input id="hp" type="number" min="1" max="10" value="1" />
-          </div>
-          <div class="row two">
-            <label for="lives">Lives (0=∞)</label>
-            <input id="lives" type="number" min="0" max="99" value="0" />
-            <label for="cfg-respawn">Respawn s</label>
-            <input id="cfg-respawn" type="number" min="1" max="10" value="3" />
-          </div>
-          <div class="row">
-            <label for="allow-late">Join after start</label>
-            <select id="allow-late">
-              <option value="on">Allowed</option>
-              <option value="off">Closed once started</option>
-            </select>
-          </div>
-
-          <h3 class="cfg-h cfg-nctf">Scoring</h3>
-          <div class="row two cfg-nctf">
-            <label for="kill-points">Kill pts</label>
-            <input id="kill-points" type="number" min="1" max="500" value="60" />
-            <label for="death-penalty">Death −%</label>
-            <input id="death-penalty" type="number" min="0" max="90" value="33" />
-          </div>
-          <div class="row cfg-haswin cfg-nctf">
-            <label for="win-score">Points to win</label>
-            <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
-          </div>
-
-          <h3 class="cfg-h">Power-ups</h3>
-          <div class="row">
-            <label for="powerups">Power-ups</label>
-            <select id="powerups">
-              <option value="off">Off</option>
-              <option value="on">On</option>
-            </select>
-          </div>
-          <div class="row two">
-            <label for="pwr-every">Spawn / s</label>
-            <input id="pwr-every" type="number" min="3" max="60" value="8" />
-            <label for="pwr-charges">Charges</label>
-            <input id="pwr-charges" type="number" min="1" max="20" value="1" />
-          </div>
-          <div class="row">
-            <label for="pwr-despawn">Despawn s</label>
-            <input id="pwr-despawn" type="number" min="3" max="60" value="12" />
-          </div>
-
-          <hr class="rule" />
-          <button id="adv-toggle" class="ghost small" type="button">⚙ Advanced options</button>
-          <div id="adv-panel" class="hidden">
-            <p class="adv-note">Fine-tune every object. Defaults match the engine.</p>
-
-            <h4 class="adv-h">Tank</h4>
-            <div class="row two">
-              <label for="adv-tankRadius">Tank size</label>
-              <input id="adv-tankRadius" type="number" min="4" max="40" step="1" />
-              <label for="adv-tankTurnSpeed">Turn rate</label>
-              <input id="adv-tankTurnSpeed" type="number" min="0.5" max="12" step="0.1" />
+          <details class="cfg-sec" open>
+            <summary class="cfg-h">Lobby</summary>
+            <h4 class="adv-h">Rules</h4>
+            <div class="row">
+              <label for="mode">Mode</label>
+              <select id="mode">
+                <option value="ffa">Free-for-all</option>
+                <option value="lms">Last Man Standing</option>
+                <option value="teams">Team VS</option>
+                <option value="ctf">Capture the Flag</option>
+              </select>
+            </div>
+            <div class="row cfg-teams">
+              <label for="team-count">Teams</label>
+              <input id="team-count" type="number" min="2" max="4" value="2" />
+            </div>
+            <div class="row cfg-ctf">
+              <label for="ctf-team-count">Teams</label>
+              <select id="ctf-team-count">
+                <option value="2">2</option>
+                <option value="4">4</option>
+              </select>
+            </div>
+            <div class="row cfg-ctf">
+              <label for="ctf-score-mode">Scoring method</label>
+              <select id="ctf-score-mode">
+                <option value="deliver">Deliver to base</option>
+                <option value="conquest">Conquest (hold flags)</option>
+                <option value="carry">Carry (hoard flags)</option>
+              </select>
+            </div>
+            <div class="row cfg-ctf">
+              <label for="flag-steal">Steal flag on touch</label>
+              <select id="flag-steal">
+                <option value="any">On (touch steals)</option>
+                <option value="team">Teammate only</option>
+                <option value="off">Off (kill to drop)</option>
+              </select>
             </div>
             <div class="row two">
-              <label for="adv-tankAccel">Accel px/s²</label>
-              <input id="adv-tankAccel" type="number" min="50" max="4000" step="50" />
-              <label for="adv-tankDecel">Decel px/s²</label>
-              <input id="adv-tankDecel" type="number" min="50" max="8000" step="50" />
+              <label for="max-players">Max players</label>
+              <input id="max-players" type="number" min="2" max="32" value="4" />
+              <label for="rounds" class="cfg-nctf">Rounds to win</label>
+              <input id="rounds" type="number" min="1" max="15" value="3" class="cfg-nctf" />
             </div>
+            <div class="row cfg-ctf">
+              <label for="max-flags">Rounds to win</label>
+              <input id="max-flags" type="number" min="1" max="20" value="3" />
+            </div>
+            <div class="row cfg-ctf cfg-deliver">
+              <label for="flags-per-round">Captures per round</label>
+              <input id="flags-per-round" type="number" min="1" max="50" value="1" />
+            </div>
+            <div class="row cfg-ctf cfg-conquest">
+              <label for="ctf-points">Points to win</label>
+              <input id="ctf-points" type="number" min="10" max="10000" step="10" value="100" />
+            </div>
+            <div class="row cfg-ctf">
+              <label for="ctf-respawn-bonus">Respawn +s per death</label>
+              <input id="ctf-respawn-bonus" type="number" min="0" max="60" value="3" />
+            </div>
+            <!-- CTF scoring lives under Rules (captures/points above), so this
+                 subgroup hides there entirely. -->
+            <h4 class="adv-h cfg-nctf">Scoring</h4>
+            <div class="row two cfg-nctf">
+              <label for="kill-points">Kill pts</label>
+              <input id="kill-points" type="number" min="1" max="500" value="60" />
+              <label for="death-penalty">Death −%</label>
+              <input id="death-penalty" type="number" min="0" max="90" value="33" />
+            </div>
+            <div class="row cfg-haswin cfg-nctf">
+              <label for="win-score">Points to win</label>
+              <input id="win-score" type="number" min="60" max="6000" step="60" value="300" />
+            </div>
+            <div class="row cfg-teams">
+              <label for="team-kill">Team-kill Penalty (pts)</label>
+              <input id="team-kill" type="number" min="0" max="500" value="60" />
+            </div>
+            <h4 class="adv-h">Survival</h4>
             <div class="row two">
-              <label for="adv-fireCooldown">Fire cd s</label>
-              <input id="adv-fireCooldown" type="number" min="0.05" max="5" step="0.05" />
-              <label for="adv-maxAmmo">Magazine</label>
-              <input id="adv-maxAmmo" type="number" min="1" max="50" step="1" />
+              <label for="hp">HP</label>
+              <input id="hp" type="number" min="1" max="10" value="1" />
+              <label for="lives">Lives (0=∞)</label>
+              <input id="lives" type="number" min="0" max="99" value="0" />
             </div>
             <div class="row">
-              <label for="adv-reloadSeconds">Reload s</label>
-              <input id="adv-reloadSeconds" type="number" min="0.2" max="20" step="0.1" />
+              <label for="cfg-respawn">Respawn s</label>
+              <input id="cfg-respawn" type="number" min="1" max="10" value="3" />
             </div>
+            <!-- Checkboxes grouped at the bottom of the section. -->
+            <h4 class="adv-h">Options</h4>
+            <div class="row chk">
+              <label for="friendly-fire">Friendly fire</label>
+              <input id="friendly-fire" type="checkbox" />
+            </div>
+            <div class="row chk cfg-teams">
+              <label for="team-spawn-zones">Team spawn zones</label>
+              <input id="team-spawn-zones" type="checkbox" checked />
+            </div>
+            <div class="row chk cfg-ctf cfg-flagcarry">
+              <label for="flag-team-carry">Carry flag back (off = instant return)</label>
+              <input id="flag-team-carry" type="checkbox" checked />
+            </div>
+            <div class="row chk">
+              <label for="allow-late">Join after start</label>
+              <input id="allow-late" type="checkbox" checked />
+            </div>
+            <div class="row chk cfg-ffa">
+              <label for="tank-collision">Tank collision</label>
+              <input id="tank-collision" type="checkbox" />
+            </div>
+            <div class="row chk">
+              <label for="radar">Radar</label>
+              <input id="radar" type="checkbox" checked />
+            </div>
+          </details>
 
-            <h4 class="adv-h">Bullet</h4>
-            <div class="row two">
-              <label for="adv-bulletSpeed">Bullet speed</label>
-              <input id="adv-bulletSpeed" type="number" min="40" max="2000" step="10" />
-              <label for="adv-bulletRadius">Bullet size</label>
-              <input id="adv-bulletRadius" type="number" min="1" max="30" step="1" />
-            </div>
-            <div class="row two">
-              <label for="adv-bulletBounces">Bounces</label>
-              <input id="adv-bulletBounces" type="number" min="0" max="20" step="1" />
-              <label for="adv-bulletLifetime">Bullet life s</label>
-              <input id="adv-bulletLifetime" type="number" min="0.5" max="20" step="0.5" />
-            </div>
-
-            <h4 class="adv-h">Map</h4>
-            <div class="row two">
-              <label for="adv-cellSize">Cell size</label>
-              <input id="adv-cellSize" type="number" min="40" max="200" step="4" />
-              <label for="adv-wallThickness">Wall thick</label>
-              <input id="adv-wallThickness" type="number" min="2" max="30" step="1" />
-            </div>
+          <details class="cfg-sec" open>
+            <summary class="cfg-h">Map</summary>
+            <!-- Data model (kept in sync by the visual picker below). -->
+            <select id="walls" class="walls-select" aria-label="Map layout">
+              <option value="maze">Maze</option>
+              <option value="sparse">Sparse</option>
+              <option value="open">Open</option>
+              <option value="cross">Cross</option>
+              <option value="lshape">L-Shape</option>
+              <option value="tunnels">Tunnels</option>
+              <option value="box">Box</option>
+              <option value="dots">Dots</option>
+            </select>
+            <div id="wall-picker" class="wall-carousel"></div>
             <div class="row">
-              <label for="adv-wallHp">Wall HP</label>
-              <input id="adv-wallHp" type="number" min="1" max="50" step="1" />
+              <label for="map-size">Map size</label>
+              <select id="map-size">
+                <option value="random">Random</option>
+                <option value="small">Small</option>
+                <option value="normal">Normal</option>
+                <option value="large">Large</option>
+              </select>
             </div>
+            <div class="row chk">
+              <label for="destructible-walls">Destructible walls</label>
+              <input id="destructible-walls" type="checkbox" />
+            </div>
+          </details>
 
-            <!-- Per-power-up tuning is generated from the registry (see main.ts). -->
-            <div id="adv-powerups"></div>
-          </div>
+          <details class="cfg-sec">
+            <summary class="cfg-h">Power-ups</summary>
+            <div class="row chk">
+              <label for="powerups">Power-ups</label>
+              <input id="powerups" type="checkbox" checked />
+            </div>
+            <div class="cfg-pwr-on">
+              <div class="row two">
+                <label for="pwr-every">Spawn / s</label>
+                <input id="pwr-every" type="number" min="3" max="60" value="8" />
+                <label for="pwr-charges">Charges</label>
+                <input id="pwr-charges" type="number" min="1" max="20" value="1" />
+              </div>
+              <div class="row two">
+                <label for="pwr-despawn">Despawn s</label>
+                <input id="pwr-despawn" type="number" min="3" max="60" value="12" />
+                <label for="pwr-count">Per tick</label>
+                <input id="pwr-count" type="number" min="1" max="20" value="1" />
+              </div>
+              <p class="cfg-sub">Spawn types — click to toggle</p>
+              <!-- Toggle list generated from the power-up registry (buildPowerupTypeToggles). -->
+              <div class="toggle-list" id="pup-types"></div>
+              <!-- Checkboxes grouped at the bottom of the section. -->
+              <div class="row chk">
+                <label for="pwr-stack">Stacking</label>
+                <input id="pwr-stack" type="checkbox" />
+              </div>
+              <div class="row chk">
+                <label for="pwr-combine">Combine weapons</label>
+                <input id="pwr-combine" type="checkbox" />
+              </div>
+            </div>
+          </details>
+
+          <details class="cfg-sec">
+            <summary class="cfg-h">Hazards</summary>
+            <div class="row">
+              <label for="hazard-density">Hazard count</label>
+              <input id="hazard-density" type="number" min="0" max="10" step="1" />
+            </div>
+            <div class="cfg-hz-on">
+              <p class="cfg-sub">Hazard types — click to toggle</p>
+              <div class="toggle-list" id="hazard-types">
+                <label class="tog-item"><input type="checkbox" id="hazard-lava" checked /><span class="tog-emblem" style="color: #c2452f">♨</span><span class="tog-name">Lava</span><span class="tog-state"></span></label>
+                <label class="tog-item"><input type="checkbox" id="hazard-mud" checked /><span class="tog-emblem" style="color: #8a6b3f">≋</span><span class="tog-name">Mud</span><span class="tog-state"></span></label>
+                <label class="tog-item"><input type="checkbox" id="hazard-ice" checked /><span class="tog-emblem" style="color: #2fb8d6">❄</span><span class="tog-name">Ice</span><span class="tog-state"></span></label>
+                <label class="tog-item"><input type="checkbox" id="hazard-heal" checked /><span class="tog-emblem" style="color: #4fd6a0">✚</span><span class="tog-name">Heal</span><span class="tog-state"></span></label>
+              </div>
+              <div class="row cfg-hz-lava">
+                <label for="hazard-damage">Lava DPS</label>
+                <input id="hazard-damage" type="number" min="1" max="20" step="1" />
+              </div>
+              <div class="row cfg-hz-mud">
+                <label for="hazard-slow-mult">Mud slow</label>
+                <input id="hazard-slow-mult" type="number" min="0" max="1" step="0.1" />
+              </div>
+              <div class="row cfg-hz-heal">
+                <label for="hazard-heal-rate">Heal HP/s</label>
+                <input id="hazard-heal-rate" type="number" min="0.5" max="10" step="0.5" />
+              </div>
+            </div>
+          </details>
+
+          <details class="cfg-sec">
+            <summary class="cfg-h">Fog of War</summary>
+            <div class="row chk">
+              <label for="fog-of-war">Fog of war</label>
+              <input id="fog-of-war" type="checkbox" />
+            </div>
+            <div class="row cfg-fog-on">
+              <label for="vision-radius">Vision px</label>
+              <input id="vision-radius" type="number" min="80" max="1600" step="20" />
+            </div>
+            <div class="row cfg-fog-team">
+              <label for="fog-base-vision">Base vision</label>
+              <select id="fog-base-vision">
+                <option value="off">Off</option>
+                <option value="team">Own team</option>
+                <option value="all">All teams</option>
+              </select>
+            </div>
+            <div class="row cfg-fog-flag">
+              <label for="fog-flag-vision">Flag vision</label>
+              <select id="fog-flag-vision">
+                <option value="off">Off</option>
+                <option value="team">Own team</option>
+                <option value="all">All flags</option>
+              </select>
+            </div>
+            <div class="row chk cfg-fog-flag">
+              <label for="fog-hide-carried">Hide carried flag</label>
+              <input id="fog-hide-carried" type="checkbox" checked />
+            </div>
+          </details>
+
+          <details class="cfg-sec" id="adv-sec">
+            <summary class="cfg-h">⚙ Advanced</summary>
+            <div id="adv-panel">
+              <p class="adv-note">Fine-tune every object. Defaults match the engine.</p>
+
+              <h4 class="adv-h">Tank</h4>
+              <div class="row two">
+                <label for="adv-tankRadius">Tank size</label>
+                <input id="adv-tankRadius" type="number" min="4" max="40" step="1" />
+                <label for="adv-tankTurnSpeed">Turn rate</label>
+                <input id="adv-tankTurnSpeed" type="number" min="0.5" max="12" step="0.1" />
+              </div>
+              <div class="row two">
+                <label for="adv-tankAccel">Accel px/s²</label>
+                <input id="adv-tankAccel" type="number" min="50" max="4000" step="50" />
+                <label for="adv-tankDecel">Decel px/s²</label>
+                <input id="adv-tankDecel" type="number" min="50" max="8000" step="50" />
+              </div>
+              <div class="row two">
+                <label for="adv-fireCooldown">Fire cd s</label>
+                <input id="adv-fireCooldown" type="number" min="0.05" max="5" step="0.05" />
+                <label for="adv-maxAmmo">Magazine</label>
+                <input id="adv-maxAmmo" type="number" min="1" max="50" step="1" />
+              </div>
+              <div class="row two">
+                <label for="adv-reloadSeconds">Reload s</label>
+                <input id="adv-reloadSeconds" type="number" min="0.2" max="20" step="0.1" />
+                <label for="tank-speed">Speed %</label>
+                <input id="tank-speed" type="number" min="50" max="200" step="10" value="100" />
+              </div>
+
+              <h4 class="adv-h">Bullet</h4>
+              <div class="row two">
+                <label for="adv-bulletSpeed">Bullet speed</label>
+                <input id="adv-bulletSpeed" type="number" min="40" max="2000" step="10" />
+                <label for="adv-bulletRadius">Bullet size</label>
+                <input id="adv-bulletRadius" type="number" min="1" max="30" step="1" />
+              </div>
+              <div class="row two">
+                <label for="adv-bulletBounces">Bounces</label>
+                <input id="adv-bulletBounces" type="number" min="0" max="20" step="1" />
+                <label for="adv-bulletLifetime">Bullet life s</label>
+                <input id="adv-bulletLifetime" type="number" min="0.5" max="20" step="0.5" />
+              </div>
+
+              <h4 class="adv-h">Map</h4>
+              <div class="row two">
+                <label for="adv-cellSize">Cell size</label>
+                <input id="adv-cellSize" type="number" min="40" max="200" step="4" />
+                <label for="adv-wallThickness">Wall thick</label>
+                <input id="adv-wallThickness" type="number" min="2" max="30" step="1" />
+              </div>
+              <div class="row cfg-dw-on">
+                <label for="adv-wallHp">Wall HP</label>
+                <input id="adv-wallHp" type="number" min="1" max="50" step="1" />
+              </div>
+
+              <h4 class="adv-h cfg-pwr-on">Power-ups · Stacking</h4>
+              <div class="row cfg-pwr-on">
+                <label for="adv-buffStackBonusPct">Stack bonus %</label>
+                <input id="adv-buffStackBonusPct" type="number" min="0" max="100" step="5" />
+              </div>
+
+              <!-- Per-power-up tuning is generated from the registry (see main.ts). -->
+              <div id="adv-powerups" class="cfg-pwr-on"></div>
+            </div>
+          </details>
         </div>
 
         <div class="actions">
@@ -524,48 +543,106 @@
         </div>
       </div>
 
-      <!-- Per-player settings (client-side) -->
+      <!-- Per-player settings (client-side). Same conventions as the lobby
+           config: collapsible sections, checkboxes at the bottom of a group. -->
       <button id="settings-gear" class="settings-gear" title="Settings" aria-label="Settings">⚙</button>
       <div id="settings-panel" class="settings-panel hidden">
         <h3>Settings</h3>
-        <label class="settings-label">Audio</label>
-        <div class="row" style="margin-bottom: 8px;">
-          <label style="width: auto;">Music</label>
-          <input type="checkbox" id="bgm-toggle" style="flex: 0 0 auto; width: 18px; height: 18px; cursor: pointer;">
-        </div>
-        <div class="row" style="margin-bottom: 8px; flex-direction: column; align-items: stretch;">
-          <label style="width: auto; margin-bottom: 4px;">Music Volume</label>
-          <input type="range" id="bgm-volume" min="0" max="1" step="0.01" value="0.5">
-        </div>
-        <div class="row" style="margin-bottom: 8px; flex-direction: column; align-items: stretch;">
-          <label style="width: auto; margin-bottom: 4px;">SFX Volume</label>
-          <input type="range" id="sfx-volume" min="0" max="1" step="0.01" value="1.0">
-        </div>
-        <label class="settings-label">Display</label>
-        <div class="row" style="margin-bottom: 8px;">
-          <label style="width: auto;">Radar</label>
-          <input type="checkbox" id="radar-toggle" style="flex: 0 0 auto; width: 18px; height: 18px; cursor: pointer;">
-        </div>
-        <label class="settings-label">Movement</label>
-        <select id="move-mode" class="walls-select" aria-label="Movement scheme">
-          <option value="relative">Tank — rotate &amp; drive</option>
-          <option value="eight">8-direction — strafe</option>
-        </select>
-        <div id="move-picker" class="move-picker"></div>
-        <p class="settings-hint" id="move-hint"></p>
-        <label class="settings-label">Frame rate</label>
-        <select id="fps-cap" class="settings-select" aria-label="Frame rate cap">
-          <option value="30">30 FPS — lowest CPU</option>
-          <option value="60">60 FPS — recommended</option>
-          <option value="120">120 FPS — smoothest</option>
-        </select>
-        <label class="settings-label">Graphics</label>
-        <select id="quality" class="settings-select" aria-label="Graphics quality">
-          <option value="low">Low — best performance</option>
-          <option value="medium">Medium — balanced</option>
-          <option value="high">High — sharpest</option>
-        </select>
-        <p class="settings-hint">Lower frame rate and graphics reduce CPU usage.</p>
+
+        <details class="cfg-sec" open>
+          <summary class="cfg-h">Audio</summary>
+          <div class="row">
+            <label for="bgm-volume">Music Vol.</label>
+            <input type="range" id="bgm-volume" class="mslider" min="0" max="1" step="0.01" value="0.5" />
+          </div>
+          <div class="row">
+            <label for="sfx-volume">SFX Vol.</label>
+            <input type="range" id="sfx-volume" class="mslider" min="0" max="1" step="0.01" value="1.0" />
+          </div>
+          <div class="row chk">
+            <label for="bgm-toggle">Music</label>
+            <input type="checkbox" id="bgm-toggle" />
+          </div>
+        </details>
+
+        <details class="cfg-sec" open>
+          <summary class="cfg-h">Display</summary>
+          <div class="row">
+            <label for="skin-select">Skin</label>
+            <select id="skin-select" aria-label="Skin theme">
+              <option value="paper">Paper &amp; Ink</option>
+              <option value="battlecity">Battle City</option>
+              <option value="modern">Modern 4K</option>
+              <option value="realistic">Realistic</option>
+            </select>
+          </div>
+          <div class="row hidden" id="bc-style-row">
+            <label for="bc-style-select">Tank Style</label>
+            <select id="bc-style-select" aria-label="Retro Tank Style">
+              <option value="basic">Basic Tank</option>
+              <option value="fast">Fast Tank</option>
+              <option value="heavy">Heavy Tank</option>
+              <option value="armored">Armored Tank</option>
+            </select>
+          </div>
+          <div class="row hidden" id="modern-style-row">
+            <label for="modern-style-select">Tank Style</label>
+            <select id="modern-style-select" aria-label="Modern Tank Style">
+              <option value="railgun">Railgun Hover</option>
+              <option value="hover">Holographic Disc</option>
+              <option value="plasma">Plasma Aegis</option>
+              <option value="siege">Artillery Siege</option>
+            </select>
+          </div>
+          <div class="row hidden" id="realistic-style-row">
+            <label for="realistic-style-select">Chassis</label>
+            <select id="realistic-style-select" aria-label="Realistic Tank Style">
+              <option value="abrams">M1A2 Abrams</option>
+              <option value="leopard">Leopard 2A7</option>
+              <option value="t90">T-90M</option>
+              <option value="bradley">M2 Bradley</option>
+            </select>
+          </div>
+          <div class="row chk">
+            <label for="retro-toggle">Retro 8-bit Filter</label>
+            <input type="checkbox" id="retro-toggle" />
+          </div>
+          <div class="row chk">
+            <label for="radar-toggle">Radar</label>
+            <input type="checkbox" id="radar-toggle" />
+          </div>
+        </details>
+
+        <details class="cfg-sec">
+          <summary class="cfg-h">Controls</summary>
+          <select id="move-mode" class="walls-select" aria-label="Movement scheme">
+            <option value="relative">Tank — rotate &amp; drive</option>
+            <option value="eight">8-direction — strafe</option>
+          </select>
+          <div id="move-picker" class="move-picker"></div>
+          <p class="settings-hint" id="move-hint"></p>
+        </details>
+
+        <details class="cfg-sec">
+          <summary class="cfg-h">Performance</summary>
+          <div class="row">
+            <label for="fps-cap">Frame rate</label>
+            <select id="fps-cap" aria-label="Frame rate cap">
+              <option value="30">30 FPS</option>
+              <option value="60">60 FPS</option>
+              <option value="120">120 FPS</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="quality">Graphics</label>
+            <select id="quality" aria-label="Graphics quality">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+          <p class="settings-hint">Lower frame rate and graphics reduce CPU usage.</p>
+        </details>
       </div>
 
       <!-- On-screen touch controls (mobile). Twin-stick: drive left, aim/fire right. -->

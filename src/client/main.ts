@@ -34,9 +34,12 @@ import {
   applyConfigToControls,
   applyMoveSetting,
   buildPowerupAdvInputs,
+  buildPowerupTypeToggles,
+  enhanceNumberInputs,
   gatherConfig,
 } from "./settings.js";
 import {
+  canvas,
   colorInput,
   FPS_KEY,
   IS_TOUCH,
@@ -53,6 +56,13 @@ import {
   BGM_VOL_KEY,
   SFX_VOL_KEY,
   RADAR_KEY,
+  RETRO_KEY,
+  BATTLECITY_KEY,
+  BCTANK_KEY,
+  MODERN_KEY,
+  MODERN_STYLE_KEY,
+  REALISTIC_KEY,
+  REALISTIC_STYLE_KEY,
 } from "./state.js";
 
 if (IS_TOUCH) document.body.classList.add("touch");
@@ -186,14 +196,15 @@ net.onBinary((buf) => {
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
-import { setSfxVolume, isVroomPlaying, playVroom, pauseVroom, playBgm, pauseBgm, setBgmVolume, isBgmPlaying } from "./audio.js";
+import { setSfxVolume, isVroomPlaying, playVroom, pauseVroom, updateVroom, playBgm, pauseBgm, setBgmVolume, isBgmPlaying } from "./audio.js";
 
 let lastHudMs = 0;
 function frame(now: number): void {
   let isMoving = false;
+  let me: any = undefined;
   if (state.inGame) {
     const snap = renderer.latest();
-    const me = snap?.tanks.find((t) => t.id === state.playerId);
+    me = snap?.tanks.find((t) => t.id === state.playerId);
 
     if (state.input && me && !state.paused) {
       const inputState = state.input.getState(me.x, me.y);
@@ -233,9 +244,13 @@ function frame(now: number): void {
     }
   }
   
-  if (isMoving && !isVroomPlaying) {
-    playVroom();
-  } else if (!isMoving && isVroomPlaying) {
+  const shouldPlayEngine = state.inGame && me && me.alive && !state.paused;
+  if (shouldPlayEngine) {
+    if (!isVroomPlaying) {
+      playVroom();
+    }
+    updateVroom(isMoving, me.boosted);
+  } else if (isVroomPlaying) {
     pauseVroom();
   }
 }
@@ -253,7 +268,22 @@ $("name").addEventListener("change", commitName);
 buildSwatches();
 colorInput.addEventListener("input", commitColor);
 
-$("refresh").onclick = () => net.send({ type: "listLobbies" });
+// Manual refresh is a fallback (the server pushes lobby-list changes live) —
+// an icon-only control, not a <button>, so skin themes don't restyle it.
+const refreshEl = $("refresh");
+function refreshLobbies(): void {
+  net.send({ type: "listLobbies" });
+  refreshEl.classList.remove("spin");
+  void refreshEl.offsetWidth; // restart the CSS animation
+  refreshEl.classList.add("spin");
+}
+refreshEl.onclick = refreshLobbies;
+refreshEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    refreshLobbies();
+  }
+});
 
 // Create a lobby with defaults; the host then tunes settings in the lobby room.
 $("create").onclick = () => {
@@ -266,6 +296,8 @@ $("start").onclick = () => net.send({ type: "startGame" });
 
 // In-lobby game settings (host).
 buildPowerupAdvInputs();
+buildPowerupTypeToggles();
+enhanceNumberInputs();
 applyConfigToControls(DEFAULT_GAME_CONFIG, 8);
 $("lobby-config").addEventListener("change", (e) => {
   if (!state.currentLobby || state.currentLobby.hostId !== state.playerId) return;
@@ -287,14 +319,13 @@ $("lobby-config").addEventListener("change", (e) => {
     if (usesPoints()) ($("ctf-points") as HTMLInputElement).value = String(100 * Math.max(1, ctfTeams() - 1));
     if (scoreMode() === "carry") {
       ($("flag-steal") as HTMLSelectElement).value = "off";
-      ($("flag-team-carry") as HTMLSelectElement).value = "on";
+      ($("flag-team-carry") as HTMLInputElement).checked = true;
     }
   }
   applyModeVisibility();
   const { maxPlayers, config } = gatherConfig();
   net.send({ type: "updateConfig", maxPlayers, config });
 });
-$("adv-toggle").onclick = () => $("adv-panel").classList.toggle("hidden");
 
 // Per-player settings (gear).
 $("settings-gear").onclick = () => $("settings-panel").classList.toggle("hidden");
@@ -313,6 +344,34 @@ function applyDisplaySettings(): void {
   renderer.setMaxDpr(QUALITY_DPR[state.quality]);
   ($("fps-cap") as HTMLSelectElement).value = String(state.fpsCap);
   ($("quality") as HTMLSelectElement).value = state.quality;
+
+  const retroToggle = $("retro-toggle") as HTMLInputElement;
+  retroToggle.checked = state.retroEnabled;
+  document.body.classList.toggle("retro-mode", state.retroEnabled);
+  canvas.parentElement?.classList.toggle("retro-mode", state.retroEnabled);
+
+  // One skin at a time: the dropdown mirrors whichever mode flag is set
+  // (paper = none), and only the active skin's style row is shown.
+  ($("skin-select") as HTMLSelectElement).value = state.battleCityEnabled
+    ? "battlecity"
+    : state.modernEnabled
+      ? "modern"
+      : state.realisticEnabled
+        ? "realistic"
+        : "paper";
+  document.body.classList.toggle("battlecity-mode", state.battleCityEnabled);
+  canvas.parentElement?.classList.toggle("battlecity-mode", state.battleCityEnabled);
+  document.body.classList.toggle("modern-mode", state.modernEnabled);
+  canvas.parentElement?.classList.toggle("modern-mode", state.modernEnabled);
+  document.body.classList.toggle("realistic-mode", state.realisticEnabled);
+  canvas.parentElement?.classList.toggle("realistic-mode", state.realisticEnabled);
+
+  ($("bc-style-select") as HTMLSelectElement).value = state.retroStyle;
+  $("bc-style-row").classList.toggle("hidden", !state.battleCityEnabled);
+  ($("modern-style-select") as HTMLSelectElement).value = state.modernStyle;
+  $("modern-style-row").classList.toggle("hidden", !state.modernEnabled);
+  ($("realistic-style-select") as HTMLSelectElement).value = state.realisticStyle;
+  $("realistic-style-row").classList.toggle("hidden", !state.realisticEnabled);
 }
 const savedFps = Number(localStorage.getItem(FPS_KEY));
 state.fpsCap = savedFps === 30 || savedFps === 120 ? savedFps : 60;
@@ -328,6 +387,45 @@ $("quality").addEventListener("change", () => {
   const v = ($("quality") as HTMLSelectElement).value;
   state.quality = v === "low" || v === "high" ? v : "medium";
   localStorage.setItem(QUALITY_KEY, state.quality);
+  applyDisplaySettings();
+});
+$("retro-toggle").addEventListener("change", () => {
+  const v = ($("retro-toggle") as HTMLInputElement).checked;
+  state.retroEnabled = v;
+  localStorage.setItem(RETRO_KEY, String(v));
+  applyDisplaySettings();
+  if (state.arena) {
+    renderer.resizeDrawingBuffer(state.arena.w, state.arena.h);
+  }
+});
+// Skin themes are mutually exclusive, so they're picked from one dropdown
+// (the mode flags + storage keys stay separate for back-compat).
+$("skin-select").addEventListener("change", () => {
+  const v = ($("skin-select") as HTMLSelectElement).value;
+  state.battleCityEnabled = v === "battlecity";
+  state.modernEnabled = v === "modern";
+  state.realisticEnabled = v === "realistic";
+  localStorage.setItem(BATTLECITY_KEY, String(state.battleCityEnabled));
+  localStorage.setItem(MODERN_KEY, String(state.modernEnabled));
+  localStorage.setItem(REALISTIC_KEY, String(state.realisticEnabled));
+  applyDisplaySettings();
+});
+$("bc-style-select").addEventListener("change", () => {
+  const v = ($("bc-style-select") as HTMLSelectElement).value as any;
+  state.retroStyle = v;
+  localStorage.setItem(BCTANK_KEY, v);
+  applyDisplaySettings();
+});
+$("modern-style-select").addEventListener("change", () => {
+  const v = ($("modern-style-select") as HTMLSelectElement).value as any;
+  state.modernStyle = v;
+  localStorage.setItem(MODERN_STYLE_KEY, v);
+  applyDisplaySettings();
+});
+$("realistic-style-select").addEventListener("change", () => {
+  const v = ($("realistic-style-select") as HTMLSelectElement).value as any;
+  state.realisticStyle = v;
+  localStorage.setItem(REALISTIC_STYLE_KEY, v);
   applyDisplaySettings();
 });
 applyDisplaySettings();

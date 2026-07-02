@@ -62,20 +62,38 @@ export const BULLET_LIFETIME = 5; // seconds
 
 // Power-ups
 export const POWERUP_RADIUS = 12;
-export const MAX_POWERUPS_ON_MAP = 4;
+// Hard ceiling on concurrent crates. Not a gameplay cap (hosts tune spawn count
+// / despawn freely) but a protocol-safety limit: the binary snapshot encodes the
+// crate-list length in a single byte, so the population must never exceed 255 or
+// the count wraps and the stream desyncs. 255 is far above any playable density.
+export const MAX_POWERUPS_ON_MAP = 255;
 export const SPEED_BOOST_MULT = 1.6;
 export const SPEED_BOOST_SECONDS = 6;
 export const SHIELD_SECONDS = 6; // invulnerability duration from a shield pickup
+// Duration bonus (percent) granted by a speed/shield pickup taken while that
+// buff is already active: a stacked pickup adds duration × (1 + pct/100).
+export const BUFF_STACK_BONUS_PCT = 10;
 export const LASER_DELAY = 1; // windup (seconds) before a laser actually fires
 export const SNIPER_SPEED_MULT = 5; // very fast round
-export const SNIPER_WALL_PIERCE = 10; // walls a sniper round punches through
+export const SNIPER_WALL_PIERCE = 5; // walls a sniper round punches through
 export const EXPLOSION_RADIUS = 56; // area-damage radius for explosive rounds
 export const TRACKING_TURN_RATE = 4.5; // radians/sec a homing round can turn
 export const TRACKING_LIFETIME = 6; // seconds a tracking round lives (its range)
 export const TRACKING_BOUNCES = 6; // wall bounces a tracking round survives
 export const MULTISHOT_COUNT = 5; // pellets released by a multishot pickup
 export const MULTISHOT_SPREAD_DEG = 30; // total fan angle (degrees) of a multishot
+export const RAPIDFIRE_COUNT = 5; // bullets fired per rapid-fire burst
+export const RAPIDFIRE_DELAY = 0.15; // seconds between each burst shot
+// Safety bound on bullets emitted by one trigger pull when effects combine
+// (e.g. multishot fan × rapid-fire burst) so extreme configs can't flood the
+// arena / overrun the 255 wire cap. Rapid-fire burst length is clamped to keep
+// fanCount × burst under this.
+export const MAX_VOLLEY_BULLETS = 60;
 export const TRACKING_REPATH = 0.12; // seconds between homing-round path recomputes
+// A homing round (tracking bullet or curving laser) flies straight for this many
+// tank widths before its steering engages, so a multishot fan clears the muzzle and
+// spreads before the legs curve toward — and converge on — the same target.
+export const HOMING_GRACE_TANK_WIDTHS = 2;
 export const SCOPE_SECONDS = 10; // duration of the line-of-sight scope buff
 
 // Rounds: a match is "first to N round wins" for any number of sides (the
@@ -97,6 +115,12 @@ export const SPAWN_ZONE_CELLS = 2;
 // Laser is a hitscan beam: range ≈ one small map (7 cells), so on big maps it
 // can't reach all the way across.
 export const LASER_RANGE = 15 * CELL;
+// A laser + sniper beam branches at every pierceable wall (one reflected leg + one
+// transmitted leg), so a single trigger can spawn a tree of segments and blasts.
+// These cap the tree so its segment/blast lists stay well under the wire's per-list
+// Uint8 length (255) and the sim can't be flooded by an extreme pierce budget.
+export const MAX_BEAM_SEGMENTS = 160;
+export const MAX_BEAM_BLASTS = 96;
 
 // Fog of war: non-wall visuals are clipped to the local/team sight area.
 // Scope doubles tank vision radius and grants x-ray through walls. Host-tunable live.

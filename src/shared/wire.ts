@@ -8,7 +8,6 @@
 import {
   POWERUP_TYPES,
   WEAPON_POWERUPS,
-  type BulletKind,
   type FlagState,
   type InputState,
   type PowerupType,
@@ -23,21 +22,19 @@ export const MSG_SNAPSHOT_SLIM = 3;
 
 // --- enum <-> code tables (derived from the power-up registry) -------------
 
-// Active-weapon codes: 0 = none, then each weapon power-up in registry order.
-const WEAPON_CODES: (PowerupType | null)[] = [null, ...WEAPON_POWERUPS];
-const KIND_CODES: BulletKind[] = ["normal", "sniper", "explosive", "laser", "tracking"];
 // Pickup codes: every power-up in registry order.
 const PUP_CODES: PowerupType[] = POWERUP_TYPES;
 // Flag-state codes.
 const FLAG_STATES: FlagState[] = ["home", "carried", "dropped", "held"];
 const flagStateCode = (s: FlagState): number => Math.max(0, FLAG_STATES.indexOf(s));
-
-const weaponCode = (w: PowerupType | null): number => {
-  const i = WEAPON_CODES.indexOf(w);
-  return i < 0 ? 0 : i;
-};
-const kindCode = (k: BulletKind): number => Math.max(0, KIND_CODES.indexOf(k));
 const pupCode = (p: PowerupType): number => Math.max(0, PUP_CODES.indexOf(p));
+
+// Composable bullet effect flags packed into one byte.
+const BF_HOMING = 1;
+const BF_EXPLOSIVE = 2;
+const BF_PIERCE = 4;
+const bulletFlags = (b: { homing: boolean; explosive: boolean; pierce: boolean }): number =>
+  (b.homing ? BF_HOMING : 0) | (b.explosive ? BF_EXPLOSIVE : 0) | (b.pierce ? BF_PIERCE : 0);
 
 // --- quantization helpers --------------------------------------------------
 
@@ -94,7 +91,9 @@ export function decodeInput(buf: ArrayBuffer): InputState {
 
 // --- snapshot --------------------------------------------------------------
 
-const TANK_BYTES = 20;
+// Per-weapon charge bytes replace the old single weaponCode+charges pair, so
+// a tank can carry several combined weapon effects at once.
+const TANK_BYTES = 18 + WEAPON_POWERUPS.length; // was 20 (2 weapon bytes); now one charge byte per weapon
 const SLIM_TANK_BYTES = 11;
 
 export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
@@ -143,8 +142,7 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     o += 2;
     dv.setUint8(o++, ds(t.respawnIn));
     dv.setUint8(o++, ds(t.reloadIn));
-    dv.setUint8(o++, weaponCode(t.weapon));
-    dv.setUint8(o++, Math.min(255, t.weaponCharges));
+    for (const w of WEAPON_POWERUPS) dv.setUint8(o++, Math.min(255, t.weaponCharges[w] ?? 0));
     dv.setUint8(o++, Math.min(255, t.livesLeft));
     dv.setUint8(o++, Math.min(255, t.captures));
   }
@@ -152,20 +150,24 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
   // Owner is sent as the tank's wire index (resolved back to color client-side).
   // 255 = unknown owner.
   const ownerIndex = new Map(s.tanks.map((t) => [t.id, t.index]));
-  dv.setUint8(o++, s.bullets.length);
-  for (const b of s.bullets) {
+  const bulletCount = Math.min(255, s.bullets.length);
+  dv.setUint8(o++, bulletCount);
+  for (let bi = 0; bi < bulletCount; bi++) {
+    const b = s.bullets[bi];
     dv.setUint16(o, b.id & 0xffff, true);
     o += 2;
     dv.setUint16(o, u16(b.x), true);
     o += 2;
     dv.setUint16(o, u16(b.y), true);
     o += 2;
-    dv.setUint8(o++, kindCode(b.kind));
+    dv.setUint8(o++, bulletFlags(b));
     dv.setUint8(o++, ownerIndex.get(b.ownerId) ?? 255);
   }
 
-  dv.setUint8(o++, s.powerups.length);
-  for (const p of s.powerups) {
+  const powerupCount = Math.min(255, s.powerups.length);
+  dv.setUint8(o++, powerupCount);
+  for (let pi = 0; pi < powerupCount; pi++) {
+    const p = s.powerups[pi];
     dv.setUint8(o++, pupCode(p.type));
     dv.setUint16(o, u16(p.x), true);
     o += 2;
@@ -184,16 +186,22 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint8(o++, f.carrier & 0xff);
   }
 
-  dv.setUint8(o++, s.blasts.length);
-  for (const bl of s.blasts) {
+  // Counts are single bytes, so clamp to 255 (a dense branching-beam volley can
+  // exceed it); writing more than the count says would desync the reader.
+  const blastCount = Math.min(255, s.blasts.length);
+  dv.setUint8(o++, blastCount);
+  for (let i = 0; i < blastCount; i++) {
+    const bl = s.blasts[i];
     dv.setUint16(o, u16(bl.x), true);
     o += 2;
     dv.setUint16(o, u16(bl.y), true);
     o += 2;
   }
 
-  dv.setUint8(o++, s.beams.length);
-  for (const bm of s.beams) {
+  const beamCount = Math.min(255, s.beams.length);
+  dv.setUint8(o++, beamCount);
+  for (let i = 0; i < beamCount; i++) {
+    const bm = s.beams[i];
     dv.setUint16(o, u16(bm.x1), true);
     o += 2;
     dv.setUint16(o, u16(bm.y1), true);
@@ -281,20 +289,24 @@ export function encodeSlimSnapshot(s: SnapshotDTO): Uint8Array {
 function encodeSnapshotTail(dv: DataView, offset: number, s: SnapshotDTO): number {
   let o = offset;
   const ownerIndex = new Map(s.tanks.map((t) => [t.id, t.index]));
-  dv.setUint8(o++, s.bullets.length);
-  for (const b of s.bullets) {
+  const bulletCount = Math.min(255, s.bullets.length);
+  dv.setUint8(o++, bulletCount);
+  for (let bi = 0; bi < bulletCount; bi++) {
+    const b = s.bullets[bi];
     dv.setUint16(o, b.id & 0xffff, true);
     o += 2;
     dv.setUint16(o, u16(b.x), true);
     o += 2;
     dv.setUint16(o, u16(b.y), true);
     o += 2;
-    dv.setUint8(o++, kindCode(b.kind));
+    dv.setUint8(o++, bulletFlags(b));
     dv.setUint8(o++, ownerIndex.get(b.ownerId) ?? 255);
   }
 
-  dv.setUint8(o++, s.powerups.length);
-  for (const p of s.powerups) {
+  const powerupCount = Math.min(255, s.powerups.length);
+  dv.setUint8(o++, powerupCount);
+  for (let pi = 0; pi < powerupCount; pi++) {
+    const p = s.powerups[pi];
     dv.setUint8(o++, pupCode(p.type));
     dv.setUint16(o, u16(p.x), true);
     o += 2;
@@ -313,16 +325,22 @@ function encodeSnapshotTail(dv: DataView, offset: number, s: SnapshotDTO): numbe
     dv.setUint8(o++, f.carrier & 0xff);
   }
 
-  dv.setUint8(o++, s.blasts.length);
-  for (const bl of s.blasts) {
+  // Counts are single bytes, so clamp to 255 (a dense branching-beam volley can
+  // exceed it); writing more than the count says would desync the reader.
+  const blastCount = Math.min(255, s.blasts.length);
+  dv.setUint8(o++, blastCount);
+  for (let i = 0; i < blastCount; i++) {
+    const bl = s.blasts[i];
     dv.setUint16(o, u16(bl.x), true);
     o += 2;
     dv.setUint16(o, u16(bl.y), true);
     o += 2;
   }
 
-  dv.setUint8(o++, s.beams.length);
-  for (const bm of s.beams) {
+  const beamCount = Math.min(255, s.beams.length);
+  dv.setUint8(o++, beamCount);
+  for (let i = 0; i < beamCount; i++) {
+    const bm = s.beams[i];
     dv.setUint16(o, u16(bm.x1), true);
     o += 2;
     dv.setUint16(o, u16(bm.y1), true);
@@ -373,8 +391,11 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     o += 2;
     const respawnIn = decDs(dv.getUint8(o++));
     const reloadIn = decDs(dv.getUint8(o++));
-    const weapon = WEAPON_CODES[dv.getUint8(o++)] ?? null;
-    const weaponCharges = dv.getUint8(o++);
+    const weaponCharges: Partial<Record<PowerupType, number>> = {};
+    for (const w of WEAPON_POWERUPS) {
+      const c = dv.getUint8(o++);
+      if (c > 0) weaponCharges[w] = c;
+    }
     const livesLeft = dv.getUint8(o++);
     const captures = dv.getUint8(o++);
     const r = roster.get(index);
@@ -400,7 +421,6 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
       score,
       respawnIn,
       reloadIn,
-      weapon,
       weaponCharges,
       livesLeft,
       captures,
@@ -416,10 +436,18 @@ export function decodeSnapshot(buf: ArrayBuffer, roster: Map<number, RosterEntry
     o += 2;
     const y = dv.getUint16(o, true);
     o += 2;
-    const kind = KIND_CODES[dv.getUint8(o++)] ?? "normal";
+    const f = dv.getUint8(o++);
     const ownerIndex = dv.getUint8(o++);
     const ownerId = roster.get(ownerIndex)?.id ?? "";
-    bullets.push({ id, x, y, ownerId, kind });
+    bullets.push({
+      id,
+      x,
+      y,
+      ownerId,
+      homing: (f & BF_HOMING) !== 0,
+      explosive: (f & BF_EXPLOSIVE) !== 0,
+      pierce: (f & BF_PIERCE) !== 0,
+    });
   }
 
   const powerups = [];
@@ -542,8 +570,7 @@ function decodeSlimSnapshot(
       score: prev?.score ?? 0,
       respawnIn,
       reloadIn: prev?.reloadIn ?? 0,
-      weapon: prev?.weapon ?? null,
-      weaponCharges: prev?.weaponCharges ?? 0,
+      weaponCharges: prev ? { ...prev.weaponCharges } : {},
       livesLeft: prev?.livesLeft ?? 0,
       captures: prev?.captures ?? 0,
     });
@@ -569,10 +596,18 @@ function decodeSnapshotTail(
     o += 2;
     const y = dv.getUint16(o, true);
     o += 2;
-    const kind = KIND_CODES[dv.getUint8(o++)] ?? "normal";
+    const f = dv.getUint8(o++);
     const ownerIndex = dv.getUint8(o++);
     const ownerId = roster.get(ownerIndex)?.id ?? "";
-    bullets.push({ id, x, y, ownerId, kind });
+    bullets.push({
+      id,
+      x,
+      y,
+      ownerId,
+      homing: (f & BF_HOMING) !== 0,
+      explosive: (f & BF_EXPLOSIVE) !== 0,
+      pierce: (f & BF_PIERCE) !== 0,
+    });
   }
 
   const powerups = [];
