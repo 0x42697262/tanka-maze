@@ -35,6 +35,7 @@ import {
   applyMoveSetting,
   buildPowerupAdvInputs,
   buildPowerupTypeToggles,
+  enhanceNumberInputs,
   gatherConfig,
 } from "./settings.js";
 import {
@@ -281,6 +282,7 @@ $("start").onclick = () => net.send({ type: "startGame" });
 // In-lobby game settings (host).
 buildPowerupAdvInputs();
 buildPowerupTypeToggles();
+enhanceNumberInputs();
 applyConfigToControls(DEFAULT_GAME_CONFIG, 8);
 $("lobby-config").addEventListener("change", (e) => {
   if (!state.currentLobby || state.currentLobby.hostId !== state.playerId) return;
@@ -302,14 +304,13 @@ $("lobby-config").addEventListener("change", (e) => {
     if (usesPoints()) ($("ctf-points") as HTMLInputElement).value = String(100 * Math.max(1, ctfTeams() - 1));
     if (scoreMode() === "carry") {
       ($("flag-steal") as HTMLSelectElement).value = "off";
-      ($("flag-team-carry") as HTMLSelectElement).value = "on";
+      ($("flag-team-carry") as HTMLInputElement).checked = true;
     }
   }
   applyModeVisibility();
   const { maxPlayers, config } = gatherConfig();
   net.send({ type: "updateConfig", maxPlayers, config });
 });
-$("adv-toggle").onclick = () => $("adv-panel").classList.toggle("hidden");
 
 // Per-player settings (gear).
 $("settings-gear").onclick = () => $("settings-panel").classList.toggle("hidden");
@@ -331,70 +332,31 @@ function applyDisplaySettings(): void {
 
   const retroToggle = $("retro-toggle") as HTMLInputElement;
   retroToggle.checked = state.retroEnabled;
-  if (state.retroEnabled) {
-    document.body.classList.add("retro-mode");
-    canvas.parentElement?.classList.add("retro-mode");
-  } else {
-    document.body.classList.remove("retro-mode");
-    canvas.parentElement?.classList.remove("retro-mode");
-  }
+  document.body.classList.toggle("retro-mode", state.retroEnabled);
+  canvas.parentElement?.classList.toggle("retro-mode", state.retroEnabled);
 
-  const bcToggle = $("battlecity-toggle") as HTMLInputElement;
-  bcToggle.checked = state.battleCityEnabled;
-  if (state.battleCityEnabled) {
-    document.body.classList.add("battlecity-mode");
-    canvas.parentElement?.classList.add("battlecity-mode");
-  } else {
-    document.body.classList.remove("battlecity-mode");
-    canvas.parentElement?.classList.remove("battlecity-mode");
-  }
+  // One skin at a time: the dropdown mirrors whichever mode flag is set
+  // (paper = none), and only the active skin's style row is shown.
+  ($("skin-select") as HTMLSelectElement).value = state.battleCityEnabled
+    ? "battlecity"
+    : state.modernEnabled
+      ? "modern"
+      : state.realisticEnabled
+        ? "realistic"
+        : "paper";
+  document.body.classList.toggle("battlecity-mode", state.battleCityEnabled);
+  canvas.parentElement?.classList.toggle("battlecity-mode", state.battleCityEnabled);
+  document.body.classList.toggle("modern-mode", state.modernEnabled);
+  canvas.parentElement?.classList.toggle("modern-mode", state.modernEnabled);
+  document.body.classList.toggle("realistic-mode", state.realisticEnabled);
+  canvas.parentElement?.classList.toggle("realistic-mode", state.realisticEnabled);
 
-  const bcStyleRow = $("bc-style-row") as HTMLElement;
-  const bcStyleSelect = $("bc-style-select") as HTMLSelectElement;
-  bcStyleSelect.value = state.retroStyle;
-  if (state.battleCityEnabled) {
-    bcStyleRow.classList.remove("hidden");
-  } else {
-    bcStyleRow.classList.add("hidden");
-  }
-
-  const modernToggle = $("modern-toggle") as HTMLInputElement;
-  modernToggle.checked = state.modernEnabled;
-  if (state.modernEnabled) {
-    document.body.classList.add("modern-mode");
-    canvas.parentElement?.classList.add("modern-mode");
-  } else {
-    document.body.classList.remove("modern-mode");
-    canvas.parentElement?.classList.remove("modern-mode");
-  }
-
-  const modernStyleRow = $("modern-style-row") as HTMLElement;
-  const modernStyleSelect = $("modern-style-select") as HTMLSelectElement;
-  modernStyleSelect.value = state.modernStyle;
-  if (state.modernEnabled) {
-    modernStyleRow.classList.remove("hidden");
-  } else {
-    modernStyleRow.classList.add("hidden");
-  }
-
-  const realisticToggle = $("realistic-toggle") as HTMLInputElement;
-  realisticToggle.checked = state.realisticEnabled;
-  if (state.realisticEnabled) {
-    document.body.classList.add("realistic-mode");
-    canvas.parentElement?.classList.add("realistic-mode");
-  } else {
-    document.body.classList.remove("realistic-mode");
-    canvas.parentElement?.classList.remove("realistic-mode");
-  }
-
-  const realisticStyleRow = $("realistic-style-row") as HTMLElement;
-  const realisticStyleSelect = $("realistic-style-select") as HTMLSelectElement;
-  realisticStyleSelect.value = state.realisticStyle;
-  if (state.realisticEnabled) {
-    realisticStyleRow.classList.remove("hidden");
-  } else {
-    realisticStyleRow.classList.add("hidden");
-  }
+  ($("bc-style-select") as HTMLSelectElement).value = state.retroStyle;
+  $("bc-style-row").classList.toggle("hidden", !state.battleCityEnabled);
+  ($("modern-style-select") as HTMLSelectElement).value = state.modernStyle;
+  $("modern-style-row").classList.toggle("hidden", !state.modernEnabled);
+  ($("realistic-style-select") as HTMLSelectElement).value = state.realisticStyle;
+  $("realistic-style-row").classList.toggle("hidden", !state.realisticEnabled);
 }
 const savedFps = Number(localStorage.getItem(FPS_KEY));
 state.fpsCap = savedFps === 30 || savedFps === 120 ? savedFps : 60;
@@ -421,16 +383,16 @@ $("retro-toggle").addEventListener("change", () => {
     renderer.resizeDrawingBuffer(state.arena.w, state.arena.h);
   }
 });
-$("battlecity-toggle").addEventListener("change", () => {
-  const v = ($("battlecity-toggle") as HTMLInputElement).checked;
-  state.battleCityEnabled = v;
-  localStorage.setItem(BATTLECITY_KEY, String(v));
-  if (v) {
-    state.modernEnabled = false;
-    localStorage.setItem(MODERN_KEY, "false");
-    state.realisticEnabled = false;
-    localStorage.setItem(REALISTIC_KEY, "false");
-  }
+// Skin themes are mutually exclusive, so they're picked from one dropdown
+// (the mode flags + storage keys stay separate for back-compat).
+$("skin-select").addEventListener("change", () => {
+  const v = ($("skin-select") as HTMLSelectElement).value;
+  state.battleCityEnabled = v === "battlecity";
+  state.modernEnabled = v === "modern";
+  state.realisticEnabled = v === "realistic";
+  localStorage.setItem(BATTLECITY_KEY, String(state.battleCityEnabled));
+  localStorage.setItem(MODERN_KEY, String(state.modernEnabled));
+  localStorage.setItem(REALISTIC_KEY, String(state.realisticEnabled));
   applyDisplaySettings();
 });
 $("bc-style-select").addEventListener("change", () => {
@@ -439,34 +401,10 @@ $("bc-style-select").addEventListener("change", () => {
   localStorage.setItem(BCTANK_KEY, v);
   applyDisplaySettings();
 });
-$("modern-toggle").addEventListener("change", () => {
-  const v = ($("modern-toggle") as HTMLInputElement).checked;
-  state.modernEnabled = v;
-  localStorage.setItem(MODERN_KEY, String(v));
-  if (v) {
-    state.battleCityEnabled = false;
-    localStorage.setItem(BATTLECITY_KEY, "false");
-    state.realisticEnabled = false;
-    localStorage.setItem(REALISTIC_KEY, "false");
-  }
-  applyDisplaySettings();
-});
 $("modern-style-select").addEventListener("change", () => {
   const v = ($("modern-style-select") as HTMLSelectElement).value as any;
   state.modernStyle = v;
   localStorage.setItem(MODERN_STYLE_KEY, v);
-  applyDisplaySettings();
-});
-$("realistic-toggle").addEventListener("change", () => {
-  const v = ($("realistic-toggle") as HTMLInputElement).checked;
-  state.realisticEnabled = v;
-  localStorage.setItem(REALISTIC_KEY, String(v));
-  if (v) {
-    state.battleCityEnabled = false;
-    localStorage.setItem(BATTLECITY_KEY, "false");
-    state.modernEnabled = false;
-    localStorage.setItem(MODERN_KEY, "false");
-  }
   applyDisplaySettings();
 });
 $("realistic-style-select").addEventListener("change", () => {
