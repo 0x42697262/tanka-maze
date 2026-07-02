@@ -215,7 +215,9 @@ export function buildSwatches(): void {
   wrap.innerHTML = "";
   for (const c of PRESET_COLORS) {
     const b = document.createElement("button");
-    b.style.background = c;
+    // !important beats the skin themes' `body.X-mode button { background: … !important }`
+    // overrides, which would otherwise blank out every swatch.
+    b.style.setProperty("background", c, "important");
     b.dataset.color = c;
     b.title = c;
     b.onclick = () => {

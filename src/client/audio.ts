@@ -607,11 +607,20 @@ function playSynthLoseModern(volume: number) {
 
 
 let vroomSource: any = null;
+// Which skin the current vroom source was built for. Modern/Battle City use an
+// OscillatorNode (frequency), the others an AudioBufferSourceNode (playbackRate)
+// — mixing them up throws, so a skin change must rebuild the source.
+let vroomFlavor: "modern" | "battlecity" | "buffer" | null = null;
 export let isVroomPlaying = false;
+
+function currentVroomFlavor(): "modern" | "battlecity" | "buffer" {
+  return state.modernEnabled ? "modern" : state.battleCityEnabled ? "battlecity" : "buffer";
+}
 
 export function playVroom() {
   if (isVroomPlaying) return;
-  
+  vroomFlavor = currentVroomFlavor();
+
   if (state.modernEnabled) {
     if (audioCtx.state === "suspended") audioCtx.resume();
     vroomSource = audioCtx.createOscillator();
@@ -671,12 +680,21 @@ export function pauseVroom() {
   vroomSource.disconnect();
   vroomSource = null;
   vroomGainNode = null;
+  vroomFlavor = null;
   isVroomPlaying = false;
 }
 
 export function updateVroom(isMoving: boolean, hasBoost: boolean) {
   if (!isVroomPlaying || !vroomSource || !vroomGainNode) return;
-  
+
+  // Skin changed mid-drive: rebuild the source so its node type matches the
+  // branch below (and the engine actually sounds like the new skin).
+  if (vroomFlavor !== currentVroomFlavor()) {
+    pauseVroom();
+    playVroom();
+    if (!isVroomPlaying || !vroomSource || !vroomGainNode) return;
+  }
+
   if (state.realisticEnabled) {
     let targetPitch = 0.60; // Idle heavy diesel pitch
     let targetGain = 0.20;
