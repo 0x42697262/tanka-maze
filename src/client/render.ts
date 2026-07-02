@@ -1,4 +1,4 @@
-import { BULLET_RADIUS, CELL, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
+import { BULLET_RADIUS, POWERUP_RADIUS, TANK_RADIUS, VISION_RADIUS } from "../shared/constants.js";
 import { buildFogShape, effectiveVisionRadius, pointInFogShape, type FogShape, type FogWall } from "../shared/fog.js";
 import { playSfx } from "./audio.js";
 import { state } from "./state.js";
@@ -1346,13 +1346,13 @@ export class Renderer {
       ctx.strokeRect(h.x + 1, h.y + 1, h.width - 2, h.height - 2);
       ctx.restore();
       // Type glyph at the zone's center — same icon and color as the lobby
-      // hazard toggles, one cell tall so it reads at arena zoom.
+      // hazard toggles, faded to match the terrain tint so it reads as ground.
       const icon = HAZARD_ICON[h.type];
       ctx.save();
-      ctx.font = `${CELL}px sans-serif`;
+      ctx.font = `${Math.min(h.width, h.height) * 0.75}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillStyle = icon.color;
+      ctx.fillStyle = hexToRgba(icon.color, pulse);
       ctx.fillText(icon.glyph, h.x + h.width / 2, h.y + h.height / 2);
       ctx.restore();
     }
