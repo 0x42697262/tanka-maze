@@ -374,6 +374,7 @@ function sanitizeAdvanced(raw: unknown): AdvancedConfig {
     cellSize: i(c.cellSize, 40, 200, d.cellSize),
     wallThickness: f(c.wallThickness, 2, 30, d.wallThickness),
     wallHp: i(c.wallHp, 1, 50, d.wallHp),
+    buffStackBonusPct: f(c.buffStackBonusPct, 0, 100, d.buffStackBonusPct),
   };
   for (const def of POWERUP_DEFS) {
     for (const field of def.config) {

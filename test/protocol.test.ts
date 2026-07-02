@@ -27,6 +27,7 @@ const STATIC_ADV_KEYS = [
   "cellSize",
   "wallThickness",
   "wallHp",
+  "buffStackBonusPct",
 ];
 
 describe("power-up registry", () => {

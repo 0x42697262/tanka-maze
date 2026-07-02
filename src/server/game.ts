@@ -1,4 +1,5 @@
 import {
+  HOMING_GRACE_TANK_WIDTHS,
   MAX_BEAM_BLASTS,
   MAX_BEAM_SEGMENTS,
   MAX_POWERUPS_ON_MAP,
@@ -96,12 +97,23 @@ const HOMING_DIRS: ReadonlyArray<readonly [number, number]> = [
 // stacking); otherwise it resets to a fresh pickup. Adding to a zero timer is
 // identical to setting, so the same expression handles both cases.
 type BuffCommand = (tank: Tank, adv: AdvancedConfig, cfg: GameConfig, stack: boolean) => void;
+// A pickup taken while its buff is still running is a *stacked* pickup: it adds
+// its duration with a configurable bonus (buffStackBonusPct) on top, instead of
+// the plain duration a fresh pickup grants.
+const stackedDuration = (current: number, base: number, adv: AdvancedConfig): number =>
+  current + base * (current > 0 ? 1 + adv.buffStackBonusPct / 100 : 1);
 const BUFF_COMMANDS: Partial<Record<PowerupType, BuffCommand>> = {
   speed: (t, adv, _cfg, stack) => {
-    t.boostTimer = (stack ? t.boostTimer : 0) + adv.speedBoostSeconds;
+    // The boost strength stacks like the duration: each concurrent pickup adds
+    // another layer (folded into the speed multiplier where boost is applied).
+    const prev = stack ? t.boostTimer : 0;
+    t.boostStacks = prev > 0 ? t.boostStacks + 1 : 1;
+    t.boostTimer = stackedDuration(prev, adv.speedBoostSeconds, adv);
   },
   shield: (t, adv, _cfg, stack) => {
-    t.shieldTimer = (stack ? t.shieldTimer : 0) + adv.shieldSeconds;
+    // Shield has no magnitude (invulnerable is invulnerable), so a stack is
+    // pure duration — including the same stacked-pickup bonus.
+    t.shieldTimer = stackedDuration(stack ? t.shieldTimer : 0, adv.shieldSeconds, adv);
   },
   scope: (t, adv, cfg, stack) => {
     // Aiming guide: layers on any weapon, consumed one charge per shot, capped
@@ -147,6 +159,8 @@ interface Tank {
   pendingRecipe: Recipe | null;
   /** Seconds of speed boost remaining. */
   boostTimer: number;
+  /** Concurrent speed pickups active: boost = 1 + stacks × (mult − 1). */
+  boostStacks: number;
   /** Seconds of shield (invulnerability) remaining. */
   shieldTimer: number;
   /** Seconds of line-of-sight scope (aiming guide) remaining (time cap). */
@@ -200,6 +214,8 @@ interface Bullet {
   life: number;
   /** Homing: steers toward the nearest target each step (tracking). */
   homing: boolean;
+  /** Homing: straight-flight distance still owed before steering engages (px). */
+  homingGrace: number;
   /** Passes through tanks (damaging each once) instead of being consumed (sniper). */
   tankPierce: boolean;
   /** Emit a blast at every wall/tank contact and on despawn (explosion). */
@@ -251,6 +267,7 @@ export class Game {
     maxBounces: 0,
     life: 0,
     homing: false,
+    homingGrace: 0,
     tankPierce: false,
     blastOnContact: false,
     blastRadius: 0,
@@ -381,6 +398,7 @@ export class Game {
       weaponCharges: {},
       pendingRecipe: null,
       boostTimer: 0,
+      boostStacks: 0,
       shieldTimer: SPAWN_SHIELD_SECONDS, // spawn protection
       scopeTimer: 0,
       scopeShots: 0,
@@ -495,7 +513,10 @@ export class Game {
 
     for (const tank of this.tanks.values()) {
       tank.fireCooldown = Math.max(0, tank.fireCooldown - dt);
-      if (tank.boostTimer > 0) tank.boostTimer = Math.max(0, tank.boostTimer - dt);
+      if (tank.boostTimer > 0) {
+        tank.boostTimer = Math.max(0, tank.boostTimer - dt);
+        if (tank.boostTimer === 0) tank.boostStacks = 0; // all stacks expire together
+      }
       if (tank.shieldTimer > 0) tank.shieldTimer = Math.max(0, tank.shieldTimer - dt);
       if (tank.scopeTimer > 0) tank.scopeTimer = Math.max(0, tank.scopeTimer - dt);
       // Laser windup: fire the beam (honoring its frozen recipe's fan + blast)
@@ -561,7 +582,10 @@ export class Game {
 
       tank.turretAngle = tank.input.aim;
 
-      const boost = tank.boostTimer > 0 ? this.adv.speedBoostMult : 1;
+      // Boost strength stacks additively: each concurrent speed pickup
+      // contributes its full bonus (mult − 1) on top of the base ×1.
+      const boost =
+        tank.boostTimer > 0 ? 1 + tank.boostStacks * (this.adv.speedBoostMult - 1) : 1;
 
       // --- compute target velocity from input (per control scheme) ---
       // Velocity is authoritative state that eases toward this target each
@@ -697,6 +721,7 @@ export class Game {
     bullet.maxBounces = init.maxBounces;
     bullet.life = init.life;
     bullet.homing = init.homing;
+    bullet.homingGrace = init.homingGrace;
     bullet.tankPierce = init.tankPierce;
     bullet.blastOnContact = init.blastOnContact;
     bullet.blastRadius = init.blastRadius;
@@ -790,6 +815,7 @@ export class Game {
       maxBounces: r.maxBounces,
       life: r.life,
       homing: r.homing,
+      homingGrace: r.homing ? HOMING_GRACE_TANK_WIDTHS * (this.adv.tankRadius * 2) : 0,
       tankPierce: r.tankPierce,
       blastOnContact: r.blastOnContact,
       blastRadius: r.blastRadius,
@@ -807,10 +833,14 @@ export class Game {
     const n = Math.max(1, r.fanCount);
     const angleAt = (i: number) => (n > 1 ? a - r.fanSpread / 2 + (r.fanSpread / (n - 1)) * i : a);
     if (r.carrier === "beam") {
-      // Shared budget across the whole volley so a multishot fan of branching beams
-      // still can't overflow the wire's per-list Uint8 length.
-      const budget = { segments: 0, blasts: 0 };
-      for (let i = 0; i < n; i++) this.fireLaser(tank, angleAt(i), r, budget);
+      // Split the wire's segment/blast budget evenly across the fan so every beam
+      // gets drawn — a shared pool would let the first (curving/branching) beams eat
+      // it all and starve the rest. The per-beam totals still sum under the Uint8 cap.
+      const maxSegments = Math.max(8, Math.floor(MAX_BEAM_SEGMENTS / n));
+      const maxBlasts = Math.max(4, Math.floor(MAX_BEAM_BLASTS / n));
+      for (let i = 0; i < n; i++) {
+        this.fireLaser(tank, angleAt(i), r, { segments: 0, blasts: 0, maxSegments, maxBlasts });
+      }
       return;
     }
     for (let i = 0; i < n; i++) this.spawnBullet(tank, angleAt(i), r);
@@ -920,16 +950,18 @@ export class Game {
    * Hitscan laser: an instant beam, up to this.adv.laserRange total length,
    * damaging each tank it crosses once. It folds the same axes the projectile
    * carrier does — reflection is intrinsic to the beam, `blastOnContact` detonates
-   * at every wall/tank contact and at each leaf end, and `wallPierce > 0` makes it
+   * at every wall/tank contact and at each leaf end, `wallPierce > 0` makes it
    * *branch* at each wall (one reflected leg + one transmitted leg) until the shared
-   * pierce budget runs out. `budget` caps the whole volley's segments/blasts so a
-   * branching tree can't overflow the wire's per-list Uint8 length.
+   * pierce budget runs out, and `homing` makes it *curve* toward the nearest enemy
+   * (straight while it can pierce, else pathfinding through corridors) at the same
+   * turn radius a tracking round has. `budget` caps the whole volley's segments/
+   * blasts so a branching tree can't overflow the wire's per-list Uint8 length.
    */
   private fireLaser(
     tank: Tank,
     angle: number,
     r: Recipe,
-    budget: { segments: number; blasts: number }
+    budget: { segments: number; blasts: number; maxSegments: number; maxBlasts: number }
   ): void {
     const STEP = 3;
     const R = this.adv.bulletRadius;
@@ -937,7 +969,7 @@ export class Game {
     let pierceLeft = r.pierces ? r.wallPierce : 0; // shared across all branches
 
     const blastAt = (x: number, y: number) => {
-      if (!r.blastOnContact || budget.blasts >= MAX_BEAM_BLASTS) return;
+      if (!r.blastOnContact || budget.blasts >= budget.maxBlasts) return;
       budget.blasts += 1;
       this.explode(x, y, tank.id, r.blastRadius);
     };
@@ -964,6 +996,7 @@ export class Game {
       dy: number;
       remaining: number;
       bounces: number;
+      traveled: number; // distance from the muzzle (paces the homing grace)
     }
     const start: Ray = {
       x: tank.x + Math.cos(angle) * (this.adv.tankRadius + 2),
@@ -972,28 +1005,81 @@ export class Game {
       dy: Math.sin(angle),
       remaining: this.adv.laserRange,
       bounces: 0,
+      traveled: 0,
     };
     const rays: Ray[] = [start];
 
-    while (rays.length > 0 && budget.segments < MAX_BEAM_SEGMENTS) {
+    // Homing (curving beam): turn the heading a little each STEP toward a target
+    // waypoint, at the same spatial turn rate a tracking round has (rad/s → rad/px).
+    const turnPerStep = this.adv.trackingTurnRate * (STEP / this.adv.bulletSpeed);
+    const repathDist = Math.max(this.maze.cell, this.adv.bulletSpeed * TRACKING_REPATH);
+    const VERTEX_TURN = 0.15; // emit a polyline vertex once the curve bends this far (rad)
+    const homingGrace = HOMING_GRACE_TANK_WIDTHS * (this.adv.tankRadius * 2); // fly straight first
+    // Cap how many segments any single leg may draw, so the main pierce leg's long
+    // return-bouncing can't hog a beam's budget and starve the reflect branches —
+    // that lets every beam of a multishot fan show its bounces (not just the center).
+    const perRayCap = Math.max(16, Math.floor(budget.maxSegments / 3));
+
+    while (rays.length > 0 && budget.segments < budget.maxSegments) {
       const ray = rays.pop() as Ray;
-      let { x, y, dx, dy, remaining, bounces } = ray;
+      let { x, y, dx, dy, remaining, bounces, traveled } = ray;
       const pts: Array<{ x: number; y: number }> = [{ x, y }];
       let guard = 0;
+      // Homing state (per leg): the point to curve toward, a distance accumulator
+      // that paces target recomputes, and the heading at the last emitted vertex.
+      let waypoint: { x: number; y: number } | null = null;
+      let sinceRepath = repathDist; // force a target lookup on the first step
+      let lastVertexDir = Math.atan2(dy, dx);
 
       while (remaining > 0 && guard++ < 4000) {
-        // Wall contact on either axis: blast, branch a transmitted leg if the pierce
-        // budget remains, then reflect the current leg (intrinsic to the beam).
+        // Homing: nudge the heading toward the target waypoint before advancing —
+        // but only after a short straight run, so a multishot fan spreads out of the
+        // muzzle before the legs curve in toward the same target (and converge).
+        if (r.homing && traveled >= homingGrace) {
+          sinceRepath += STEP;
+          if (sinceRepath >= repathDist) {
+            sinceRepath = 0;
+            const target = this.nearestTarget(x, y, tank.id);
+            // While it can still pierce, aim straight at the target; otherwise
+            // snake through corridors — the same choice a tracking round makes.
+            waypoint = !target
+              ? null
+              : pierceLeft > 0
+                ? { x: target.x, y: target.y }
+                : this.nextHopToward(x, y, target.x, target.y) ?? { x: target.x, y: target.y };
+          }
+          if (waypoint) {
+            const cur = Math.atan2(dy, dx);
+            const want = Math.atan2(waypoint.y - y, waypoint.x - x);
+            let diff = ((want - cur + Math.PI) % (Math.PI * 2)) - Math.PI;
+            if (diff < -Math.PI) diff += Math.PI * 2;
+            const a = cur + Math.max(-turnPerStep, Math.min(turnPerStep, diff));
+            dx = Math.cos(a);
+            dy = Math.sin(a);
+          }
+        }
+
+        // Wall contact: blast, spawn both legs (reflect + pierce-through, when the
+        // budget allows), and continue as the pierce-through (main leg) while
+        // spinning the bounce off as a branch. Keeping the penetration as the main
+        // leg spends the shared pierce budget on forward progress first, so the beam
+        // drives its full sniper depth through wall after wall (a reflected main leg
+        // would bounce around and drain the budget before the forward leg used it).
+        // The reflect branches still draw the beam's bounces (see the per-ray cap).
         const nx = x + dx * STEP;
         if (this.circleHitsWall(nx, y, R)) {
           blastAt(x, y);
-          if (pierceLeft > 0) {
+          const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
+          if (t) {
             pierceLeft -= 1;
-            const t = transmitThrough(x, y, dx, dy, remaining);
-            if (t) rays.push({ ...t, bounces });
+            rays.push({ x, y, dx: -dx, dy, remaining, bounces: bounces + 1, traveled });
+            x = t.x;
+            y = t.y;
+            remaining = t.remaining;
+          } else {
+            dx = -dx;
+            bounces += 1;
           }
-          dx = -dx;
-          bounces += 1;
           pts.push({ x, y });
         } else {
           x = nx;
@@ -1001,18 +1087,23 @@ export class Game {
         const ny = y + dy * STEP;
         if (this.circleHitsWall(x, ny, R)) {
           blastAt(x, y);
-          if (pierceLeft > 0) {
+          const t = pierceLeft > 0 ? transmitThrough(x, y, dx, dy, remaining) : null;
+          if (t) {
             pierceLeft -= 1;
-            const t = transmitThrough(x, y, dx, dy, remaining);
-            if (t) rays.push({ ...t, bounces });
+            rays.push({ x, y, dx, dy: -dy, remaining, bounces: bounces + 1, traveled });
+            x = t.x;
+            y = t.y;
+            remaining = t.remaining;
+          } else {
+            dy = -dy;
+            bounces += 1;
           }
-          dy = -dy;
-          bounces += 1;
           pts.push({ x, y });
         } else {
           y = ny;
         }
         remaining -= STEP;
+        traveled += STEP;
         if (x < 0 || y < 0 || x > this.maze.width || y > this.maze.height) break;
 
         for (const t of this.tanks.values()) {
@@ -1027,13 +1118,26 @@ export class Game {
             if (t.hp <= 0) this.kill(t, tank.id);
           }
         }
+
+        // Sample a curving leg into the polyline once it has bent far enough, so the
+        // client draws a smooth arc (straight legs stay two points). Reflections push
+        // their own vertices above; the segment cap still bounds the total.
+        if (r.homing) {
+          const d = Math.atan2(dy, dx);
+          let dd = ((d - lastVertexDir + Math.PI) % (Math.PI * 2)) - Math.PI;
+          if (dd < -Math.PI) dd += Math.PI * 2;
+          if (Math.abs(dd) >= VERTEX_TURN) {
+            pts.push({ x, y });
+            lastVertexDir = d;
+          }
+        }
       }
       pts.push({ x, y });
       // A beam that runs out its range (or leaves the arena) despawns → leaf blast.
       blastAt(x, y);
 
       // Emit each leg of this ray's path for the client to draw (bounded).
-      for (let i = 0; i < pts.length - 1 && budget.segments < MAX_BEAM_SEGMENTS; i++) {
+      for (let i = 0; i < pts.length - 1 && i < perRayCap && budget.segments < budget.maxSegments; i++) {
         budget.segments += 1;
         this.pendingBeams.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
       }
@@ -1144,6 +1248,12 @@ export class Game {
    * grid BFS picks the next cell toward the target, and the round curves to it.
    */
   private steerHoming(b: Bullet, dt: number): void {
+    // Fly straight until the grace distance is covered, so a multishot fan spreads
+    // out of the muzzle before its rounds curve in toward the same target.
+    if (b.homingGrace > 0) {
+      b.homingGrace -= Math.hypot(b.vx, b.vy) * dt;
+      return;
+    }
     b.repathIn -= dt;
     if (b.repathIn <= 0 || !b.waypoint) {
       const target = this.nearestTarget(b.x, b.y, b.ownerId);
@@ -1633,6 +1743,7 @@ export class Game {
       t.weaponCharges = {};
       t.pendingRecipe = null;
       t.boostTimer = 0;
+      t.boostStacks = 0;
       t.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection at round start
       t.scopeTimer = 0;
       t.scopeShots = 0;
@@ -1695,6 +1806,7 @@ export class Game {
     tank.weaponCharges = {};
     tank.pendingRecipe = null;
     tank.boostTimer = 0;
+    tank.boostStacks = 0;
     tank.shieldTimer = SPAWN_SHIELD_SECONDS; // spawn protection on respawn
     tank.scopeTimer = 0;
     tank.scopeShots = 0;

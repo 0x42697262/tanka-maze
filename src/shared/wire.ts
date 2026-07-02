@@ -186,16 +186,22 @@ export function encodeSnapshot(s: SnapshotDTO): Uint8Array {
     dv.setUint8(o++, f.carrier & 0xff);
   }
 
-  dv.setUint8(o++, s.blasts.length);
-  for (const bl of s.blasts) {
+  // Counts are single bytes, so clamp to 255 (a dense branching-beam volley can
+  // exceed it); writing more than the count says would desync the reader.
+  const blastCount = Math.min(255, s.blasts.length);
+  dv.setUint8(o++, blastCount);
+  for (let i = 0; i < blastCount; i++) {
+    const bl = s.blasts[i];
     dv.setUint16(o, u16(bl.x), true);
     o += 2;
     dv.setUint16(o, u16(bl.y), true);
     o += 2;
   }
 
-  dv.setUint8(o++, s.beams.length);
-  for (const bm of s.beams) {
+  const beamCount = Math.min(255, s.beams.length);
+  dv.setUint8(o++, beamCount);
+  for (let i = 0; i < beamCount; i++) {
+    const bm = s.beams[i];
     dv.setUint16(o, u16(bm.x1), true);
     o += 2;
     dv.setUint16(o, u16(bm.y1), true);
@@ -319,16 +325,22 @@ function encodeSnapshotTail(dv: DataView, offset: number, s: SnapshotDTO): numbe
     dv.setUint8(o++, f.carrier & 0xff);
   }
 
-  dv.setUint8(o++, s.blasts.length);
-  for (const bl of s.blasts) {
+  // Counts are single bytes, so clamp to 255 (a dense branching-beam volley can
+  // exceed it); writing more than the count says would desync the reader.
+  const blastCount = Math.min(255, s.blasts.length);
+  dv.setUint8(o++, blastCount);
+  for (let i = 0; i < blastCount; i++) {
+    const bl = s.blasts[i];
     dv.setUint16(o, u16(bl.x), true);
     o += 2;
     dv.setUint16(o, u16(bl.y), true);
     o += 2;
   }
 
-  dv.setUint8(o++, s.beams.length);
-  for (const bm of s.beams) {
+  const beamCount = Math.min(255, s.beams.length);
+  dv.setUint8(o++, beamCount);
+  for (let i = 0; i < beamCount; i++) {
+    const bm = s.beams[i];
     dv.setUint16(o, u16(bm.x1), true);
     o += 2;
     dv.setUint16(o, u16(bm.y1), true);

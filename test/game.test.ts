@@ -8,7 +8,7 @@ import {
   type InputState,
 } from "../src/shared/protocol.js";
 import { Game } from "../src/server/game.js";
-import { HAZARD_ZONE_FRACTION, TEAMKILL_STREAK_WINDOW, WALL_REGEN_SECONDS } from "../src/shared/constants.js";
+import { HAZARD_ZONE_FRACTION, MAX_BEAM_BLASTS, MAX_BEAM_SEGMENTS, TEAMKILL_STREAK_WINDOW, WALL_REGEN_SECONDS } from "../src/shared/constants.js";
 import { Maze } from "../src/server/maze.js";
 
 // Deterministic RNG for this file. The sim's spawn/hazard placement uses
@@ -125,14 +125,47 @@ describe("power-ups: stacking", () => {
     assert.equal(charges(a, "sniper"), 3); // reset to a grant, not added
   });
 
-  it("buff: a same-type pickup adds duration when stacking is on", () => {
-    const g = makeGame({ adv: { shieldSeconds: 9 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+  it("buff: a same-type pickup adds duration + the stack bonus when stacking is on", () => {
+    const g = makeGame({ adv: { shieldSeconds: 9, buffStackBonusPct: 10 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
     const a = tank(g, "a");
     a.shieldTimer = 0;
     apply(g, a, "shield");
-    assert.equal(a.shieldTimer, 9);
+    assert.equal(a.shieldTimer, 9); // fresh pickup (nothing active): plain duration
     apply(g, a, "shield");
-    assert.equal(a.shieldTimer, 18); // stacked duration
+    assert.equal(a.shieldTimer, 9 + 9 * 1.1); // stacked pickup grants duration ×1.1
+  });
+
+  it("buff: the stacked-pickup duration bonus is host-configurable", () => {
+    const g = makeGame({ adv: { shieldSeconds: 8, buffStackBonusPct: 50 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    a.shieldTimer = 0;
+    apply(g, a, "shield");
+    apply(g, a, "shield");
+    assert.equal(a.shieldTimer, 8 + 8 * 1.5);
+  });
+
+  it("buff: speed stacks strength — each concurrent pickup adds another boost layer", () => {
+    const g = makeGame({ adv: { speedBoostSeconds: 7, buffStackBonusPct: 10 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 1);
+    assert.equal(a.boostTimer, 7);
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 2); // boost is now 1 + 2·(mult − 1)
+    assert.equal(a.boostTimer, 7 + 7 * 1.1);
+  });
+
+  it("buff: all speed stacks expire together when the timer runs out", () => {
+    const g = makeGame({ adv: { speedBoostSeconds: 0.5 }, cfg: { powerupStacking: true }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "speed");
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 2);
+    for (let i = 0; i < 60; i++) g.step(0.05); // 3s ≫ stacked duration
+    assert.equal(a.boostTimer, 0);
+    assert.equal(a.boostStacks, 0);
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 1); // next pickup starts a fresh single stack
   });
 
   it("buff: a pickup resets duration (no stack) when stacking is off", () => {
@@ -140,7 +173,16 @@ describe("power-ups: stacking", () => {
     const a = tank(g, "a");
     a.shieldTimer = 5;
     apply(g, a, "shield");
-    assert.equal(a.shieldTimer, 9); // reset, not 14
+    assert.equal(a.shieldTimer, 9); // reset, not 14 (and no stack bonus)
+  });
+
+  it("buff: speed resets to a single stack when stacking is off", () => {
+    const g = makeGame({ adv: { speedBoostSeconds: 7 }, cfg: { powerupStacking: false }, players: [{ id: "a", name: "A" }] });
+    const a = tank(g, "a");
+    apply(g, a, "speed");
+    apply(g, a, "speed");
+    assert.equal(a.boostStacks, 1);
+    assert.equal(a.boostTimer, 7);
   });
 });
 
@@ -645,6 +687,217 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     assert.ok(branched.length > solo.length, "branching adds beam segments");
   });
 
+  it("laser + tracking curves the beam onto an enemy a straight beam would miss", () => {
+    const hpAfter = (withTracking: boolean) => {
+      const g = makeGame({
+        cfg: { combineWeapons: true, hp: 5 },
+        adv: { laserDelay: 0 },
+        maze: new Maze(12, 9, "open"),
+        players: [
+          { id: "a", name: "A" },
+          { id: "b", name: "B" },
+        ],
+      });
+      const a = tank(g, "a");
+      const bt = tank(g, "b");
+      a.shieldTimer = 0;
+      bt.shieldTimer = 0; // clear spawn protection so the beam can bite
+      a.x = 100;
+      a.y = 350;
+      a.turretAngle = 0; // aim +x, straight along y = 350
+      bt.x = 560;
+      bt.y = 410; // 60px off the aim line, downrange — a straight beam sails past (> tankRadius)
+      a.weaponCharges = withTracking ? { laser: 1, tracking: 1 } : { laser: 1 };
+      fire(g, a);
+      return bt.hp;
+    };
+    assert.equal(hpAfter(false), 5, "a straight laser misses the off-line enemy");
+    assert.ok(hpAfter(true) < 5, "the curving beam bends onto the enemy");
+  });
+
+  it("beam curvature scales with trackingTurnRate (wired to the tunable)", () => {
+    const closestApproach = (turnRate: number) => {
+      const g = makeGame({
+        cfg: { combineWeapons: true, hp: 5 },
+        // Short range so the forward arc never reflects back near the target.
+        adv: { laserDelay: 0, trackingTurnRate: turnRate, laserRange: 600 },
+        maze: new Maze(12, 9, "open"),
+        players: [
+          { id: "a", name: "A" },
+          { id: "b", name: "B" },
+        ],
+      });
+      const a = tank(g, "a");
+      const bt = tank(g, "b");
+      a.shieldTimer = 0;
+      bt.shieldTimer = 0;
+      a.x = 100;
+      a.y = 350;
+      a.turretAngle = 0;
+      bt.x = 400;
+      bt.y = 450; // 100px off the aim line
+      a.weaponCharges = { laser: 1, tracking: 1 };
+      fire(g, a);
+      const beams = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+      let best = Infinity;
+      for (const s of beams) {
+        best = Math.min(best, Math.hypot(s.x1 - bt.x, s.y1 - bt.y), Math.hypot(s.x2 - bt.x, s.y2 - bt.y));
+      }
+      return best;
+    };
+    assert.ok(closestApproach(8) < closestApproach(0.1), "a higher turn rate bends the beam closer to the target");
+  });
+
+  it("laser + tracking + sniper still branches through a wall while homing", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true, hp: 5 },
+      adv: { laserDelay: 0, sniperWallPierce: 3 },
+      maze: new Maze(12, 9, "open"),
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    (g as any).maze.walls.push({ x1: 400, y1: 200, x2: 400, y2: 520, hp: Infinity, maxHp: Infinity });
+    const a = tank(g, "a");
+    const bt = tank(g, "b");
+    a.shieldTimer = 0;
+    bt.shieldTimer = 0;
+    a.x = 150;
+    a.y = 350;
+    a.turretAngle = 0;
+    bt.x = 700; // beyond the wall, so homing aims through it and sniper pierces
+    bt.y = 350;
+    a.weaponCharges = { laser: 1, tracking: 1, sniper: 1 };
+    fire(g, a);
+    const beams = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+    const maxX = Math.max(...beams.flatMap((s) => [s.x1, s.x2]));
+    assert.ok(maxX > 500, "a transmitted leg crosses the wall (branching composes with homing)");
+  });
+
+  it("laser + tracking + sniper spends pierce on forward progress, reaching a target behind several walls", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true, hp: 5 },
+      adv: { laserDelay: 0, sniperWallPierce: 5 },
+      maze: new Maze(12, 9, "open"),
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    // Three vertical walls between shooter and target.
+    for (const wx of [300, 450, 600]) {
+      (g as any).maze.walls.push({ x1: wx, y1: 200, x2: wx, y2: 600, hp: Infinity, maxHp: Infinity });
+    }
+    const a = tank(g, "a");
+    const bt = tank(g, "b");
+    a.shieldTimer = 0;
+    bt.shieldTimer = 0;
+    a.x = 100;
+    a.y = 396;
+    a.turretAngle = 0;
+    bt.x = 750; // straight ahead, behind all three walls
+    bt.y = 396;
+    a.weaponCharges = { laser: 1, tracking: 1, sniper: 1 };
+    fire(g, a);
+    // The homing beam must drive its pierce budget forward through the walls — if it
+    // wasted budget on the reflected leg it would stall before reaching the target.
+    assert.ok(bt.hp < 5, "the beam penetrates the walls and strikes the shielded-clear target");
+  });
+
+  it("laser + tracking + multishot keeps its fan at the muzzle before the legs curve in", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true, hp: 5 },
+      adv: { laserDelay: 0, multishotCount: 5, multishotSpread: 40 },
+      maze: new Maze(12, 9, "open"),
+      players: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+    });
+    const a = tank(g, "a");
+    const bt = tank(g, "b");
+    a.shieldTimer = 0;
+    bt.shieldTimer = 0;
+    a.x = 150;
+    a.y = 400;
+    a.turretAngle = 0;
+    bt.x = 600; // a target dead ahead for every beam to home toward
+    bt.y = 400;
+    a.weaponCharges = { laser: 1, tracking: 1, multishot: 1 };
+    fire(g, a);
+    const beams = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+    // The launch legs start at the muzzle; their headings should still span the
+    // configured fan (~40°). Without the grace distance every leg would curve onto
+    // the target immediately and the spread would collapse toward zero.
+    const launchAngles = beams
+      .filter((s) => Math.hypot(s.x1 - a.x, s.y1 - a.y) < 20)
+      .map((s) => Math.atan2(s.y2 - s.y1, s.x2 - s.x1));
+    const spread = Math.max(...launchAngles) - Math.min(...launchAngles);
+    assert.ok(spread > (25 * Math.PI) / 180, `fan preserved at the muzzle (spread=${((spread * 180) / Math.PI).toFixed(0)}°)`);
+  });
+
+  it("laser + sniper drives its full pierce depth straight through a row of walls", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0, sniperWallPierce: 10 },
+      maze: new Maze(12, 9, "open"),
+      players: [{ id: "a", name: "A" }],
+    });
+    for (const wx of [300, 400, 500, 600, 700, 800]) {
+      (g as any).maze.walls.push({ x1: wx, y1: 150, x2: wx, y2: 650, hp: Infinity, maxHp: Infinity });
+    }
+    const a = tank(g, "a");
+    a.x = 150;
+    a.y = 400;
+    a.turretAngle = 0;
+    a.weaponCharges = { laser: 1, sniper: 1 };
+    fire(g, a);
+    const beams = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+    // Pierce budget 10 must punch straight through all six walls — the reflected legs
+    // must not steal the shared budget (which would stall it after the first wall).
+    const maxX = Math.max(...beams.flatMap((s) => [s.x1, s.x2]));
+    assert.ok(maxX > 820, `beam penetrates the whole row (maxX=${maxX.toFixed(0)})`);
+  });
+
+  it("laser + sniper + multishot: every beam shows its reflections, not just the center", () => {
+    const g = makeGame({
+      cfg: { combineWeapons: true },
+      adv: { laserDelay: 0, multishotCount: 5, multishotSpread: 26 },
+      maze: new Maze(12, 9, "open"),
+      players: [{ id: "a", name: "A" }],
+    });
+    for (const wx of [360, 500, 640, 780]) {
+      (g as any).maze.walls.push({ x1: wx, y1: 120, x2: wx, y2: 680, hp: Infinity, maxHp: Infinity });
+    }
+    const a = tank(g, "a");
+    a.x = 120;
+    a.y = 400;
+    a.turretAngle = 0;
+    const W = (g as any).maze.width;
+    const H = (g as any).maze.height;
+    const onBorder = (x: number, y: number) => x < 8 || y < 8 || x > W - 8 || y > H - 8;
+    const r = (g as any).buildRecipe(["laser", "sniper", "multishot"]);
+    const n = r.fanCount;
+    const angleAt = (i: number) => a.turretAngle - r.fanSpread / 2 + (r.fanSpread / (n - 1)) * i;
+    const maxSegments = Math.max(8, Math.floor(MAX_BEAM_SEGMENTS / n));
+    // Fire each fan beam with its own budget (as emitVolley does). The per-ray cap
+    // keeps the main pierce leg from hogging the budget, so each beam's reflect
+    // branches draw — every beam reflects inside the maze, not only the center.
+    for (let i = 0; i < n; i++) {
+      (g as any).pendingBeams = [];
+      (g as any).fireLaser(a, angleAt(i), r, { segments: 0, blasts: 0, maxSegments, maxBlasts: 20 });
+      const segs = (g as any).pendingBeams as Array<{ x1: number; y1: number; x2: number; y2: number }>;
+      let interiorReflects = 0;
+      for (let k = 1; k < segs.length; k++) {
+        const p = segs[k - 1];
+        const q = segs[k];
+        if ((p.x2 - p.x1) * (q.x2 - q.x1) < 0 && !onBorder(q.x1, q.y1)) interiorReflects++;
+      }
+      assert.ok(interiorReflects >= 4, `beam ${i} reflects inside the maze (interior=${interiorReflects})`);
+    }
+  });
+
   it("tracking + sniper aims straight while it can pierce, then paths once out of budget", () => {
     const g = makeGame({
       cfg: { combineWeapons: true },
@@ -666,6 +919,7 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     fire(g, a);
     const b = bullets(g)[0];
     assert.ok(b.wallPierce > 0);
+    b.homingGrace = 0; // isolate the steering choice from the straight-flight grace
 
     // With pierce budget left it ignores corridors and steers at the target itself.
     (g as any).steerHoming(b, 1 / 30);
@@ -694,8 +948,8 @@ describe("orthogonal axes: payload vs lifecycle compose across carriers", () => 
     a.turretAngle = 0;
     a.weaponCharges = { laser: 1, sniper: 1, explosive: 1 };
     fire(g, a);
-    assert.ok((g as any).pendingBeams.length <= 96, "segments capped");
-    assert.ok((g as any).pendingBlasts.length <= 96, "blasts capped");
+    assert.ok((g as any).pendingBeams.length <= MAX_BEAM_SEGMENTS, "segments capped");
+    assert.ok((g as any).pendingBlasts.length <= MAX_BEAM_BLASTS, "blasts capped");
   });
 });
 

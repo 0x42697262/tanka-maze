@@ -193,6 +193,18 @@ describe("wire: snapshot", () => {
     assert.equal(out.flags[0].state, "home");
   });
 
+  it("truncates (not wraps) beam counts past the 255-byte limit, so later fields don't desync", () => {
+    const manyBeams = Array.from({ length: 260 }, () => ({ x1: 10, y1: 20, x2: 30, y2: 40 }));
+    const snap = emptySnap({
+      beams: manyBeams,
+      events: [{ type: 0, killer: 1, victim: 2, points: 60, streak: 0, mult: 0 }],
+    });
+    const out = decodeSnapshot(toAB(encodeSnapshot(snap)), roster());
+    assert.equal(out.beams.length, 255); // truncated, not silently byte-wrapped
+    assert.equal(out.events.length, 1); // fields after beams still decode correctly
+    assert.equal(out.events[0].victim, 2);
+  });
+
   it("slim snapshots update pose/status and inherit slow tank fields", () => {
     const prev = emptySnap({
       tanks: [
