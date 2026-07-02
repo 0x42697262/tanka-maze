@@ -968,10 +968,13 @@ export class Game {
     const hit = new Set<string>(); // one damage per tank across the whole tree
     let pierceLeft = r.pierces ? r.wallPierce : 0; // shared across all branches
 
-    const blastAt = (x: number, y: number) => {
-      if (!r.blastOnContact || budget.blasts >= budget.maxBlasts) return;
+    // Returns whether a blast actually detonated (false without the explosive
+    // effect or once the volley's blast budget is spent).
+    const blastAt = (x: number, y: number): boolean => {
+      if (!r.blastOnContact || budget.blasts >= budget.maxBlasts) return false;
       budget.blasts += 1;
       this.explode(x, y, tank.id, r.blastRadius);
+      return true;
     };
     // Spawn a transmitted branch that continues straight through the wall the beam
     // just entered: march forward from the pre-wall point until it clears the wall
@@ -1113,9 +1116,14 @@ export class Game {
           if (this.isFriendly(tank.id, t)) continue; // teammates only when FF is on
           if ((t.x - x) ** 2 + (t.y - y) ** 2 <= this.adv.tankRadius * this.adv.tankRadius) {
             hit.add(t.id);
-            blastAt(t.x, t.y); // detonate at the target
-            t.hp -= 1;
-            if (t.hp <= 0) this.kill(t, tank.id);
+            // blastOnContact: the blast delivers the damage — same fold as the
+            // projectile carrier (checkBulletHit), otherwise the contacted tank
+            // takes the blast *and* the direct hit (a 1-HP kill counted twice).
+            // Direct damage only when no blast fired (blast budget spent).
+            if (!blastAt(t.x, t.y)) {
+              t.hp -= 1;
+              if (t.hp <= 0) this.kill(t, tank.id);
+            }
           }
         }
 
@@ -1518,6 +1526,7 @@ export class Game {
   }
 
   private kill(victim: Tank, killerId: string): void {
+    if (!victim.alive) return; // never double-count a death (e.g. blast + direct hit in one tick)
     victim.alive = false;
     victim.deaths += 1;
     // Dying resets your own streaks (kill chain and betrayal chain alike).
