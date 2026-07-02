@@ -53,6 +53,11 @@ body {
   display: none !important;
 }
 
+/* The two-column menu needs the same room as the lobby, not the 580px default. */
+#menu {
+  max-width: 940px;
+}
+
 /* ---- Lobby two-column layout (controls left, full config right) ---- */
 #lobby {
   max-width: 940px;
@@ -146,7 +151,7 @@ h1 span {
 
 .menu-container {
   display: grid;
-  grid-template-columns: 1fr 1.3fr;
+  grid-template-columns: 1fr 1.6fr;
   gap: 20px;
   margin-top: 15px;
   align-items: start;
@@ -173,7 +178,7 @@ h1 span {
 #lobby-list {
   flex: 1;
   overflow-y: auto;
-  max-height: 280px;
+  max-height: min(48vh, 420px);
 }
 
 @media (max-width: 760px) {
@@ -219,12 +224,6 @@ h2 {
   background: rgba(196, 178, 132, 0.55);
   border: 1px solid rgba(150, 130, 86, 0.4);
 }
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .row {
   display: flex;
   align-items: center;
@@ -603,6 +602,10 @@ ol {
   padding: 10px 14px;
   margin-bottom: 8px;
 }
+#lobby-list li {
+  padding: 13px 16px;
+  margin-bottom: 10px;
+}
 #lobby-list li.empty {
   color: var(--ink-soft);
   justify-content: center;
@@ -611,13 +614,54 @@ ol {
 .lobby-info {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0; /* let the name/sub ellipsize instead of squeezing the actions */
 }
 .lobby-info .name {
   font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .lobby-info .sub {
   font-size: 12px;
   color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lobby-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.lobby-side button {
+  flex-shrink: 0;
+  min-width: 62px;
+}
+.players-pill {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  border: 1.5px solid var(--rule);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.live-stamp {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--stamp);
+  border: 1.5px solid var(--stamp);
+  border-radius: 2px;
+  padding: 2px 6px;
+  transform: rotate(-3deg);
+  white-space: nowrap;
 }
 .badge {
   font-size: 12px;
@@ -626,6 +670,49 @@ ol {
 }
 .badge.live {
   color: var(--stamp);
+}
+/* Slim footer under the arena list: live-update hint + icon-only refresh. */
+.list-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1.5px dashed var(--rule);
+}
+.arena-count {
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.refresh-icon {
+  cursor: pointer;
+  line-height: 0;
+  user-select: none;
+  display: inline-block;
+  color: var(--ink-soft); /* the SVG strokes currentColor, so skins retheme it */
+  transition: transform 0.2s ease, color 0.12s ease;
+}
+.refresh-icon svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+.refresh-icon:hover,
+.refresh-icon:focus-visible {
+  color: var(--ink);
+  transform: rotate(90deg) scale(1.12);
+}
+.refresh-icon.spin {
+  animation: refresh-spin 0.45s ease;
+}
+@keyframes refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 #lobby-players .host {
   color: var(--leaf);

@@ -19,6 +19,10 @@ import {
 export function renderLobbyList(lobbies: LobbySummaryDTO[]): void {
   const ul = $("lobby-list");
   ul.innerHTML = "";
+  $("arena-count").textContent =
+    lobbies.length === 0
+      ? "Updates live"
+      : `${lobbies.length} arena${lobbies.length === 1 ? "" : "s"} · updates live`;
   if (lobbies.length === 0) {
     ul.innerHTML = `<li class="empty">No lobbies yet — create one!</li>`;
     return;
@@ -28,21 +32,21 @@ export function renderLobbyList(lobbies: LobbySummaryDTO[]): void {
     const full = l.playerCount >= l.maxPlayers;
     const closed = l.inGame && !l.allowLateJoin; // started + late join disabled
     const joinable = !full && !closed;
-    const status = l.inGame ? (closed ? "● in progress" : "● live") : "";
     li.innerHTML = `
       <div class="lobby-info">
         <span class="name">${escapeHtml(l.name)}</span>
         <span class="sub">host ${escapeHtml(l.hostName)} · ${modeLabel(l.mode)}</span>
       </div>
-      <span class="badge ${l.inGame ? "live" : ""}">
-        ${status} ${l.playerCount}/${l.maxPlayers}
-      </span>`;
+      <div class="lobby-side">
+        ${l.inGame ? `<span class="live-stamp">${closed ? "In game" : "Live"}</span>` : ""}
+        <span class="players-pill">${l.playerCount}/${l.maxPlayers}</span>
+      </div>`;
     const btn = document.createElement("button");
     btn.className = "ghost small";
     btn.textContent = full ? "Full" : closed ? "Closed" : l.inGame ? "Join live" : "Join";
     btn.disabled = !joinable;
     btn.onclick = () => net.send({ type: "joinLobby", lobbyId: l.id });
-    li.appendChild(btn);
+    li.querySelector(".lobby-side")!.appendChild(btn);
     ul.appendChild(li);
   }
 }

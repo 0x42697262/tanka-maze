@@ -214,7 +214,7 @@ class Hub {
     const id = shortId();
     const lobby = new Lobby(
       id,
-      sanitizeName(name) || `${client.name}'s game`,
+      sanitizeLobbyName(name) || `${client.name}'s game`,
       client,
       maxPlayers,
       config,
@@ -332,6 +332,11 @@ class Hub {
 
 function sanitizeName(raw: string): string {
   return typeof raw === "string" ? raw.trim().slice(0, 16).replace(/[\x00-\x1f]/g, "") : "";
+}
+
+/** Lobby names get more room than callsigns; matches the client input's maxlength=24. */
+function sanitizeLobbyName(raw: string): string {
+  return typeof raw === "string" ? raw.trim().slice(0, 24).replace(/[\x00-\x1f]/g, "") : "";
 }
 
 /** Accept only a strict 6-digit hex color; anything else is rejected. This is

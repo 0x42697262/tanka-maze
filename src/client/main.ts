@@ -268,7 +268,22 @@ $("name").addEventListener("change", commitName);
 buildSwatches();
 colorInput.addEventListener("input", commitColor);
 
-$("refresh").onclick = () => net.send({ type: "listLobbies" });
+// Manual refresh is a fallback (the server pushes lobby-list changes live) —
+// an icon-only control, not a <button>, so skin themes don't restyle it.
+const refreshEl = $("refresh");
+function refreshLobbies(): void {
+  net.send({ type: "listLobbies" });
+  refreshEl.classList.remove("spin");
+  void refreshEl.offsetWidth; // restart the CSS animation
+  refreshEl.classList.add("spin");
+}
+refreshEl.onclick = refreshLobbies;
+refreshEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    refreshLobbies();
+  }
+});
 
 // Create a lobby with defaults; the host then tunes settings in the lobby room.
 $("create").onclick = () => {
