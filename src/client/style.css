@@ -1765,6 +1765,9 @@ kbd {
   color: var(--stamp);
   border-color: var(--stamp);
 }
+.sb-give {
+  margin-right: 6px;
+}
 .sb-cfg-h {
   font-family: var(--font-hand);
   font-size: 16px;

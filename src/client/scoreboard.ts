@@ -1,4 +1,4 @@
-// In-game scoreboard (Tab): connected players, latency, full config, host kick.
+// In-game scoreboard (Tab): connected players, latency, full config, host kick/transfer.
 
 import { $, escapeHtml } from "./dom.js";
 import { buildConfigDetailsHtml } from "./labels.js";
@@ -32,9 +32,10 @@ export function renderScoreboard(): void {
       const teamCell = teams
         ? `<td>${escapeHtml(lobby.teamNames[p.team] ?? `Team ${p.team + 1}`)}</td>`
         : "";
-      const kick =
+      const actions =
         isHost && p.id !== state.playerId
-          ? `<button class="sb-kick ghost small" data-id="${p.id}">Kick</button>`
+          ? `<button class="sb-give ghost small" data-id="${p.id}"${p.connected ? "" : " disabled"} title="Transfer host to this player">Give host</button>` +
+            `<button class="sb-kick ghost small" data-id="${p.id}">Kick</button>`
           : "";
       const tag = p.id === state.playerId ? ' <span class="sb-you">you</span>' : "";
       const host = p.id === lobby.hostId ? ' <span class="sb-host">host</span>' : "";
@@ -44,7 +45,7 @@ export function renderScoreboard(): void {
         teamCell +
         `<td class="sb-score">${metricById.get(p.id) ?? 0}</td>` +
         `<td>${pingBadge(p.id)}</td>` +
-        `<td class="sb-act">${kick}</td>` +
+        `<td class="sb-act">${actions}</td>` +
         `</tr>`
       );
     })
@@ -59,6 +60,12 @@ export function renderScoreboard(): void {
     .querySelectorAll<HTMLButtonElement>(".sb-kick")
     .forEach((b) => {
       b.onclick = () => net.send({ type: "kickPlayer", targetId: b.dataset.id ?? "" });
+    });
+
+  $("sb-table-wrap")
+    .querySelectorAll<HTMLButtonElement>(".sb-give")
+    .forEach((b) => {
+      b.onclick = () => net.send({ type: "transferHost", targetId: b.dataset.id ?? "" });
     });
 
   $("sb-details").innerHTML = buildConfigDetailsHtml(lobby);

@@ -187,6 +187,11 @@ class Hub {
         this.lobbyOf(client)?.restartGame(client.id);
         break;
       }
+      case "transferHost": {
+        const lobby = this.lobbyOf(client);
+        if (lobby && typeof msg.targetId === "string") lobby.transferHost(client.id, msg.targetId);
+        break;
+      }
       case "kickPlayer": {
         const lobby = this.lobbyOf(client);
         if (!lobby || lobby.hostId !== client.id) break;

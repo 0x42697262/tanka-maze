@@ -60,6 +60,73 @@ describe("lobby: team roster order", () => {
   });
 });
 
+// Force the running game to report finished, then run one tick so the lobby
+// processes its game-over path (broadcasts, stops the loop, restores the host).
+function finishGame(lobby: Lobby): void {
+  const game = (lobby as unknown as { game: object }).game;
+  Object.defineProperty(game, "isFinished", { get: () => true });
+  (lobby as unknown as { tick(): void }).tick();
+}
+
+describe("lobby: host across a match", () => {
+  it("restores the match host when the game ends after a mid-match drop", () => {
+    const { lobby, host, first } = teamLobby();
+    assert.equal(lobby.startGame(host.id), null);
+
+    // Host's socket drops mid-match: host duties pass to a connected stand-in.
+    host.connected = false;
+    lobby.markDisconnected(host.id);
+    assert.equal(lobby.hostId, first.id);
+
+    host.connected = true;
+    lobby.markReconnected(host.id);
+    finishGame(lobby);
+    assert.equal(lobby.hostId, host.id); // back with the match host
+  });
+
+  it("keeps the stand-in host when the match host is still disconnected at game end", () => {
+    const { lobby, host, first } = teamLobby();
+    assert.equal(lobby.startGame(host.id), null);
+    host.connected = false;
+    lobby.markDisconnected(host.id);
+
+    finishGame(lobby);
+    assert.equal(lobby.hostId, first.id);
+  });
+
+  it("keeps the new host at game end when the match host left and rejoined mid-match", () => {
+    const { lobby, host, first } = teamLobby();
+    assert.equal(lobby.startGame(host.id), null);
+
+    // Deliberate leave (not a drop): host passes to First and the restore is forfeited.
+    lobby.remove(host.id);
+    assert.equal(lobby.hostId, first.id);
+    lobby.add(host); // rejoins as a late joiner before the game ends
+
+    finishGame(lobby);
+    assert.equal(lobby.hostId, first.id);
+  });
+
+  it("lets the host hand off to another connected member, and keeps a deliberate mid-match transfer at game end", () => {
+    const { lobby, host, first } = teamLobby();
+
+    lobby.transferHost(first.id, host.id); // non-host requester: ignored
+    assert.equal(lobby.hostId, host.id);
+    first.connected = false;
+    lobby.transferHost(host.id, first.id); // disconnected target: ignored
+    assert.equal(lobby.hostId, host.id);
+    first.connected = true;
+
+    assert.equal(lobby.startGame(host.id), null);
+    lobby.transferHost(host.id, first.id);
+    assert.equal(lobby.hostId, first.id);
+
+    // A deliberate handoff outlives the match — no snap back to the giver.
+    finishGame(lobby);
+    assert.equal(lobby.hostId, first.id);
+  });
+});
+
 describe("lobby: team rebalance on team-count change", () => {
   const counts = (lobby: Lobby, n: number): number[] => {
     const c = new Array<number>(n).fill(0);

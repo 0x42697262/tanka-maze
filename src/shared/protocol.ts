@@ -755,6 +755,8 @@ export type ClientMessage =
   // Host-only, mid-match: restart the match with the current config, or remove a player.
   | { type: "restartGame" }
   | { type: "kickPlayer"; targetId: string }
+  // Host-only: hand host duties to another connected member.
+  | { type: "transferHost"; targetId: string }
   | { type: "input"; input: InputState };
 
 // ---------------------------------------------------------------------------
