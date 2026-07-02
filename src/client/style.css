@@ -264,21 +264,35 @@ input[type="color"] {
   padding: 2px;
   cursor: pointer;
 }
+/* Modern pill dropdowns (matches the .num-field pills): no native chrome,
+   custom chevron, soft hover/focus states. */
 select {
   flex: 1;
   min-width: 0; /* let it shrink inside flex rows instead of overflowing */
-  background: #fbf6e9;
-  border: 1.5px solid var(--rule);
-  border-radius: 2px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: rgba(70, 55, 30, 0.07);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b5636' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
+  border: none;
+  border-radius: 999px;
   color: var(--ink);
-  padding: 9px 11px;
+  padding: 8px 30px 8px 14px;
   font-family: var(--font-body);
-  font-size: 15px;
+  font-size: 14px;
+  font-weight: 600;
   outline: none;
   cursor: pointer;
+  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+}
+select:hover {
+  background-color: rgba(70, 55, 30, 0.11);
 }
 select:focus {
-  border-color: var(--blue);
+  background-color: #fbf6e9;
+  box-shadow: 0 0 0 2px rgba(47, 91, 140, 0.35);
 }
 hr.rule {
   border: none;
@@ -387,7 +401,8 @@ hr.rule {
   transform: none;
   background: rgba(70, 55, 30, 0.2);
 }
-.num-combo input[type="range"] {
+.num-combo input[type="range"],
+input.mslider {
   flex: 1;
   min-width: 36px;
   height: 22px;
@@ -399,21 +414,25 @@ hr.rule {
   -webkit-appearance: none;
   cursor: ew-resize;
 }
-.num-combo input[type="range"]:focus {
+.num-combo input[type="range"]:focus,
+input.mslider:focus {
   border: none;
   box-shadow: none;
 }
-.num-combo input[type="range"]::-webkit-slider-runnable-track {
+.num-combo input[type="range"]::-webkit-slider-runnable-track,
+input.mslider::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
   background: var(--rule);
 }
-.num-combo input[type="range"]::-moz-range-track {
+.num-combo input[type="range"]::-moz-range-track,
+input.mslider::-moz-range-track {
   height: 4px;
   border-radius: 2px;
   background: var(--rule);
 }
-.num-combo input[type="range"]::-webkit-slider-thumb {
+.num-combo input[type="range"]::-webkit-slider-thumb,
+input.mslider::-webkit-slider-thumb {
   appearance: none;
   -webkit-appearance: none;
   width: 14px;
@@ -424,7 +443,8 @@ hr.rule {
   border: 2px solid var(--paper);
   box-shadow: 0 0 0 1.5px var(--stamp-dark);
 }
-.num-combo input[type="range"]::-moz-range-thumb {
+.num-combo input[type="range"]::-moz-range-thumb,
+input.mslider::-moz-range-thumb {
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -1777,41 +1797,39 @@ kbd {
   top: 58px;
   left: 12px;
   z-index: 80;
-  width: 250px;
+  width: min(300px, calc(100vw - 24px));
+  /* Never taller than the viewport: the panel scrolls inside its border. */
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
   background: var(--paper);
   border: 2px solid var(--ink);
   border-radius: 6px;
-  padding: 14px 16px;
+  padding: 12px 16px 14px;
   box-shadow: 4px 5px 0 rgba(70, 55, 30, 0.22);
 }
 .settings-panel h3 {
   font-family: var(--font-hand);
   font-size: 18px;
-  margin: 0 0 12px;
+  margin: 0 0 8px;
+}
+.settings-panel .row {
+  margin-bottom: 10px;
 }
 .settings-panel .row label {
+  flex: 0 0 auto;
   width: 84px;
 }
-.settings-label {
-  display: block;
-  color: var(--ink-soft);
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 8px;
+.settings-panel .row.chk label {
+  flex: 1;
+  width: auto;
 }
 .settings-hint {
   font-size: 12px;
   color: var(--ink-soft);
   font-style: italic;
   margin: 10px 0 0;
-}
-/* Visible dropdowns in the settings panel (unlike .walls-select, which is
-   hidden in favor of the visual pickers). */
-.settings-select {
-  display: block;
-  flex: none;
-  width: 100%;
-  margin-bottom: 14px;
 }
 
 /* ---- Movement image picker (settings) ---- */

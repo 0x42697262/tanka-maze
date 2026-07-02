@@ -531,91 +531,106 @@
         </div>
       </div>
 
-      <!-- Per-player settings (client-side) -->
+      <!-- Per-player settings (client-side). Same conventions as the lobby
+           config: collapsible sections, checkboxes at the bottom of a group. -->
       <button id="settings-gear" class="settings-gear" title="Settings" aria-label="Settings">⚙</button>
       <div id="settings-panel" class="settings-panel hidden">
         <h3>Settings</h3>
-        <label class="settings-label">Audio</label>
-        <div class="row" style="margin-bottom: 8px;">
-          <label style="width: auto;">Music</label>
-          <input type="checkbox" id="bgm-toggle" style="flex: 0 0 auto; width: 18px; height: 18px; cursor: pointer;">
-        </div>
-        <div class="row" style="margin-bottom: 8px; flex-direction: column; align-items: stretch;">
-          <label style="width: auto; margin-bottom: 4px;">Music Volume</label>
-          <input type="range" id="bgm-volume" min="0" max="1" step="0.01" value="0.5">
-        </div>
-        <div class="row" style="margin-bottom: 8px; flex-direction: column; align-items: stretch;">
-          <label style="width: auto; margin-bottom: 4px;">SFX Volume</label>
-          <input type="range" id="sfx-volume" min="0" max="1" step="0.01" value="1.0">
-        </div>
-        <label class="settings-label">Display</label>
-        <div class="row" style="margin-bottom: 8px;">
-          <label style="width: auto;">Radar</label>
-          <input type="checkbox" id="radar-toggle" style="flex: 0 0 auto; width: 18px; height: 18px; cursor: pointer;">
-        </div>
-        <div class="row" style="margin-bottom: 8px;">
-          <label style="width: auto;">Retro 8-bit Filter</label>
-          <input type="checkbox" id="retro-toggle" style="flex: 0 0 auto; width: 18px; height: 18px; cursor: pointer;">
-        </div>
-        <div class="row" style="margin-bottom: 8px;">
-          <label style="width: auto;">Battle City Skin</label>
-          <input type="checkbox" id="battlecity-toggle" style="flex: 0 0 auto; width: 18px; height: 18px; cursor: pointer;">
-        </div>
-        <div class="row" style="margin-bottom: 8px;" id="bc-style-row">
-          <label style="width: auto;">Retro Tank Style</label>
-          <select id="bc-style-select" class="settings-select" aria-label="Retro Tank Style">
-            <option value="basic">Basic Tank</option>
-            <option value="fast">Fast Tank</option>
-            <option value="heavy">Heavy Tank</option>
-            <option value="armored">Armored Tank</option>
+
+        <details class="cfg-sec" open>
+          <summary class="cfg-h">Audio</summary>
+          <div class="row">
+            <label for="bgm-volume">Music Vol.</label>
+            <input type="range" id="bgm-volume" class="mslider" min="0" max="1" step="0.01" value="0.5" />
+          </div>
+          <div class="row">
+            <label for="sfx-volume">SFX Vol.</label>
+            <input type="range" id="sfx-volume" class="mslider" min="0" max="1" step="0.01" value="1.0" />
+          </div>
+          <div class="row chk">
+            <label for="bgm-toggle">Music</label>
+            <input type="checkbox" id="bgm-toggle" />
+          </div>
+        </details>
+
+        <details class="cfg-sec" open>
+          <summary class="cfg-h">Display</summary>
+          <div class="row">
+            <label for="skin-select">Skin</label>
+            <select id="skin-select" aria-label="Skin theme">
+              <option value="paper">Paper &amp; Ink</option>
+              <option value="battlecity">Battle City</option>
+              <option value="modern">Modern 4K</option>
+              <option value="realistic">Realistic</option>
+            </select>
+          </div>
+          <div class="row hidden" id="bc-style-row">
+            <label for="bc-style-select">Tank Style</label>
+            <select id="bc-style-select" aria-label="Retro Tank Style">
+              <option value="basic">Basic Tank</option>
+              <option value="fast">Fast Tank</option>
+              <option value="heavy">Heavy Tank</option>
+              <option value="armored">Armored Tank</option>
+            </select>
+          </div>
+          <div class="row hidden" id="modern-style-row">
+            <label for="modern-style-select">Tank Style</label>
+            <select id="modern-style-select" aria-label="Modern Tank Style">
+              <option value="railgun">Railgun Hover</option>
+              <option value="hover">Holographic Disc</option>
+              <option value="plasma">Plasma Aegis</option>
+              <option value="siege">Artillery Siege</option>
+            </select>
+          </div>
+          <div class="row hidden" id="realistic-style-row">
+            <label for="realistic-style-select">Chassis</label>
+            <select id="realistic-style-select" aria-label="Realistic Tank Style">
+              <option value="abrams">M1A2 Abrams</option>
+              <option value="leopard">Leopard 2A7</option>
+              <option value="t90">T-90M</option>
+              <option value="bradley">M2 Bradley</option>
+            </select>
+          </div>
+          <div class="row chk">
+            <label for="retro-toggle">Retro 8-bit Filter</label>
+            <input type="checkbox" id="retro-toggle" />
+          </div>
+          <div class="row chk">
+            <label for="radar-toggle">Radar</label>
+            <input type="checkbox" id="radar-toggle" />
+          </div>
+        </details>
+
+        <details class="cfg-sec">
+          <summary class="cfg-h">Controls</summary>
+          <select id="move-mode" class="walls-select" aria-label="Movement scheme">
+            <option value="relative">Tank — rotate &amp; drive</option>
+            <option value="eight">8-direction — strafe</option>
           </select>
-        </div>
-        <div class="row" style="margin-bottom: 8px;">
-          <label style="width: auto;">Modern 4K Skin</label>
-          <input type="checkbox" id="modern-toggle" style="flex: 0 0 auto; width: 18px; height: 18px; cursor: pointer;">
-        </div>
-        <div class="row" style="margin-bottom: 8px;" id="modern-style-row">
-          <label style="width: auto;">Modern Tank Style</label>
-          <select id="modern-style-select" class="settings-select" aria-label="Modern Tank Style">
-            <option value="railgun">Railgun Hover</option>
-            <option value="hover">Holographic Disc</option>
-            <option value="plasma">Plasma Aegis</option>
-            <option value="siege">Artillery Siege</option>
-          </select>
-        </div>
-        <div class="row" style="margin-bottom: 8px;">
-          <label style="width: auto;">Realistic Skin</label>
-          <input type="checkbox" id="realistic-toggle" style="flex: 0 0 auto; width: 18px; height: 18px; cursor: pointer;">
-        </div>
-        <div class="row" style="margin-bottom: 8px;" id="realistic-style-row">
-          <label style="width: auto;">Tank Chassis</label>
-          <select id="realistic-style-select" class="settings-select" aria-label="Realistic Tank Style">
-            <option value="abrams">M1A2 Abrams</option>
-            <option value="leopard">Leopard 2A7</option>
-            <option value="t90">T-90M</option>
-            <option value="bradley">M2 Bradley</option>
-          </select>
-        </div>
-        <label class="settings-label">Movement</label>
-        <select id="move-mode" class="walls-select" aria-label="Movement scheme">
-          <option value="relative">Tank — rotate &amp; drive</option>
-          <option value="eight">8-direction — strafe</option>
-        </select>
-        <div id="move-picker" class="move-picker"></div>
-        <p class="settings-hint" id="move-hint"></p>
-        <label class="settings-label">Frame rate</label>
-        <select id="fps-cap" class="settings-select" aria-label="Frame rate cap">
-          <option value="30">30 FPS — lowest CPU</option>
-          <option value="60">60 FPS — recommended</option>
-          <option value="120">120 FPS — smoothest</option>
-        </select>
-        <label class="settings-label">Graphics</label>
-        <select id="quality" class="settings-select" aria-label="Graphics quality">
-          <option value="low">Low — best performance</option>
-          <option value="medium">Medium — balanced</option>
-          <option value="high">High — sharpest</option>
-        </select>
-        <p class="settings-hint">Lower frame rate and graphics reduce CPU usage.</p>
+          <div id="move-picker" class="move-picker"></div>
+          <p class="settings-hint" id="move-hint"></p>
+        </details>
+
+        <details class="cfg-sec">
+          <summary class="cfg-h">Performance</summary>
+          <div class="row">
+            <label for="fps-cap">Frame rate</label>
+            <select id="fps-cap" aria-label="Frame rate cap">
+              <option value="30">30 FPS</option>
+              <option value="60">60 FPS</option>
+              <option value="120">120 FPS</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="quality">Graphics</label>
+            <select id="quality" aria-label="Graphics quality">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+          <p class="settings-hint">Lower frame rate and graphics reduce CPU usage.</p>
+        </details>
       </div>
 
       <!-- On-screen touch controls (mobile). Twin-stick: drive left, aim/fire right. -->
