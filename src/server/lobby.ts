@@ -76,6 +76,8 @@ export class Lobby {
 
   private game: Game | null = null;
   private maze: Maze | null = null;
+  /** Who hosted the running match — restored as host when the game ends. */
+  private matchHostId: string | null = null;
   private lastSnapBytes: Uint8Array | null = null;
   private tickCount = 0;
   private snapshotSendCount = 0;
@@ -230,6 +232,19 @@ export class Lobby {
     this.createMatch();
   }
 
+  /** Host hands host duties to another connected member (lobby or mid-match). */
+  transferHost(requesterId: string, targetId: string): void {
+    if (requesterId !== this.hostId || targetId === requesterId) return;
+    const target = this.members.find((m) => m.id === targetId);
+    if (!target?.connected) return;
+    this.hostId = target.id;
+    // A deliberate handoff includes match-host duties, so the game-end restore
+    // doesn't snap host back to the giver.
+    if (this.inGame) this.matchHostId = target.id;
+    this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
+    this.onChange(); // listing shows the new host's name
+  }
+
   /** Remove a member; returns true if the lobby should be destroyed. */
   remove(clientId: string): boolean {
     const idx = this.members.findIndex((m) => m.id === clientId);
@@ -248,6 +263,11 @@ export class Lobby {
     if (this.hostId === clientId) {
       this.hostId = this.members[0].id;
     }
+    // Leaving is deliberate (unlike a connection drop): the match host forfeits
+    // the game-end host restore, even if they rejoin before the game ends.
+    if (this.matchHostId === clientId) {
+      this.matchHostId = null;
+    }
     return false;
   }
 
@@ -264,6 +284,7 @@ export class Lobby {
 
   /** Build a fresh maze + Game from the current members/config and broadcast it. */
   private createMatch(): void {
+    this.matchHostId = this.hostId;
     this.maze = this.buildMaze();
     this.game = new Game(
       this.maze,
@@ -453,6 +474,7 @@ export class Lobby {
         standing: this.game.roundStandings(),
       });
       this.stopGame();
+      this.restoreMatchHost();
       this.broadcast({ type: "lobbyUpdate", lobby: this.toDTO() });
       this.onChange();
       return;
@@ -505,6 +527,20 @@ export class Lobby {
       standing: this.game.roundStandings(),
     });
     this.broadcastSnapshot(true);
+  }
+
+  /**
+   * Game over: hand host duties back to whoever hosted the match. A mid-match
+   * socket drop passes host to a still-connected stand-in (markDisconnected);
+   * that handoff shouldn't outlive the game, so once everyone returns to the
+   * lobby the match host — if still present and connected — is host again.
+   */
+  private restoreMatchHost(): void {
+    const original = this.matchHostId;
+    this.matchHostId = null;
+    if (!original || original === this.hostId) return;
+    const member = this.members.find((m) => m.id === original);
+    if (member?.connected) this.hostId = member.id;
   }
 
   private stopGame(): void {
